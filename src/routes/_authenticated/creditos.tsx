@@ -6,7 +6,9 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { daysUntil, formatDate, SERVERS, toISODate, today, type Client } from "@/lib/iptv";
 
-type Movement = { id: string; server: string; kind: string; quantity: number; occurred_on: string; note: string | null };
+import { creditBalance, type CreditMovement } from "@/lib/server-credits";
+
+type Movement = CreditMovement & { occurred_on: string; note: string | null };
 type EntryKind = "initial" | "purchase" | "adjustment";
 const field = "mt-1.5 w-full rounded-md border border-line bg-background px-3 py-2.5 text-sm text-frost outline-none focus:border-cyan";
 const label = "block text-sm text-mist";
@@ -35,7 +37,7 @@ function ServerCredits() {
   const [notice, setNotice] = useState("");
 
   const movementsQuery = useQuery({ queryKey: ["server-credit-movements"], queryFn: async () => {
-    const { data, error } = await supabase.from("server_credit_movements").select("id,server,kind,quantity,occurred_on,note").order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("server_credit_movements").select("id,server,kind,quantity,occurred_on,note,created_at").order("created_at", { ascending: false });
     if (error) throw error;
     return (data ?? []) as Movement[];
   } });
@@ -55,7 +57,7 @@ function ServerCredits() {
   const rows = useMemo(() => SERVERS.map((name) => {
     const entries = movements.filter((item) => item.server === name);
     const initial = entries.find((item) => item.kind === "initial");
-    const balance = entries.reduce((sum, item) => sum + item.quantity, 0);
+    const balance = creditBalance(entries);
     const floor = alerts.find((item) => item.server === name)?.minimum_balance ?? 0;
     const coming = (days: number) => clients.filter((client) => client.server === name && daysUntil(client.due_date) >= 0 && daysUntil(client.due_date) <= days).length;
     return { name, balance, floor, configured: Boolean(initial), today: coming(0), five: coming(5), ten: coming(10) };
@@ -135,6 +137,7 @@ function ServerCredits() {
           </section>
           <section className="mt-9 border-t border-line pt-7">
             <h2 className="font-display text-xl font-semibold">Histórico de {server}</h2>
+            <p className="mt-2 text-xs text-mist">O saldo parte da quantidade informada no cadastro inicial. Movimentações registradas antes dele ficam no histórico, mas não alteram o saldo atual.</p>
             <div className="mt-4 divide-y divide-line">
               {movements.filter((item) => item.server === server).length === 0 && <p className="py-5 text-sm text-mist">Nenhuma movimentação registrada.</p>}
               {movements.filter((item) => item.server === server).map((item) => <div key={item.id} className="flex items-center justify-between gap-3 py-3 text-sm"><div className="min-w-0"><p className="font-medium">{{ initial: "Saldo inicial", purchase: "Compra", adjustment: "Ajuste", renewal: "Renovação de cliente" }[item.kind] ?? item.kind}</p><p className="truncate text-xs text-mist">{formatDate(item.occurred_on)}{item.note ? ` · ${item.note}` : ""}</p></div><strong className={`shrink-0 font-display ${item.quantity < 0 ? "text-danger" : "text-ok"}`}>{item.quantity > 0 ? "+" : ""}{item.quantity}</strong></div>)}
@@ -148,7 +151,7 @@ function ServerCredits() {
         <div className="flex items-center justify-between gap-2"><h2 className="font-display text-xl font-semibold">{entry.kind === "initial" ? "Saldo inicial" : entry.kind === "purchase" ? "Registrar compra" : "Ajustar saldo"} · {entry.server}</h2><Button size="icon" variant="ghost" aria-label="Fechar" onClick={() => setEntry(null)} disabled={saveEntry.isPending}><X /></Button></div>
         <form onSubmit={submitEntry} className="mt-5 space-y-4">
           <label className={label}>Quantidade {entry.kind === "adjustment" ? "(use negativo para reduzir)" : "de créditos"}<input autoFocus required type="number" step="1" min={entry.kind === "adjustment" ? -1000000 : 0} max={1000000} value={quantity} onChange={(event) => setQuantity(event.target.value)} className={field} /></label>
-          <label className={label}>Data<input required type="date" value={entryDate} onChange={(event) => setEntryDate(event.target.value)} className={field} /></label>
+          {entry.kind === "initial" ? <p className="text-sm text-mist">Informe os créditos disponíveis agora no servidor. Somente movimentações registradas após este saldo inicial serão somadas ou descontadas.</p> : <label className={label}>Data<input required type="date" value={entryDate} onChange={(event) => setEntryDate(event.target.value)} className={field} /></label>}
           <label className={label}>Observação (opcional)<input maxLength={200} value={note} onChange={(event) => setNote(event.target.value)} className={field} /></label>
           <Button type="submit" disabled={saveEntry.isPending} className="w-full">{saveEntry.isPending ? "Salvando…" : "Salvar"}</Button>
         </form>
