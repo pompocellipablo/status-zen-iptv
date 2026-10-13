@@ -1,6 +1,6 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { creditBalance, type CreditMovement } from "./server-credits.ts";
+import { creditBalance, creditCorrection, type CreditMovement } from "./server-credits.ts";
 
 const entry = (kind: string, quantity: number, created_at: string): CreditMovement =>
   ({ id: `${kind}-${created_at}`, server: "Five", kind, quantity, created_at });
@@ -32,5 +32,26 @@ describe("saldo inicial dos servidores", () => {
   test("sem saldo inicial, o estoque ainda não foi configurado", () => {
     assert.equal(creditBalance([]), 0);
     assert.equal(creditBalance([entry("renewal", -1, "2026-10-12T16:00:00Z")]), 0);
+  });
+});
+
+describe("correção pelo saldo real do servidor", () => {
+  for (const [current, target] of [[28, 14], [14, 20], [14, 0], [14, 14], [-56, 14]]) {
+    test(`saldo ${current} corrigido para ${target}`, () => {
+      const history = [initial, entry("adjustment", current! - 14, "2026-10-14T10:00:00Z")];
+      const delta = creditCorrection(history, target!);
+      assert.equal(creditBalance([...history, entry("adjustment", delta, "2026-10-14T11:00:00Z")]), target);
+    });
+  }
+  test("recalcula a diferença com uma renovação recente", () => {
+    const history = [initial, entry("renewal", -1, "2026-10-14T10:00:00Z")];
+    assert.equal(creditCorrection(history, 14), 1);
+  });
+  test("não duplica saldo nem aceita valores inválidos", () => {
+    assert.equal(creditCorrection([initial], 14), 0);
+    for (const target of [-1, 1.5, NaN, Infinity, 1000001]) {
+      assert.throws(() => creditCorrection([initial], target));
+    }
+    assert.throws(() => creditCorrection([], 14));
   });
 });

@@ -6,12 +6,28 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { daysUntil, formatDate, SERVERS, toISODate, today, type Client } from "@/lib/iptv";
 
-import { creditBalance, type CreditMovement } from "@/lib/server-credits";
+import { creditBalance, creditCorrection, type CreditMovement } from "@/lib/server-credits";
 
 type Movement = CreditMovement & { occurred_on: string; note: string | null };
 type EntryKind = "initial" | "purchase" | "adjustment";
 const field = "mt-1.5 w-full rounded-md border border-line bg-background px-3 py-2.5 text-sm text-frost outline-none focus:border-cyan";
 const label = "block text-sm text-mist";
+
+// Load every page so an older initial balance is never lost to the API row limit.
+async function loadMovements(server?: string): Promise<Movement[]> {
+  const entries: Movement[] = [];
+  const pageSize = 500;
+  for (let offset = 0; ; offset += pageSize) {
+    let query = supabase.from("server_credit_movements")
+      .select("id,server,kind,quantity,occurred_on,note,created_at")
+      .order("created_at", { ascending: false }).order("id", { ascending: false });
+    if (server) query = query.eq("server", server);
+    const { data, error } = await query.range(offset, offset + pageSize - 1);
+    if (error) throw error;
+    entries.push(...(data ?? []));
+    if (!data || data.length < pageSize) return entries;
+  }
+}
 
 export const Route = createFileRoute("/_authenticated/creditos")({
   head: () => ({ meta: [
@@ -36,11 +52,7 @@ function ServerCredits() {
   const [editingMinimum, setEditingMinimum] = useState(false);
   const [notice, setNotice] = useState("");
 
-  const movementsQuery = useQuery({ queryKey: ["server-credit-movements"], queryFn: async () => {
-    const { data, error } = await supabase.from("server_credit_movements").select("id,server,kind,quantity,occurred_on,note,created_at").order("created_at", { ascending: false });
-    if (error) throw error;
-    return (data ?? []) as Movement[];
-  } });
+  const movementsQuery = useQuery({ queryKey: ["server-credit-movements"], queryFn: () => loadMovements() });
   const alertsQuery = useQuery({ queryKey: ["server-credit-alerts"], queryFn: async () => {
     const { data, error } = await supabase.from("server_credit_alerts").select("server,minimum_balance");
     if (error) throw error;
@@ -65,9 +77,18 @@ function ServerCredits() {
   const selected = rows.find((row) => row.name === server);
   const refresh = () => void qc.invalidateQueries({ queryKey: ["server-credit-movements"] });
   const saveEntry = useMutation({ mutationFn: async ({ name, kind, count, date, description }: { name: string; kind: EntryKind; count: number; date: string; description: string }) => {
-    const { error } = await supabase.from("server_credit_movements").insert({ server: name, kind, quantity: count, occurred_on: date, note: description || null });
+    let delta = count;
+    let movementNote = description;
+    if (kind === "adjustment") {
+      const latest = await loadMovements(name);
+      delta = creditCorrection(latest, count);
+      if (delta === 0) return "O saldo já está correto. Nenhuma alteração necessária.";
+      movementNote = `Saldo corrigido de ${creditBalance(latest)} para ${count}${description ? ` · ${description}` : ""}`;
+    }
+    const { error } = await supabase.from("server_credit_movements").insert({ server: name, kind, quantity: delta, occurred_on: kind === "adjustment" ? toISODate(today()) : date, note: movementNote || null });
     if (error) throw error;
-  }, onSuccess: () => { refresh(); setEntry(null); setNotice("Movimentação registrada."); }, onError: (error: Error) => setNotice(`Não foi possível salvar: ${error.message}`) });
+    return kind === "adjustment" ? `Saldo corrigido para ${count} créditos.` : "Movimentação registrada.";
+  }, onSuccess: (message) => { refresh(); setEntry(null); setNotice(message); }, onError: (error: Error) => setNotice(`Não foi possível salvar: ${error.message}`) });
   const saveMinimum = useMutation({ mutationFn: async (value: number) => {
     const { error } = await supabase.from("server_credit_alerts").upsert({ server, minimum_balance: value });
     if (error) throw error;
@@ -77,7 +98,7 @@ function ServerCredits() {
     event.preventDefault();
     if (!entry) return;
     const count = Number(quantity);
-    if (!Number.isSafeInteger(count) || (entry.kind === "adjustment" ? count === 0 : count < 0) || count > 1000000 || count < -1000000 || !/^\d{4}-\d{2}-\d{2}$/.test(entryDate)) {
+    if (!Number.isSafeInteger(count) || count < 0 || (entry.kind === "purchase" && count === 0) || count > 1000000 || !/^\d{4}-\d{2}-\d{2}$/.test(entryDate)) {
       setNotice("Informe uma quantidade inteira válida e uma data."); return;
     }
     saveEntry.mutate({ name: entry.server, kind: entry.kind, count, date: entryDate, description: note.trim() });
@@ -110,7 +131,7 @@ function ServerCredits() {
               <div className="flex flex-wrap gap-2">
                 {!selected.configured && <Button onClick={() => openEntry(server, "initial")}><Plus /> Saldo inicial</Button>}
                 <Button variant="outline" className="border-line bg-panel text-cyan" onClick={() => openEntry(server, "purchase")}><Plus /> Registrar compra</Button>
-                <Button variant="outline" className="border-line bg-panel text-mist" onClick={() => openEntry(server, "adjustment")}><Minus /> Ajustar saldo</Button>
+                <Button variant="outline" className="border-line bg-panel text-mist" disabled={!selected.configured} onClick={() => openEntry(server, "adjustment")}><Minus /> Corrigir saldo atual</Button>
               </div>
             </div>
             <div className="mt-5 flex flex-wrap items-center gap-3 text-sm text-mist">
@@ -148,10 +169,10 @@ function ServerCredits() {
     </div>
     {entry && <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-background/85 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget && !saveEntry.isPending) setEntry(null); }}>
       <section role="dialog" aria-modal="true" aria-label="Movimentação de créditos" className="w-full max-w-md rounded-md border border-line bg-panel p-5">
-        <div className="flex items-center justify-between gap-2"><h2 className="font-display text-xl font-semibold">{entry.kind === "initial" ? "Saldo inicial" : entry.kind === "purchase" ? "Registrar compra" : "Ajustar saldo"} · {entry.server}</h2><Button size="icon" variant="ghost" aria-label="Fechar" onClick={() => setEntry(null)} disabled={saveEntry.isPending}><X /></Button></div>
+        <div className="flex items-center justify-between gap-2"><h2 className="font-display text-xl font-semibold">{entry.kind === "initial" ? "Saldo inicial" : entry.kind === "purchase" ? "Registrar compra" : "Corrigir saldo atual"} · {entry.server}</h2><Button size="icon" variant="ghost" aria-label="Fechar" onClick={() => setEntry(null)} disabled={saveEntry.isPending}><X /></Button></div>
         <form onSubmit={submitEntry} className="mt-5 space-y-4">
-          <label className={label}>Quantidade {entry.kind === "adjustment" ? "(use negativo para reduzir)" : "de créditos"}<input autoFocus required type="number" step="1" min={entry.kind === "adjustment" ? -1000000 : 0} max={1000000} value={quantity} onChange={(event) => setQuantity(event.target.value)} className={field} /></label>
-          {entry.kind === "initial" ? <p className="text-sm text-mist">Informe os créditos disponíveis agora no servidor. Somente movimentações registradas após este saldo inicial serão somadas ou descontadas.</p> : <label className={label}>Data<input required type="date" value={entryDate} onChange={(event) => setEntryDate(event.target.value)} className={field} /></label>}
+          <label className={label}>{entry.kind === "adjustment" ? "Saldo atual no servidor" : "Quantidade de créditos"}<input autoFocus required type="number" step="1" min={0} max={1000000} value={quantity} onChange={(event) => setQuantity(event.target.value)} className={field} /></label>
+          {entry.kind === "adjustment" ? <p className="text-sm text-mist">Digite o total de créditos que aparece agora no servidor, inclusive zero. Esse será o saldo final; a diferença será registrada automaticamente no histórico.</p> : entry.kind === "initial" ? <p className="text-sm text-mist">Informe os créditos disponíveis agora no servidor. Somente movimentações registradas após este saldo inicial serão somadas ou descontadas.</p> : <label className={label}>Data<input required type="date" value={entryDate} onChange={(event) => setEntryDate(event.target.value)} className={field} /></label>}
           <label className={label}>Observação (opcional)<input maxLength={200} value={note} onChange={(event) => setNote(event.target.value)} className={field} /></label>
           <Button type="submit" disabled={saveEntry.isPending} className="w-full">{saveEntry.isPending ? "Salvando…" : "Salvar"}</Button>
         </form>

@@ -18,3 +18,14 @@ export function creditBalance(entries: readonly CreditMovement[]): number {
       ? balance + entry.quantity
       : balance, initial.quantity);
 }
+
+// The form accepts an absolute stock count; the ledger stores only its delta.
+export function creditCorrection(entries: readonly CreditMovement[], target: number): number {
+  if (!Number.isSafeInteger(target) || target < 0 || target > 1000000) {
+    throw new Error("Informe um saldo inteiro entre 0 e 1000000.");
+  }
+  if (!entries.some((entry) => entry.kind === "initial")) {
+    throw new Error("Informe o saldo inicial deste servidor primeiro.");
+  }
+  return target - creditBalance(entries);
+}
