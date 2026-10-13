@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type FormEvent } from "react";
+import { isPanelOwner } from "@/lib/panel-access";
 import { lovable } from "@/integrations/lovable";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -19,15 +20,15 @@ export const Route = createFileRoute("/auth")({
 
 function AuthPage() {
   const navigate = useNavigate();
-  const [mode, setMode] = useState<"entrar" | "criar">("entrar");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    void supabase.auth.getUser().then(({ data }) => {
-      if (data.user) void navigate({ to: "/", replace: true });
+    void supabase.auth.getUser().then(async ({ data }) => {
+      if (data.user && isPanelOwner(data.user.id)) void navigate({ to: "/", replace: true });
+      else if (data.user) { await supabase.auth.signOut(); setMessage("Este painel é de acesso exclusivo ao proprietário."); }
     });
   }, [navigate]);
 
@@ -35,24 +36,12 @@ function AuthPage() {
     event.preventDefault();
     setBusy(true);
     setMessage(null);
-    if (mode === "entrar") {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      setBusy(false);
-      if (error) return setMessage("E-mail ou senha incorretos.");
-      await navigate({ to: "/", replace: true });
-      return;
-    }
-
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { emailRedirectTo: window.location.origin },
-    });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     setBusy(false);
-    if (error) return setMessage(error.message);
-    if (!data.session) {
-      setMessage("Confira seu e-mail e confirme o cadastro para entrar.");
-      setMode("entrar");
+    if (error) return setMessage("E-mail ou senha incorretos.");
+    if (!isPanelOwner(data.user?.id)) {
+      await supabase.auth.signOut();
+      setMessage("Este painel é de acesso exclusivo ao proprietário.");
       return;
     }
     await navigate({ to: "/", replace: true });
@@ -80,25 +69,22 @@ function AuthPage() {
           </div>
         </div>
 
-        <div className="mt-6 grid grid-cols-2 rounded-xl bg-background p-1 ring-1 ring-line">
-          <button onClick={() => { setMode("entrar"); setMessage(null); }} className={`rounded-lg py-2 text-sm font-medium ${mode === "entrar" ? "bg-cyan/15 text-cyan" : "text-mist"}`}>Entrar</button>
-          <button onClick={() => { setMode("criar"); setMessage(null); }} className={`rounded-lg py-2 text-sm font-medium ${mode === "criar" ? "bg-cyan/15 text-cyan" : "text-mist"}`}>Criar acesso</button>
-        </div>
+        <p className="mt-6 text-sm text-mist">Acesso exclusivo ao proprietário.</p>
 
         <form onSubmit={submit} className="mt-5 space-y-4">
           <label className="block text-xs text-mist">E-mail
             <input required type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} className="mt-2 w-full rounded-xl bg-background px-3 py-2.5 text-sm text-frost ring-1 ring-line outline-none focus:ring-cyan/50" />
           </label>
           <label className="block text-xs text-mist">Senha
-            <input required minLength={6} type="password" autoComplete={mode === "entrar" ? "current-password" : "new-password"} value={password} onChange={(event) => setPassword(event.target.value)} className="mt-2 w-full rounded-xl bg-background px-3 py-2.5 text-sm text-frost ring-1 ring-line outline-none focus:ring-cyan/50" />
+            <input required minLength={6} type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} className="mt-2 w-full rounded-xl bg-background px-3 py-2.5 text-sm text-frost ring-1 ring-line outline-none focus:ring-cyan/50" />
           </label>
           {message && <p className="rounded-xl bg-cyan/10 px-3 py-2 text-xs text-cyan ring-1 ring-cyan/30">{message}</p>}
-          <button disabled={busy} type="submit" className="w-full rounded-xl bg-cyan px-4 py-2.5 text-sm font-semibold text-background disabled:opacity-60">{busy ? "Aguarde…" : mode === "entrar" ? "Entrar" : "Criar acesso"}</button>
+          <button disabled={busy} type="submit" className="w-full rounded-xl bg-cyan px-4 py-2.5 text-sm font-semibold text-background disabled:opacity-60">{busy ? "Aguarde…" : "Entrar"}</button>
         </form>
 
         <div className="my-5 flex items-center gap-3 text-xs text-mist"><span className="h-px flex-1 bg-line" />ou<span className="h-px flex-1 bg-line" /></div>
         <button disabled={busy} onClick={enterWithGoogle} className="w-full rounded-xl bg-panel2 px-4 py-2.5 text-sm font-medium text-frost ring-1 ring-line disabled:opacity-60">Entrar com Google</button>
-        {mode === "entrar" && <button onClick={() => void navigate({ to: "/esqueci-senha" })} className="mt-4 w-full text-center text-xs text-mist hover:text-cyan">Esqueci minha senha</button>}
+        <button onClick={() => void navigate({ to: "/esqueci-senha" })} className="mt-4 w-full text-center text-xs text-mist hover:text-cyan">Esqueci minha senha</button>
       </section>
     </main>
   );

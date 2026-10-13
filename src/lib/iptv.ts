@@ -1,3 +1,4 @@
+import { safeCsvText } from "./csv";
 export type Client = {
   id: string;
   name: string;
@@ -192,16 +193,16 @@ export function toCSV(clients: Client[]): string {
     "Status",
   ];
   const rows = clients.map((c) => [
-    c.name,
-    c.login,
-    c.server,
+    safeCsvText(c.name),
+    safeCsvText(c.login),
+    safeCsvText(c.server),
     formatDate(c.due_date),
     formatDate(c.financial_due_date),
     c.cost.toFixed(2).replace(".", ","),
     c.paid.toFixed(2).replace(".", ","),
     (c.paid - c.cost).toFixed(2).replace(".", ","),
-    c.whatsapp ?? "",
-    getStatus(c).label,
+    safeCsvText(c.whatsapp ?? ""),
+    safeCsvText(getStatus(c).label),
   ]);
   return [header, ...rows]
     .map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(";"))
