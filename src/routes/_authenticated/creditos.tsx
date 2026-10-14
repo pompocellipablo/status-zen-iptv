@@ -8,7 +8,7 @@ import { formatDate, SERVERS, toISODate, today } from "@/lib/iptv";
 import { creditStockOverview } from "@/lib/credit-stock-overview";
 
 import { creditBalance, creditCorrection, type CreditMovement } from "@/lib/server-credits";
-import { belongsToCreditPool, creditPoolLabel, creditPoolServerNames } from "@/lib/credit-pools";
+import { belongsToCreditPool, creditPoolForServer, creditPoolLabel, creditPoolServerNames } from "@/lib/credit-pools";
 
 type Movement = CreditMovement & { occurred_on: string; note: string | null };
 type EntryKind = "initial" | "purchase" | "adjustment";
@@ -32,6 +32,9 @@ async function loadMovements(server?: string): Promise<Movement[]> {
 }
 
 export const Route = createFileRoute("/_authenticated/creditos")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    servidor: typeof search.servidor === "string" ? search.servidor : undefined,
+  }),
   head: () => ({ meta: [
     { title: "Créditos dos servidores — MaxFlix" },
     { name: "description", content: "Acompanhe o saldo de créditos dos servidores, compras e renovações de clientes." },
@@ -45,7 +48,11 @@ export const Route = createFileRoute("/_authenticated/creditos")({
 
 function ServerCredits() {
   const qc = useQueryClient();
-  const [server, setServer] = useState<string>(SERVERS[0]);
+  const { servidor } = Route.useSearch();
+  const [server, setServer] = useState<string>(() => {
+    const pool = creditPoolForServer(servidor ?? "");
+    return SERVERS.some((name) => name === pool) ? pool : SERVERS[0];
+  });
   const [entry, setEntry] = useState<{ server: string; kind: EntryKind } | null>(null);
   const [quantity, setQuantity] = useState("");
   const [entryDate, setEntryDate] = useState(() => toISODate(today()));
