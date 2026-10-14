@@ -9,6 +9,23 @@ function isNewSupabaseApiKey(value: string): boolean {
 
 function createSupabaseFetch(supabaseKey: string): typeof fetch {
   return (input, init) => {
+    // Local-only safety guard for the isolated Supabase migration test.
+    // Allows authentication, but prevents database writes and non-auth POSTs.
+    // This deliberately has no effect on the normal published application.
+    if (import.meta.env.DEV && import.meta.env['VITE_MAXFLIX_TEST_READ_ONLY'] === 'true') {
+      const url = typeof input === 'string' ? input : input.toString();
+      const method = (init?.method ?? (typeof Request !== 'undefined' && input instanceof Request ? input.method : 'GET')).toUpperCase();
+      const pathname = new URL(url).pathname;
+      const isAuthentication = pathname.startsWith('/auth/v1/');
+      if (!isAuthentication && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ message: 'MaxFlix local test is read-only: write blocked.' }), {
+            status: 403,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      }
+    }
     const headers = new Headers(
       typeof Request !== 'undefined' && input instanceof Request ? input.headers : undefined,
     );
