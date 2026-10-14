@@ -12,7 +12,7 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
     // Local-only safety guard for the isolated Supabase migration test.
     // Allows authentication, but prevents database writes and non-auth POSTs.
     // This deliberately has no effect on the normal published application.
-    if (import.meta.env.DEV && import.meta.env['VITE_MAXFLIX_TEST_READ_ONLY'] === 'true') {
+    if (import.meta.env['VITE_MAXFLIX_TEST_READ_ONLY'] === 'true') {
       const url = typeof input === 'string' ? input : (typeof Request !== 'undefined' && input instanceof Request ? input.url : input.toString());
       const method = (init?.method ?? (typeof Request !== 'undefined' && input instanceof Request ? input.method : 'GET')).toUpperCase();
       const pathname = new URL(url).pathname;
