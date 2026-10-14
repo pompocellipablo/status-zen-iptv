@@ -257,6 +257,8 @@ function Painel() {
 
   // Zera custo e valor pago de clientes vencidos, guardando os valores no histórico.
   useEffect(() => {
+    // Never run automatic financial updates in the local read-only preview.
+    if (import.meta.env.DEV && import.meta.env['VITE_MAXFLIX_TEST_READ_ONLY'] === 'true') return;
     const pending = clients.filter(
       (c) => getStatus(c).key === "vencido" && (c.cost > 0 || c.paid > 0),
     );
@@ -281,6 +283,8 @@ function Painel() {
   // Clientes com pacote já pago: valor pago do mês fica zerado (nada é cobrado),
   // mas o custo do crédito do servidor continua sendo descontado.
   useEffect(() => {
+    // Never run automatic financial updates in the local read-only preview.
+    if (import.meta.env.DEV && import.meta.env['VITE_MAXFLIX_TEST_READ_ONLY'] === 'true') return;
     const pending = clients.filter(
       (c) => getStatus(c).key !== "vencido" && isPackageCovered(c) && c.paid > 0,
     );
