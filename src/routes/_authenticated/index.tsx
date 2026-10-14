@@ -1,4 +1,6 @@
 import { IS_ISOLATED_READ_ONLY_PREVIEW } from '@/lib/isolated-preview-mode';
+import { creditStockOverview } from "@/lib/credit-stock-overview";
+import type { CreditMovement } from "@/lib/server-credits";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -188,10 +190,46 @@ function Painel() {
     },
   });
 
+  // Read-only dashboard snapshot: never insert, update or correct stock while loading it.
+  const stockMovementsQuery = useQuery({
+    queryKey: ["credit-stock-dashboard-movements"],
+    queryFn: async () => {
+      const entries: CreditMovement[] = [];
+      const pageSize = 500;
+      for (let offset = 0; ; offset += pageSize) {
+        const { data, error } = await supabase
+          .from("server_credit_movements")
+          .select("id,server,kind,quantity,created_at")
+          .order("created_at", { ascending: false })
+          .order("id", { ascending: false })
+          .range(offset, offset + pageSize - 1);
+        if (error) throw error;
+        entries.push(...(data ?? []));
+        if (!data || data.length < pageSize) return entries;
+      }
+    },
+  });
+  const stockAlertsQuery = useQuery({
+    queryKey: ["credit-stock-dashboard-alerts"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("server_credit_alerts")
+        .select("server,minimum_balance");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
   const template = settingsQuery.data?.regular ?? DEFAULT_TEMPLATE;
   const overdueTemplate = settingsQuery.data?.overdue ?? DEFAULT_OVERDUE_TEMPLATE;
   const clients = useMemo(() => clientsQuery.data ?? [], [clientsQuery.data]);
   const payments = useMemo(() => paymentsQuery.data ?? [], [paymentsQuery.data]);
+  const stockOverview = useMemo(
+    () => creditStockOverview(stockMovementsQuery.data ?? [], stockAlertsQuery.data ?? [], clients),
+    [stockMovementsQuery.data, stockAlertsQuery.data, clients],
+  );
+  const stockLoading = stockMovementsQuery.isLoading || stockAlertsQuery.isLoading || clientsQuery.isLoading;
+  const stockError = stockMovementsQuery.isError || stockAlertsQuery.isError || clientsQuery.isError;
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["clients"] });
 
@@ -664,6 +702,44 @@ function Painel() {
             labelClass="text-cyan/80"
             hintClass="text-cyan/70"
           />
+        </section>
+
+        <section className="mt-4 rounded-2xl bg-panel/60 p-3 ring-1 ring-line sm:mt-5" aria-label="Resumo de créditos dos servidores">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-display text-sm font-semibold text-frost">Estoque de créditos</h2>
+            <Link to="/creditos" className="text-xs font-semibold text-cyan hover:underline">Ver detalhes →</Link>
+          </div>
+          {stockLoading ? (
+            <p className="py-2 text-xs text-mist">Consultando saldos dos servidores…</p>
+          ) : stockError ? (
+            <p role="alert" className="py-2 text-xs text-warn">Não foi possível carregar os saldos. Abra Créditos para conferir.</p>
+          ) : (
+            <div className="flex gap-2 overflow-x-auto pb-2" aria-label="Saldos resumidos por servidor">
+              {stockOverview.map((row) => (
+                <Link
+                  key={row.name}
+                  to="/creditos"
+                  search={{ servidor: row.name }}
+                  aria-label={`${row.label}: ${row.configured ? `${row.balance} créditos` : "saldo não informado"}, ${row.totalClients} clientes`}
+                  className={`flex w-[134px] shrink-0 flex-col gap-1 rounded-xl px-3 py-2.5 ring-1 transition-colors hover:bg-frost/5 sm:w-[150px] ${row.lowStock ? "bg-warn/5 ring-warn/40" : "bg-background/70 ring-line"}`}
+                >
+                  <span className="truncate text-[11px] font-medium text-mist" title={row.label}>{row.label}</span>
+                  <span className={`font-display text-xl font-semibold leading-tight ${!row.configured ? "text-mist" : row.lowStock ? "text-warn" : "text-cyan"}`}>
+                    {row.configured ? row.balance : "—"}
+                    <span className="ml-1 text-[10px] font-normal text-mist">créd.</span>
+                  </span>
+                  <span className={`text-[10px] leading-tight ${row.shortageFive > 0 ? "font-semibold text-warn" : "text-mist"}`}>
+                    {!row.configured ? "Informar saldo" : row.shortageFive > 0 ? `Faltam ${row.shortageFive} em 5 dias` : `${row.totalClients} clientes`}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          )}
+          {!stockLoading && !stockError && stockOverview.some((row) => row.shortageFive > 0) && (
+            <p className="mt-1 text-[11px] text-mist">
+              Previsão baseada nos vencimentos dos próximos 5 dias; créditos só são descontados nas renovações.
+            </p>
+          )}
         </section>
 
         <section className="mt-6 flex flex-wrap items-center gap-2 sm:mt-8">
