@@ -4,7 +4,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Minus, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
-import { daysUntil, formatDate, SERVERS, toISODate, today, type Client } from "@/lib/iptv";
+import { formatDate, SERVERS, toISODate, today } from "@/lib/iptv";
+import { creditStockOverview } from "@/lib/credit-stock-overview";
 
 import { creditBalance, creditCorrection, type CreditMovement } from "@/lib/server-credits";
 import { belongsToCreditPool, creditPoolLabel, creditPoolServerNames } from "@/lib/credit-pools";
@@ -67,14 +68,10 @@ function ServerCredits() {
   const movements = useMemo(() => movementsQuery.data ?? [], [movementsQuery.data]);
   const alerts = useMemo(() => alertsQuery.data ?? [], [alertsQuery.data]);
   const clients = useMemo(() => clientsQuery.data ?? [], [clientsQuery.data]);
-  const rows = useMemo(() => SERVERS.filter((name) => name !== "UniP2P").map((name) => {
-    const entries = movements.filter((item) => belongsToCreditPool(item.server, name));
-    const initial = entries.find((item) => item.kind === "initial");
-    const balance = creditBalance(entries);
-    const floor = alerts.find((item) => item.server === name)?.minimum_balance ?? 0;
-    const coming = (days: number) => clients.filter((client) => belongsToCreditPool(client.server, name) && daysUntil(client.due_date) >= 0 && daysUntil(client.due_date) <= days).length;
-    return { name, balance, floor, configured: Boolean(initial), today: coming(0), five: coming(5), ten: coming(10) };
-  }), [movements, alerts, clients]);
+  const rows = useMemo(
+    () => creditStockOverview(movements, alerts, clients),
+    [movements, alerts, clients],
+  );
   const selected = rows.find((row) => row.name === server);
   const refresh = () => void qc.invalidateQueries({ queryKey: ["server-credit-movements"] });
   const saveEntry = useMutation({ mutationFn: async ({ name, kind, count, date, description }: { name: string; kind: EntryKind; count: number; date: string; description: string }) => {
@@ -120,9 +117,24 @@ function ServerCredits() {
         <section className="mt-7 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5" aria-label="Saldos por servidor">
           {rows.map((row) => <Button key={row.name} variant="outline" onClick={() => { setServer(row.name); setEditingMinimum(false); }}
             className={`h-auto min-w-0 flex-col items-start gap-2 border-line px-4 py-4 text-left ${server === row.name ? "bg-cyan/10 ring-1 ring-cyan/40" : "bg-panel"}`}>
-            <span className="w-full truncate font-display text-sm font-semibold text-frost">{creditPoolLabel(row.name)}</span>
-            <span className={`font-display text-2xl font-semibold ${!row.configured ? "text-mist" : row.balance <= row.floor ? "text-danger" : "text-cyan"}`}>{row.configured ? row.balance : "—"}</span>
-            <span className={`text-xs ${row.configured && row.balance <= row.floor ? "text-danger" : "text-mist"}`}>{!row.configured ? "Informar saldo" : row.balance <= row.floor ? "Estoque baixo" : "créditos disponíveis"}</span>
+            <span className="w-full font-display text-sm font-semibold text-frost">{row.label}</span>
+            <span className="flex w-full flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
+              <span className={`font-display text-2xl font-semibold ${!row.configured ? "text-mist" : row.lowStock ? "text-warn" : "text-cyan"}`}>
+                {row.configured ? row.balance : "—"}
+              </span>
+              <span className="text-xs text-mist">{row.totalClients} clientes</span>
+            </span>
+            <span className="w-full text-[11px] text-mist">
+              {row.configured ? `${row.five} renovações previstas em 5 dias` : "Informar saldo inicial"}
+            </span>
+            {row.configured && row.shortageFive > 0 && (
+              <span className="w-full text-[11px] font-semibold text-warn">
+                Faltam {row.shortageFive} créditos para a previsão
+              </span>
+            )}
+            {row.configured && row.shortageFive === 0 && row.balance <= row.floor && (
+              <span className="w-full text-[11px] font-semibold text-warn">Estoque no limite de alerta</span>
+            )}
           </Button>)}
         </section>
         {selected && <>
@@ -134,6 +146,13 @@ function ServerCredits() {
                 <Button variant="outline" className="border-line bg-panel text-cyan" onClick={() => openEntry(server, "purchase")}><Plus /> Registrar compra</Button>
                 <Button variant="outline" className="border-line bg-panel text-mist" disabled={!selected.configured} onClick={() => openEntry(server, "adjustment")}><Minus /> Corrigir saldo atual</Button>
               </div>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-3 text-xs text-mist">
+              <span>{selected.totalClients} clientes cadastrados</span>
+              <span>{selected.five} renovações previstas até 5 dias</span>
+              {selected.configured && selected.shortageFive > 0 && (
+                <span className="font-semibold text-warn">Previsão de falta de {selected.shortageFive} créditos</span>
+              )}
             </div>
             <div className="mt-5 flex flex-wrap items-center gap-3 text-sm text-mist">
               <span>Alerta em <strong className="text-frost">{selected.floor}</strong> créditos ou menos</span>
