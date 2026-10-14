@@ -68,3 +68,8 @@ BEGIN
   );
 END;
 $function$;
+
+-- Explicitly require an authenticated user; the function also checks auth.uid()
+-- and all data writes remain subject to the table's row-level security policies.
+REVOKE ALL ON FUNCTION public.renew_client_with_credit(uuid,date,date,date,numeric,numeric,numeric,numeric,numeric) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.renew_client_with_credit(uuid,date,date,date,numeric,numeric,numeric,numeric,numeric) TO authenticated;
