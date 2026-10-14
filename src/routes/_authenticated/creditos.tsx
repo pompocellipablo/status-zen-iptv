@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { daysUntil, formatDate, SERVERS, toISODate, today, type Client } from "@/lib/iptv";
 
 import { creditBalance, creditCorrection, type CreditMovement } from "@/lib/server-credits";
+import { belongsToCreditPool, creditPoolLabel, creditPoolServerNames } from "@/lib/credit-pools";
 
 type Movement = CreditMovement & { occurred_on: string; note: string | null };
 type EntryKind = "initial" | "purchase" | "adjustment";
@@ -21,7 +22,7 @@ async function loadMovements(server?: string): Promise<Movement[]> {
     let query = supabase.from("server_credit_movements")
       .select("id,server,kind,quantity,occurred_on,note,created_at")
       .order("created_at", { ascending: false }).order("id", { ascending: false });
-    if (server) query = query.eq("server", server);
+    if (server) query = query.in("server", creditPoolServerNames(server));
     const { data, error } = await query.range(offset, offset + pageSize - 1);
     if (error) throw error;
     entries.push(...(data ?? []));
@@ -66,12 +67,12 @@ function ServerCredits() {
   const movements = useMemo(() => movementsQuery.data ?? [], [movementsQuery.data]);
   const alerts = useMemo(() => alertsQuery.data ?? [], [alertsQuery.data]);
   const clients = useMemo(() => clientsQuery.data ?? [], [clientsQuery.data]);
-  const rows = useMemo(() => SERVERS.map((name) => {
-    const entries = movements.filter((item) => item.server === name);
+  const rows = useMemo(() => SERVERS.filter((name) => name !== "UniP2P").map((name) => {
+    const entries = movements.filter((item) => belongsToCreditPool(item.server, name));
     const initial = entries.find((item) => item.kind === "initial");
     const balance = creditBalance(entries);
     const floor = alerts.find((item) => item.server === name)?.minimum_balance ?? 0;
-    const coming = (days: number) => clients.filter((client) => client.server === name && daysUntil(client.due_date) >= 0 && daysUntil(client.due_date) <= days).length;
+    const coming = (days: number) => clients.filter((client) => belongsToCreditPool(client.server, name) && daysUntil(client.due_date) >= 0 && daysUntil(client.due_date) <= days).length;
     return { name, balance, floor, configured: Boolean(initial), today: coming(0), five: coming(5), ten: coming(10) };
   }), [movements, alerts, clients]);
   const selected = rows.find((row) => row.name === server);
@@ -119,7 +120,7 @@ function ServerCredits() {
         <section className="mt-7 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5" aria-label="Saldos por servidor">
           {rows.map((row) => <Button key={row.name} variant="outline" onClick={() => { setServer(row.name); setEditingMinimum(false); }}
             className={`h-auto min-w-0 flex-col items-start gap-2 border-line px-4 py-4 text-left ${server === row.name ? "bg-cyan/10 ring-1 ring-cyan/40" : "bg-panel"}`}>
-            <span className="w-full truncate font-display text-sm font-semibold text-frost">{row.name}</span>
+            <span className="w-full truncate font-display text-sm font-semibold text-frost">{creditPoolLabel(row.name)}</span>
             <span className={`font-display text-2xl font-semibold ${!row.configured ? "text-mist" : row.balance <= row.floor ? "text-danger" : "text-cyan"}`}>{row.configured ? row.balance : "—"}</span>
             <span className={`text-xs ${row.configured && row.balance <= row.floor ? "text-danger" : "text-mist"}`}>{!row.configured ? "Informar saldo" : row.balance <= row.floor ? "Estoque baixo" : "créditos disponíveis"}</span>
           </Button>)}
@@ -127,7 +128,7 @@ function ServerCredits() {
         {selected && <>
           <section className="mt-9 border-t border-line pt-7">
             <div className="flex flex-wrap items-start justify-between gap-4">
-              <div><h2 className="font-display text-xl font-semibold">{server}</h2><p className="mt-1 text-sm text-mist">{selected.configured ? `${selected.balance} créditos disponíveis` : "Saldo inicial ainda não informado"}</p></div>
+              <div><h2 className="font-display text-xl font-semibold">{creditPoolLabel(server)}</h2><p className="mt-1 text-sm text-mist">{selected.configured ? `${selected.balance} créditos disponíveis` : "Saldo inicial ainda não informado"}</p></div>
               <div className="flex flex-wrap gap-2">
                 {!selected.configured && <Button onClick={() => openEntry(server, "initial")}><Plus /> Saldo inicial</Button>}
                 <Button variant="outline" className="border-line bg-panel text-cyan" onClick={() => openEntry(server, "purchase")}><Plus /> Registrar compra</Button>
@@ -157,11 +158,11 @@ function ServerCredits() {
             <p className="mt-3 text-xs text-mist">Previsão baseada nos vencimentos de clientes cadastrados. O desconto real acontece somente ao renovar.</p>
           </section>
           <section className="mt-9 border-t border-line pt-7">
-            <h2 className="font-display text-xl font-semibold">Histórico de {server}</h2>
+            <h2 className="font-display text-xl font-semibold">Histórico de {creditPoolLabel(server)}</h2>
             <p className="mt-2 text-xs text-mist">O saldo parte da quantidade informada no cadastro inicial. Movimentações registradas antes dele ficam no histórico, mas não alteram o saldo atual.</p>
             <div className="mt-4 divide-y divide-line">
-              {movements.filter((item) => item.server === server).length === 0 && <p className="py-5 text-sm text-mist">Nenhuma movimentação registrada.</p>}
-              {movements.filter((item) => item.server === server).map((item) => <div key={item.id} className="flex items-center justify-between gap-3 py-3 text-sm"><div className="min-w-0"><p className="font-medium">{{ initial: "Saldo inicial", purchase: "Compra", adjustment: "Ajuste", renewal: "Renovação de cliente" }[item.kind] ?? item.kind}</p><p className="truncate text-xs text-mist">{formatDate(item.occurred_on)}{item.note ? ` · ${item.note}` : ""}</p></div><strong className={`shrink-0 font-display ${item.quantity < 0 ? "text-danger" : "text-ok"}`}>{item.quantity > 0 ? "+" : ""}{item.quantity}</strong></div>)}
+              {movements.filter((item) => belongsToCreditPool(item.server, server)).length === 0 && <p className="py-5 text-sm text-mist">Nenhuma movimentação registrada.</p>}
+              {movements.filter((item) => belongsToCreditPool(item.server, server)).map((item) => <div key={item.id} className="flex items-center justify-between gap-3 py-3 text-sm"><div className="min-w-0"><p className="font-medium">{{ initial: "Saldo inicial", purchase: "Compra", adjustment: "Ajuste", renewal: "Renovação de cliente" }[item.kind] ?? item.kind}</p><p className="truncate text-xs text-mist">{formatDate(item.occurred_on)}{item.server === "UniP2P" ? " · UniP2P" : ""}{item.note ? ` · ${item.note}` : ""}</p></div><strong className={`shrink-0 font-display ${item.quantity < 0 ? "text-danger" : "text-ok"}`}>{item.quantity > 0 ? "+" : ""}{item.quantity}</strong></div>)}
             </div>
           </section>
         </>}
@@ -169,7 +170,7 @@ function ServerCredits() {
     </div>
     {entry && <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-background/85 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget && !saveEntry.isPending) setEntry(null); }}>
       <section role="dialog" aria-modal="true" aria-label="Movimentação de créditos" className="w-full max-w-md rounded-md border border-line bg-panel p-5">
-        <div className="flex items-center justify-between gap-2"><h2 className="font-display text-xl font-semibold">{entry.kind === "initial" ? "Saldo inicial" : entry.kind === "purchase" ? "Registrar compra" : "Corrigir saldo atual"} · {entry.server}</h2><Button size="icon" variant="ghost" aria-label="Fechar" onClick={() => setEntry(null)} disabled={saveEntry.isPending}><X /></Button></div>
+        <div className="flex items-center justify-between gap-2"><h2 className="font-display text-xl font-semibold">{entry.kind === "initial" ? "Saldo inicial" : entry.kind === "purchase" ? "Registrar compra" : "Corrigir saldo atual"} · {creditPoolLabel(entry.server)}</h2><Button size="icon" variant="ghost" aria-label="Fechar" onClick={() => setEntry(null)} disabled={saveEntry.isPending}><X /></Button></div>
         <form onSubmit={submitEntry} className="mt-5 space-y-4">
           <label className={label}>{entry.kind === "adjustment" ? "Saldo atual no servidor" : "Quantidade de créditos"}<input autoFocus required type="number" step="1" min={0} max={1000000} value={quantity} onChange={(event) => setQuantity(event.target.value)} className={field} /></label>
           {entry.kind === "adjustment" ? <p className="text-sm text-mist">Digite o total de créditos que aparece agora no servidor, inclusive zero. Esse será o saldo final; a diferença será registrada automaticamente no histórico.</p> : entry.kind === "initial" ? <p className="text-sm text-mist">Informe os créditos disponíveis agora no servidor. Somente movimentações registradas após este saldo inicial serão somadas ou descontadas.</p> : <label className={label}>Data<input required type="date" value={entryDate} onChange={(event) => setEntryDate(event.target.value)} className={field} /></label>}
