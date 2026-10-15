@@ -10,7 +10,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { ImportDialog } from "@/components/ImportDialog";
 import { Button } from "@/components/ui/button";
 import { paginateClients } from "@/lib/client-pagination";
-import { MoreHorizontal } from "lucide-react";
+import { MessageCircle, MoreHorizontal, RefreshCw } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -897,56 +897,65 @@ function Painel() {
                       </div>
                       <StatusBadge status={status} />
                     </div>
-                    <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-                      <div>
-                        <p className="text-mist">Vence</p>
-                        <p className="mt-0.5">{formatDate(c.due_date)}</p>
+                    <p className="mt-2 text-xs text-mist">
+                      Vence: <span className="font-medium text-frost">{formatDate(c.due_date)}</span>
+                      {c.financial_due_date && c.financial_due_date !== c.due_date && (
+                        <span> · Financeiro: {formatDate(c.financial_due_date)}</span>
+                      )}
+                    </p>
+                    <div className="mt-3 grid grid-cols-3 gap-2 rounded-xl bg-background/40 p-3">
+                      <div className="min-w-0">
+                        <p className="text-[11px] text-mist">Pago</p>
+                        <p className="mt-1 break-words text-sm font-semibold">{money(c.paid)}</p>
                       </div>
-                      <div>
-                        <p className="text-mist">Pago</p>
-                        <p className="mt-0.5">{money(c.paid)}</p>
+                      <div className="min-w-0">
+                        <p className="text-[11px] text-mist">Custo</p>
+                        <p className="mt-1 break-words text-sm font-medium">{money(c.cost)}</p>
                       </div>
-                      <div>
-                        <p className="text-mist">Lucro</p>
-                        <p
-                          className={`mt-0.5 font-medium ${
-                            c.paid - c.cost > 0 ? "text-ok" : "text-danger"
-                          }`}
-                        >
+                      <div className="min-w-0">
+                        <p className="text-[11px] text-mist">Lucro</p>
+                        <p className={`mt-1 break-words text-sm font-semibold ${c.paid - c.cost >= 0 ? "text-ok" : "text-danger"}`}>
                           {money(c.paid - c.cost)}
                         </p>
                       </div>
                     </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
+                    <div className="mt-3 flex items-stretch gap-2">
                       <button
+                        type="button"
                         onClick={() => renew(c)}
-                        className="font-display flex-1 rounded-xl bg-cyan/15 py-2 text-sm font-medium text-cyan ring-1 ring-cyan/30"
+                        className="font-display flex min-h-11 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl bg-cyan/15 px-2 text-sm font-semibold text-cyan ring-1 ring-cyan/30 hover:bg-cyan/25"
                       >
-                        Renovar
+                        <RefreshCw size={15} aria-hidden="true" /> Renovar
                       </button>
                       <a
                         href={renewalMessageLink(c, template, overdueTemplate)}
                         target="_blank"
                         rel="noreferrer"
-                        className="font-display flex-1 rounded-xl bg-panel2 py-2 text-center text-sm font-medium text-mist ring-1 ring-line"
+                        aria-label={`Enviar renovação pelo WhatsApp para ${c.name}`}
+                        className="font-display flex min-h-11 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl bg-panel2 px-2 text-center text-sm font-medium text-frost ring-1 ring-line hover:bg-frost/5"
                       >
-                        Enviar renovação
+                        <MessageCircle size={17} aria-hidden="true" /> WhatsApp
                       </a>
-                      <button
-                        onClick={() => {
-                          setEditing(c);
-                          setFormOpen(true);
-                        }}
-                        className="font-display rounded-xl bg-panel2 px-3 py-2 text-sm font-medium text-mist ring-1 ring-line"
-                      >
-                        Editar
-                      </button>
-                      <button
-                        onClick={() => deleteMutation.mutate(c.id)}
-                        className="font-display rounded-xl bg-panel2 px-3 py-2 text-sm font-medium text-danger ring-1 ring-line"
-                      >
-                        Excluir
-                      </button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            aria-label={`Mais ações para ${c.name}`}
+                            title="Editar ou excluir"
+                            className="grid size-11 shrink-0 place-items-center rounded-xl bg-panel2 text-mist ring-1 ring-line hover:text-frost"
+                          >
+                            <MoreHorizontal size={20} aria-hidden="true" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" sideOffset={5} className="min-w-[170px] border-line bg-panel2 text-frost">
+                          <DropdownMenuItem onSelect={() => { setEditing(c); setFormOpen(true); }}>
+                            Editar cliente
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => deleteMutation.mutate(c.id)} className="text-danger focus:bg-danger/10 focus:text-danger">
+                            Excluir cliente
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </div>
                 );
@@ -1331,29 +1340,31 @@ function RowActions({
 }) {
   return (
     <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
-      <button onClick={onRenew} className="font-display shrink-0 text-xs font-medium text-cyan hover:text-frost">
+      <button type="button" onClick={onRenew} className="font-display shrink-0 text-xs font-semibold text-cyan hover:text-frost">
         Renovar
       </button>
-      <button onClick={onEdit} className="font-display shrink-0 text-xs font-medium text-mist hover:text-frost">
-        Editar
-      </button>
+      <a
+        href={renewalMessageLink(client, template, overdueTemplate)}
+        target="_blank"
+        rel="noreferrer"
+        aria-label={`Enviar renovação pelo WhatsApp para ${client.name}`}
+        className="font-display shrink-0 text-xs font-medium text-ok hover:text-frost"
+      >
+        WhatsApp
+      </a>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
             type="button"
             aria-label={`Mais ações para ${client.name}`}
-            title="Mais ações"
+            title="Editar ou excluir"
             className="grid size-7 shrink-0 place-items-center rounded-lg bg-panel2 text-mist ring-1 ring-line hover:text-frost"
           >
             <MoreHorizontal size={17} aria-hidden="true" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" sideOffset={5} className="min-w-[170px] border-line bg-panel2 text-frost">
-          <DropdownMenuItem asChild>
-            <a href={renewalMessageLink(client, template, overdueTemplate)} target="_blank" rel="noreferrer">
-              Enviar renovação
-            </a>
-          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={onEdit}>Editar cliente</DropdownMenuItem>
           <DropdownMenuItem onSelect={onDelete} className="text-danger focus:bg-danger/10 focus:text-danger">
             Excluir cliente
           </DropdownMenuItem>
