@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { creditStockOverview } from './credit-stock-overview.ts';
+import { creditStockOverview, prioritizeCreditStocks, type CreditStockRow } from './credit-stock-overview.ts';
 import type { CreditMovement } from './server-credits.ts';
 
 const base = new Date(2026, 9, 14);
@@ -58,6 +58,28 @@ describe('summary of shared credit stocks', () => {
     assert.equal(other.configured, false);
     assert.equal(other.shortageFive, 0);
     assert.equal(other.lowStock, false);
+  });
+
+  test('home summary prioritizes shortage, then upcoming renewals, then client count', () => {
+    const base: CreditStockRow = {
+      name: 'Base', label: 'Base', configured: true, balance: 20, floor: 0,
+      totalClients: 0, today: 0, five: 0, ten: 0, shortageFive: 0, lowStock: false,
+    };
+    const rows: CreditStockRow[] = [
+      { ...base, name: 'Elite', label: 'Elite', totalClients: 1 },
+      { ...base, name: 'Now', label: 'Now', totalClients: 75, five: 0 },
+      { ...base, name: 'Uniplay', label: 'Uniplay / UniP2P', totalClients: 57, five: 8 },
+      { ...base, name: 'Club', label: 'Club', totalClients: 56, five: 16, shortageFive: 3, lowStock: true },
+      { ...base, name: 'Five', label: 'Five', totalClients: 181, five: 30, shortageFive: 16, lowStock: true },
+      { ...base, name: 'Blade', label: 'Blade', totalClients: 7, five: 8 },
+    ];
+    const ordered = prioritizeCreditStocks(rows);
+    assert.deepEqual(
+      ordered.map(row => row.name),
+      ['Five', 'Club', 'Uniplay', 'Blade', 'Now', 'Elite'],
+    );
+    // The helper must not rearrange the normal server order used in the credits page.
+    assert.deepEqual(rows.map(row => row.name), ['Elite', 'Now', 'Uniplay', 'Club', 'Five', 'Blade']);
   });
 
   test('configured minimum stock alerts work independently of the 5-day forecast', () => {
