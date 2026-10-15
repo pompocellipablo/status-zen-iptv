@@ -159,6 +159,7 @@ function Revendedores() {
           <Link to="/" search={{ aba: "renovacoes" }} className="text-mist hover:text-cyan">Renovações</Link>
           <Link to="/creditos" className="text-mist hover:text-cyan">Créditos</Link>
           <Link to="/revendedores" className="text-mist hover:text-cyan">Revendedores</Link>
+          <Link to="/responsaveis" className="text-mist hover:text-cyan">Responsáveis</Link>
         </nav>
             <h1 className="mt-3 truncate font-display text-2xl font-semibold sm:text-3xl">Revendedores</h1>
             <p className="mt-1 text-sm text-mist">Vendas de créditos</p>
