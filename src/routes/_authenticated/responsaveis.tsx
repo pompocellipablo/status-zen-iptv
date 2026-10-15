@@ -1,0 +1,439 @@
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { ArrowLeft, Check, ChevronLeft, ChevronRight, Plus, Trash2, UserRound, Users, X } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { SERVERS, formatDate, getStatus, type Client } from "@/lib/iptv";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+type Access = Pick<Client, "id" | "name" | "login" | "server" | "due_date" | "financial_due_date" | "whatsapp">;
+type PaymentPreference = "juntos" | "separados" | "combinado";
+type Contact = {
+  id: string;
+  name: string;
+  whatsapp: string;
+  preference: PaymentPreference;
+  notes: string;
+  // Each linked access has its own optional label (sala, quarto, pai, filha, bar...)
+  accessLabels: Record<string, string>;
+};
+type Form = Omit<Contact, "id" | "accessLabels">;
+
+const emptyForm: Form = { name: "", whatsapp: "", preference: "combinado", notes: "" };
+const pageSize = 20;
+
+const paymentLabels: Record<PaymentPreference, string> = {
+  juntos: "Prefere pagar tudo junto",
+  separados: "Paga cada login separadamente",
+  combinado: "Combina no momento do pagamento",
+};
+
+function normalizePhone(value: string) {
+  return value.replace(/\D/g, "");
+}
+
+async function readAccesses(): Promise<Access[]> {
+  const all: Access[] = [];
+  // Page through the database rather than silently truncating a large customer base.
+  for (let offset = 0; ; offset += 500) {
+    const { data, error } = await supabase
+      .from("clients")
+      .select("id,name,login,server,due_date,financial_due_date,whatsapp")
+      .order("id", { ascending: true })
+      .range(offset, offset + 499);
+    if (error) throw error;
+    const rows = (data ?? []) as Access[];
+    all.push(...rows);
+    if (rows.length < 500) return all;
+  }
+}
+
+export const Route = createFileRoute("/_authenticated/responsaveis")({
+  head: () => ({ meta: [{ title: "Responsáveis financeiros — MaxFlix" }] }),
+  component: FinancialContactsPreview,
+});
+
+function FinancialContactsPreview() {
+  const clientsQuery = useQuery({ queryKey: ["responsaveis-preview-clients"], queryFn: readAccesses });
+  const clients = useMemo(() => clientsQuery.data ?? [], [clientsQuery.data]);
+
+  // Preview-only draft data: not persisted locally, remotely, or to the clients table.
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [links, setLinks] = useState<Record<string, string>>({});
+  const [draftCounter, setDraftCounter] = useState(1);
+  const [form, setForm] = useState<Form>(emptyForm);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [selectedContact, setSelectedContact] = useState<string>("");
+  const [selectedAccesses, setSelectedAccesses] = useState<string[]>([]);
+  const [search, setSearch] = useState("");
+  const [server, setServer] = useState("todos");
+  const [statusFilter, setStatusFilter] = useState("todos");
+  const [page, setPage] = useState(1);
+  const [contactSearch, setContactSearch] = useState("");
+
+  const available = useMemo(
+    () => clients.filter((client) => !links[client.id]),
+    [clients, links],
+  );
+  const filteredAvailable = useMemo(() => {
+    const term = search.trim().toLocaleLowerCase("pt-BR");
+    return available
+      .filter((client) => {
+        if (server !== "todos" && client.server !== server) return false;
+        const status = getStatus(client as Client);
+        if (statusFilter === "hoje" && status.key !== "hoje") return false;
+        if (statusFilter === "vencidos" && status.key !== "vencido") return false;
+        if (term && !([client.name, client.login, client.server].join(" ").toLocaleLowerCase("pt-BR").includes(term))) return false;
+        return true;
+      })
+      .sort((a, b) => a.server.localeCompare(b.server, "pt-BR") ||
+        a.due_date.localeCompare(b.due_date) || a.login.localeCompare(b.login, "pt-BR"));
+  }, [available, search, server, statusFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredAvailable.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const displayed = filteredAvailable.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  const filteredContacts = useMemo(() => {
+    const term = contactSearch.trim().toLocaleLowerCase("pt-BR");
+    return contacts.filter((c) => !term ||
+      [c.name, c.whatsapp, ...clients.filter(a => links[a.id] === c.id).map(a => a.login)]
+        .join(" ").toLocaleLowerCase("pt-BR").includes(term));
+  }, [contacts, contactSearch, clients, links]);
+
+  const clearSelection = () => setSelectedAccesses([]);
+  const createNew = () => {
+    setForm(emptyForm);
+    setEditingId(null);
+    setShowForm(true);
+  };
+  const editContact = (contact: Contact) => {
+    setForm({ name: contact.name, whatsapp: contact.whatsapp, preference: contact.preference, notes: contact.notes });
+    setEditingId(contact.id);
+    setShowForm(true);
+  };
+  const saveDraft = () => {
+    const name = form.name.trim();
+    if (!name) return;
+    const cleanedForm = { ...form, name, whatsapp: normalizePhone(form.whatsapp), notes: form.notes.trim() };
+    if (editingId) {
+      setContacts(prev => prev.map(item => item.id === editingId ? { ...item, ...cleanedForm } : item));
+    } else {
+      const id = "preview-contact-" + draftCounter;
+      setDraftCounter(n => n + 1);
+      setContacts(prev => [...prev, { ...cleanedForm, id, accessLabels: {} }]);
+      setSelectedContact(id);
+    }
+    setShowForm(false);
+  };
+  const linkSelected = () => {
+    if (!selectedContact || selectedAccesses.length === 0 || !contacts.some(c => c.id === selectedContact)) return;
+    setLinks(prev => {
+      const next = { ...prev };
+      selectedAccesses.forEach(id => { if (!next[id]) next[id] = selectedContact; });
+      return next;
+    });
+    clearSelection();
+  };
+  const unlink = (accessId: string) => {
+    setLinks(prev => {
+      const next = { ...prev };
+      delete next[accessId];
+      return next;
+    });
+    setContacts(prev => prev.map(c => {
+      const copy = { ...c.accessLabels };
+      delete copy[accessId];
+      return { ...c, accessLabels: copy };
+    }));
+  };
+  const removeContact = (id: string) => {
+    setContacts(prev => prev.filter(c => c.id !== id));
+    setLinks(prev => Object.fromEntries(Object.entries(prev).filter(([, contactId]) => contactId !== id)));
+    setSelectedContact(prev => prev === id ? "" : prev);
+    clearSelection();
+  };
+  const setAccessLabel = (contactId: string, accessId: string, label: string) => {
+    setContacts(prev => prev.map(c => c.id === contactId
+      ? { ...c, accessLabels: { ...c.accessLabels, [accessId]: label } }
+      : c));
+  };
+  const toggleAccess = (id: string) => {
+    setSelectedAccesses(prev => prev.includes(id) ? prev.filter(value => value !== id) : [...prev, id]);
+  };
+
+  return (
+    <main className="min-h-screen bg-background text-frost">
+      <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
+        <header className="border-b border-line pb-5">
+          <nav aria-label="Áreas do MaxFlix" className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+            <Link to="/" className="inline-flex items-center gap-1 text-mist hover:text-cyan"><ArrowLeft size={16} /> Dashboard</Link>
+            <Link to="/" search={{ aba: "renovacoes" }} className="text-mist hover:text-cyan">Renovações</Link>
+            <Link to="/creditos" className="text-mist hover:text-cyan">Créditos</Link>
+            <Link to="/revendedores" className="text-mist hover:text-cyan">Revendedores</Link>
+            <span className="font-semibold text-cyan" aria-current="page">Responsáveis</span>
+          </nav>
+          <div className="mt-5 flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h1 className="flex items-center gap-2 font-display text-2xl font-semibold sm:text-3xl"><Users size={26} className="text-cyan" /> Responsáveis financeiros</h1>
+              <p className="mt-2 max-w-2xl text-sm text-mist">Organize quem paga cada acesso. A mesma pessoa pode pagar por vários logins, em servidores e datas diferentes.</p>
+            </div>
+            <Button onClick={createNew} className="gap-2 bg-cyan text-background hover:bg-cyan/80">
+              <Plus size={16} /> Novo responsável
+            </Button>
+          </div>
+        </header>
+
+        <div role="status" className="mt-5 rounded-xl border border-warn/40 bg-warn/10 p-4 text-sm text-frost">
+          <strong className="text-warn">Prévia de organização — nenhuma alteração é salva.</strong>
+          <p className="mt-1 text-xs leading-relaxed text-mist">Os responsáveis e vínculos criados aqui são rascunhos temporários; desaparecem ao atualizar ou fechar a página. Nenhum telefone ou vínculo é gravado no banco, nenhum vencimento muda e nenhuma mensagem é enviada. Vamos validar esta tela antes de ativar o armazenamento definitivo.</p>
+        </div>
+
+        <section className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4" aria-label="Resumo dos vínculos">
+          <Stat label="Acessos cadastrados" value={clientsQuery.isLoading ? "…" : String(clients.length)} />
+          <Stat label="Responsáveis em teste" value={String(contacts.length)} />
+          <Stat label="Acessos vinculados" value={String(Object.keys(links).length)} />
+          <Stat label="Ainda sem responsável" value={clientsQuery.isLoading ? "…" : String(available.length)} />
+        </section>
+
+        {clientsQuery.isError && (
+          <p role="alert" className="mt-5 rounded-xl border border-danger/40 bg-danger/10 p-4 text-sm text-danger">
+            Não foi possível carregar a lista de clientes. Confira a conexão com a versão local e tente novamente.
+          </p>
+        )}
+
+        <section className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.12fr)]" aria-label="Organização de responsáveis">
+          <div className="min-w-0 space-y-3">
+            <div className="rounded-2xl bg-panel/70 p-4 ring-1 ring-line">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="font-display text-base font-semibold">Responsáveis</h2>
+                <span className="text-xs text-mist">{contacts.length} rascunhos</span>
+              </div>
+              <input
+                type="search"
+                aria-label="Buscar responsável"
+                placeholder="Buscar responsável, WhatsApp ou login..."
+                value={contactSearch}
+                onChange={(e) => setContactSearch(e.target.value)}
+                className="mt-3 h-10 w-full rounded-xl bg-background px-3 text-sm text-frost ring-1 ring-line outline-none focus:ring-cyan/40"
+              />
+              {contacts.length === 0 && (
+                <div className="mt-4 rounded-xl border border-dashed border-line px-4 py-7 text-center">
+                  <UserRound className="mx-auto text-mist" size={27} />
+                  <p className="mt-2 text-sm font-medium">Nenhum responsável criado neste teste.</p>
+                  <p className="mt-1 text-xs text-mist">Experimente cadastrar quem paga por dois ou mais logins e vincule os acessos na lista ao lado.</p>
+                  <Button onClick={createNew} variant="outline" className="mt-4 border-line text-cyan">Criar primeiro responsável</Button>
+                </div>
+              )}
+              {contacts.length > 0 && filteredContacts.length === 0 && (
+                <p className="mt-4 text-sm text-mist">Nenhum responsável corresponde à busca.</p>
+              )}
+              <div className="mt-3 space-y-3">
+                {filteredContacts.map(contact => {
+                  const linked = clients.filter(client => links[client.id] === contact.id)
+                    .sort((a, b) => a.due_date.localeCompare(b.due_date) || a.server.localeCompare(b.server, "pt-BR"));
+                  return (
+                    <article key={contact.id} className="rounded-xl bg-background/75 p-3 ring-1 ring-line">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <h3 className="break-words font-display text-base font-semibold">{contact.name}</h3>
+                          <p className="mt-1 break-all text-xs text-mist">{contact.whatsapp ? "WhatsApp: " + contact.whatsapp : "WhatsApp ainda não informado"}</p>
+                          <p className="mt-1 text-xs text-cyan">{paymentLabels[contact.preference]}</p>
+                        </div>
+                        <div className="flex gap-1">
+                          <button type="button" onClick={() => editContact(contact)} className="rounded-lg px-2 py-1.5 text-xs text-cyan hover:bg-cyan/10">Editar</button>
+                          <button type="button" onClick={() => removeContact(contact.id)} className="grid size-8 place-items-center rounded-lg text-danger hover:bg-danger/10" aria-label={"Excluir rascunho de " + contact.name} title="Excluir rascunho"><Trash2 size={15} /></button>
+                        </div>
+                      </div>
+                      {contact.notes && <p className="mt-2 whitespace-pre-wrap text-xs text-mist">{contact.notes}</p>}
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs font-medium text-mist">{linked.length} {linked.length === 1 ? "login vinculado" : "logins vinculados"}</p>
+                        <button type="button" onClick={() => setSelectedContact(contact.id)} className="rounded-lg bg-cyan/10 px-2.5 py-1.5 text-xs font-semibold text-cyan hover:bg-cyan/20">
+                          {selectedContact === contact.id ? "Selecionado" : "Vincular logins"}
+                        </button>
+                      </div>
+                      <div className="mt-2 space-y-2">
+                        {linked.map(access => {
+                          const status = getStatus(access as Client);
+                          return (
+                            <div key={access.id} className="rounded-lg bg-panel/90 p-3 ring-1 ring-line">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="break-words text-sm font-semibold">{access.login} <span className="font-normal text-cyan">· {access.server}</span></p>
+                                  <p className="mt-0.5 text-xs text-mist">{access.name} · vence {formatDate(access.due_date)}</p>
+                                  <p className={status.key === "vencido" ? "mt-1 text-xs text-danger" : status.key === "hoje" ? "mt-1 text-xs text-today" : "mt-1 text-xs text-mist"}>{status.label}</p>
+                                </div>
+                                <button type="button" onClick={() => unlink(access.id)} aria-label={"Desvincular " + access.login} title="Remover vínculo do rascunho" className="grid size-8 shrink-0 place-items-center rounded-lg text-mist hover:bg-danger/10 hover:text-danger"><X size={16} /></button>
+                              </div>
+                              <input
+                                aria-label={"Descrição do acesso " + access.login}
+                                placeholder="Identificação opcional: sala, quarto, filha, bar..."
+                                maxLength={80}
+                                value={contact.accessLabels[access.id] ?? ""}
+                                onChange={e => setAccessLabel(contact.id, access.id, e.target.value)}
+                                className="mt-2 h-9 w-full rounded-lg bg-background px-3 text-xs text-frost ring-1 ring-line outline-none focus:ring-cyan/40"
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          <div className="min-w-0">
+            <div className="rounded-2xl bg-panel/70 p-4 ring-1 ring-line">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h2 className="font-display text-base font-semibold">Logins disponíveis</h2>
+                  <p className="mt-1 text-xs text-mist">Encontre acessos e vincule ao responsável que realmente paga.</p>
+                </div>
+                <span className="text-xs text-mist">{filteredAvailable.length} na busca</span>
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <input
+                  type="search"
+                  placeholder="Nome ou login"
+                  aria-label="Buscar acesso disponível"
+                  value={search}
+                  onChange={e => { setSearch(e.target.value); setPage(1); }}
+                  className="h-10 min-w-0 rounded-xl bg-background px-3 text-sm text-frost ring-1 ring-line outline-none focus:ring-cyan/40"
+                />
+                <Select value={server} onValueChange={value => { setServer(value); setPage(1); }}>
+                  <SelectTrigger aria-label="Filtrar logins por servidor" className="h-10 w-full rounded-xl border-0 bg-background text-frost ring-1 ring-line">
+                    <SelectValue placeholder="Servidor" />
+                  </SelectTrigger>
+                  <SelectContent className="border-line bg-panel2 text-frost">
+                    <SelectItem value="todos">Todos os servidores</SelectItem>
+                    {SERVERS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="mt-2">
+                <Select value={statusFilter} onValueChange={value => { setStatusFilter(value); setPage(1); }}>
+                  <SelectTrigger aria-label="Filtrar logins por vencimento" className="h-10 w-full rounded-xl border-0 bg-background text-frost ring-1 ring-line">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="border-line bg-panel2 text-frost">
+                    <SelectItem value="todos">Todos os vencimentos</SelectItem>
+                    <SelectItem value="hoje">Vencem hoje</SelectItem>
+                    <SelectItem value="vencidos">Vencidos</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="mt-4 rounded-xl bg-background/75 p-3 ring-1 ring-line">
+                <p className="text-xs font-semibold text-mist">Vincular acessos selecionados a:</p>
+                <Select value={selectedContact} onValueChange={setSelectedContact}>
+                  <SelectTrigger aria-label="Responsável que receberá os logins" className="mt-2 h-10 w-full rounded-xl border-0 bg-panel2 text-frost ring-1 ring-line">
+                    <SelectValue placeholder="Escolha um responsável" />
+                  </SelectTrigger>
+                  <SelectContent className="border-line bg-panel2 text-frost">
+                    {contacts.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    onClick={linkSelected}
+                    disabled={!selectedContact || selectedAccesses.length === 0}
+                    className="min-h-10 gap-1.5 bg-cyan text-background hover:bg-cyan/80 disabled:opacity-40"
+                  >
+                    <Check size={16} /> Vincular {selectedAccesses.length} {selectedAccesses.length === 1 ? "login" : "logins"}
+                  </Button>
+                  {selectedAccesses.length > 0 && <button type="button" onClick={clearSelection} className="text-xs text-mist hover:text-frost">Limpar seleção</button>}
+                </div>
+              </div>
+
+              {clientsQuery.isLoading ? (
+                <p className="mt-5 text-sm text-mist">Carregando logins…</p>
+              ) : filteredAvailable.length === 0 ? (
+                <p className="mt-5 rounded-xl bg-background/70 px-3 py-5 text-center text-sm text-mist">Nenhum login disponível com estes filtros.</p>
+              ) : (
+                <div className="mt-3 space-y-2" aria-label="Logins ainda sem responsável">
+                  {displayed.map(access => {
+                    const status = getStatus(access as Client);
+                    return (
+                      <label key={access.id} className="flex cursor-pointer items-start gap-3 rounded-xl bg-background/75 p-3 ring-1 ring-line hover:ring-cyan/35">
+                        <input
+                          type="checkbox"
+                          checked={selectedAccesses.includes(access.id)}
+                          onChange={() => toggleAccess(access.id)}
+                          className="mt-1 size-4 accent-cyan"
+                          aria-label={"Selecionar " + access.login + " no servidor " + access.server}
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block break-words text-sm font-semibold">{access.name}</span>
+                          <span className="mt-0.5 block break-words text-xs text-cyan">{access.login} · {access.server}</span>
+                          <span className="mt-1 block text-xs text-mist">Vence: {formatDate(access.due_date)}</span>
+                          <span className={status.key === "vencido" ? "mt-1 block text-xs text-danger" : status.key === "hoje" ? "mt-1 block text-xs text-today" : "mt-1 block text-xs text-mist"}>{status.label}</span>
+                          {access.whatsapp && <span className="mt-1 block text-[11px] text-mist">Número no cadastro: {access.whatsapp} (confirmar responsável)</span>}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+              {filteredAvailable.length > pageSize && (
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs text-mist">Página {currentPage} de {totalPages} · 20 logins por página</p>
+                  <div className="flex items-center gap-2">
+                    <Button type="button" variant="outline" disabled={currentPage <= 1} onClick={() => setPage(n => Math.max(1, n - 1))} className="size-9 border-line p-0" aria-label="Página anterior"><ChevronLeft size={17} /></Button>
+                    <Button type="button" variant="outline" disabled={currentPage >= totalPages} onClick={() => setPage(n => Math.min(totalPages, n + 1))} className="size-9 border-line p-0" aria-label="Próxima página"><ChevronRight size={17} /></Button>
+                  </div>
+                </div>
+              )}
+              <p className="mt-4 text-xs leading-relaxed text-mist">Vínculos são apenas para organizar quem paga e recebe mensagens. Renovação, créditos e vencimentos continuam pertencendo a cada login individual.</p>
+            </div>
+          </div>
+        </section>
+
+        {showForm && (
+          <div className="fixed inset-0 z-50 overflow-y-auto bg-background/85 p-4 backdrop-blur-sm" role="presentation">
+            <section role="dialog" aria-modal="true" aria-label="Cadastro de responsável em teste" className="mx-auto my-8 max-w-lg rounded-2xl bg-panel2 p-5 ring-1 ring-line sm:p-6">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="font-display text-xl font-semibold">{editingId ? "Editar responsável" : "Novo responsável"}</h2>
+                <button type="button" onClick={() => setShowForm(false)} className="grid size-9 place-items-center rounded-lg text-mist hover:bg-panel" aria-label="Fechar formulário"><X size={19} /></button>
+              </div>
+              <p className="mt-1 text-xs text-warn">Rascunho temporário, sem gravação no banco.</p>
+              <label className="mt-5 block text-sm font-medium" htmlFor="payer-name">Nome de quem paga *</label>
+              <input id="payer-name" autoFocus maxLength={120} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Ex.: responsável que paga pela família" className="mt-2 h-11 w-full rounded-xl bg-background px-3 text-sm ring-1 ring-line outline-none focus:ring-cyan/40" />
+              <label className="mt-4 block text-sm font-medium" htmlFor="payer-whatsapp">WhatsApp do responsável</label>
+              <input id="payer-whatsapp" type="tel" inputMode="tel" maxLength={25} value={form.whatsapp} onChange={e => setForm(f => ({ ...f, whatsapp: e.target.value }))} placeholder="DDD + número" className="mt-2 h-11 w-full rounded-xl bg-background px-3 text-sm ring-1 ring-line outline-none focus:ring-cyan/40" />
+              <label className="mt-4 block text-sm font-medium" htmlFor="payer-payment">Como prefere pagar</label>
+              <select id="payer-payment" value={form.preference} onChange={e => setForm(f => ({ ...f, preference: e.target.value as PaymentPreference }))} className="mt-2 h-11 w-full rounded-xl bg-background px-3 text-sm ring-1 ring-line outline-none focus:ring-cyan/40">
+                {Object.entries(paymentLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+              <label className="mt-4 block text-sm font-medium" htmlFor="payer-notes">Observações</label>
+              <textarea id="payer-notes" maxLength={500} rows={3} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Ex.: paga os cinco acessos juntos quando recebe o primeiro aviso" className="mt-2 w-full rounded-xl bg-background px-3 py-2.5 text-sm ring-1 ring-line outline-none focus:ring-cyan/40" />
+              <div className="mt-5 flex flex-wrap gap-2">
+                <Button onClick={saveDraft} disabled={!form.name.trim()} className="bg-cyan text-background hover:bg-cyan/80">{editingId ? "Atualizar rascunho" : "Criar rascunho"}</Button>
+                <Button variant="outline" className="border-line" onClick={() => setShowForm(false)}>Cancelar</Button>
+              </div>
+            </section>
+          </div>
+        )}
+      </div>
+    </main>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl bg-panel/70 p-3 ring-1 ring-line sm:p-4">
+      <p className="text-[11px] uppercase tracking-wide text-mist">{label}</p>
+      <p className="mt-2 font-display text-2xl font-semibold text-cyan">{value}</p>
+    </div>
+  );
+}
