@@ -714,22 +714,22 @@ function Painel() {
           ) : stockError ? (
             <p role="alert" className="py-2 text-xs text-warn">Não foi possível carregar os saldos. Abra Créditos para conferir.</p>
           ) : (
-            <div className="flex gap-2 overflow-x-auto pb-2" aria-label="Saldos resumidos por servidor">
+            <div className="flex gap-2 overflow-x-auto pb-2 xl:grid xl:grid-cols-9 xl:overflow-visible xl:pb-0" aria-label="Saldos resumidos por servidor">
               {stockOverview.map((row) => (
                 <Link
                   key={row.name}
                   to="/creditos"
                   search={{ servidor: row.name }}
-                  aria-label={`${row.label}: ${row.configured ? `${row.balance} créditos` : "saldo não informado"}, ${row.totalClients} clientes`}
-                  className={`flex w-[134px] shrink-0 flex-col gap-1 rounded-xl px-3 py-2.5 ring-1 transition-colors hover:bg-frost/5 sm:w-[150px] ${row.lowStock ? "bg-warn/5 ring-warn/40" : "bg-background/70 ring-line"}`}
+                  aria-label={`${row.label}: ${row.configured ? `${row.balance} créditos` : "saldo não informado"}, ${row.totalClients} ${row.totalClients === 1 ? "cliente" : "clientes"}`}
+                  className={`flex w-[134px] shrink-0 flex-col gap-1 rounded-xl px-3 py-2.5 ring-1 transition-colors hover:bg-frost/5 sm:w-[150px] xl:w-auto xl:min-w-0 ${row.lowStock ? "bg-warn/5 ring-warn/40" : "bg-background/70 ring-line"}`}
                 >
-                  <span className="truncate text-[11px] font-medium text-mist" title={row.label}>{row.label}</span>
+                  <span className="truncate text-[11px] font-medium text-mist" title={row.label}>{row.name === "Uniplay" ? "Uni / P2P" : row.label}</span>
                   <span className={`font-display text-xl font-semibold leading-tight ${!row.configured ? "text-mist" : row.lowStock ? "text-warn" : "text-cyan"}`}>
                     {row.configured ? row.balance : "—"}
                     <span className="ml-1 text-[10px] font-normal text-mist">créd.</span>
                   </span>
                   <span className={`text-[10px] leading-tight ${row.shortageFive > 0 ? "font-semibold text-warn" : "text-mist"}`}>
-                    {!row.configured ? "Informar saldo" : row.shortageFive > 0 ? `Faltam ${row.shortageFive} em 5 dias` : `${row.totalClients} clientes`}
+                    {!row.configured ? "Informar saldo" : row.shortageFive > 0 ? `Faltam ${row.shortageFive} em 5 dias` : `${row.totalClients} ${row.totalClients === 1 ? "cliente" : "clientes"}`}
                   </span>
                 </Link>
               ))}
