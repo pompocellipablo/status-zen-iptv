@@ -9,6 +9,13 @@ import { ClientForm, type ClientDraft } from "@/components/ClientForm";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ImportDialog } from "@/components/ImportDialog";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { paginateClients } from "@/lib/client-pagination";
 import { sortClients, type ClientSortMode } from "@/lib/client-sort";
 import { MessageCircle, MoreHorizontal, RefreshCw } from "lucide-react";
@@ -738,19 +745,19 @@ function Painel() {
               </button>
             ))}
           </nav>
-          <div className="flex items-center gap-2 sm:ml-auto">
-            <select
-              value={serverFilter}
-              onChange={(e) => setServerFilter(e.target.value)}
-              className="font-display rounded-xl bg-panel px-3 py-2 text-sm font-medium text-mist ring-1 ring-line outline-none hover:bg-frost/5"
-            >
-              <option value="todos" className="bg-panel">Todos os servidores</option>
-              {SERVERS.map((s) => (
-                <option key={s} value={s} className="bg-panel">
-                  {s}
-                </option>
-              ))}
-            </select>
+          <div className="flex min-w-0 flex-wrap items-center gap-2 sm:ml-auto">
+            <Select value={serverFilter} onValueChange={setServerFilter}>
+              <SelectTrigger
+                aria-label="Filtrar clientes por servidor"
+                className="h-10 w-[175px] max-w-full rounded-xl border-0 bg-panel px-3 text-sm font-medium text-mist ring-1 ring-line hover:bg-panel2"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="border-line bg-panel2 text-frost shadow-lg">
+                <SelectItem value="todos">Todos os servidores</SelectItem>
+                {SERVERS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              </SelectContent>
+            </Select>
             {tab === "breve" && (
               <>
                 <span className="hidden text-xs text-mist sm:inline">Vence em</span>
@@ -771,22 +778,25 @@ function Painel() {
                 </div>
               </>
             )}
-            <label className="flex min-w-0 items-center gap-2 rounded-xl bg-panel px-3 py-2 text-sm text-mist ring-1 ring-line">
-              <span className="whitespace-nowrap">Ordenar por</span>
-              <select
-                aria-label="Ordenar clientes"
-                value={sortMode}
-                onChange={(event) => setSortMode(event.target.value as ClientSortMode)}
-                className="min-w-0 max-w-[150px] bg-transparent text-sm font-medium text-frost outline-none sm:max-w-none"
-              >
-                <option value="vencimento-asc">Vencimento ↑</option>
-                <option value="vencimento-desc">Vencimento ↓</option>
-                <option value="nome-asc">Nome A–Z</option>
-                <option value="nome-desc">Nome Z–A</option>
-                <option value="login-asc">Login A–Z</option>
-                <option value="login-desc">Login Z–A</option>
-              </select>
-            </label>
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="hidden whitespace-nowrap text-sm text-mist sm:inline">Ordenar por</span>
+              <Select value={sortMode} onValueChange={(value) => setSortMode(value as ClientSortMode)}>
+                <SelectTrigger
+                  aria-label="Ordenar clientes"
+                  className="h-10 w-[165px] max-w-full rounded-xl border-0 bg-panel px-3 text-sm font-medium text-frost ring-1 ring-line hover:bg-panel2"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="border-line bg-panel2 text-frost shadow-lg">
+                  <SelectItem value="vencimento-asc">Vencimento ↑</SelectItem>
+                  <SelectItem value="vencimento-desc">Vencimento ↓</SelectItem>
+                  <SelectItem value="nome-asc">Nome A–Z</SelectItem>
+                  <SelectItem value="nome-desc">Nome Z–A</SelectItem>
+                  <SelectItem value="login-asc">Login A–Z</SelectItem>
+                  <SelectItem value="login-desc">Login Z–A</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <button
               onClick={exportCSV}
               className="font-display rounded-xl bg-panel px-3 py-2 text-sm font-medium text-mist ring-1 ring-line hover:bg-frost/5"
@@ -924,20 +934,20 @@ function Painel() {
                   >
                     ← Anterior
                   </button>
-                  <label className="flex items-center gap-1.5 text-xs text-mist">
+                  <div className="flex items-center gap-1.5 text-xs text-mist">
                     Página
-                    <select
-                      value={paginated.page}
-                      onChange={(event) => changePage(Number(event.target.value))}
-                      aria-label="Selecionar página de clientes"
-                      className="min-h-10 rounded-lg bg-panel2 px-2 text-sm text-frost ring-1 ring-line"
-                    >
-                      {Array.from({ length: paginated.totalPages }, (_, index) => index + 1).map((pageNumber) => (
-                        <option key={pageNumber} value={pageNumber}>{pageNumber}</option>
-                      ))}
-                    </select>
+                    <Select value={String(paginated.page)} onValueChange={(value) => changePage(Number(value))}>
+                      <SelectTrigger aria-label="Selecionar página de clientes" className="h-10 w-[66px] rounded-lg border-0 bg-panel2 px-2 text-sm text-frost ring-1 ring-line">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="border-line bg-panel2 text-frost shadow-lg">
+                        {Array.from({ length: paginated.totalPages }, (_, index) => index + 1).map((pageNumber) => (
+                          <SelectItem key={pageNumber} value={String(pageNumber)}>{pageNumber}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     de {paginated.totalPages}
-                  </label>
+                  </div>
                   <button
                     type="button"
                     disabled={paginated.page >= paginated.totalPages}
