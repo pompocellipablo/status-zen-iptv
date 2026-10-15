@@ -788,76 +788,70 @@ function Painel() {
           </p>
         ) : (
           <>
-            <section className="mt-4 hidden overflow-hidden rounded-2xl bg-panel/60 ring-1 ring-line backdrop-blur-sm md:block">
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse text-sm">
-                  <thead>
-                    <tr className="border-b border-line text-left text-[11px] tracking-wide text-mist uppercase">
-                      <th className="px-4 py-3 font-medium">Cliente</th>
-                      <th className="px-4 py-3 font-medium">Servidor</th>
-                      <th className="px-4 py-3 font-medium">Vencimento</th>
-                      <th className="px-4 py-3 font-medium">Financeiro</th>
-                      <th className="px-4 py-3 font-medium text-right">Custo</th>
-                      <th className="px-4 py-3 font-medium text-right">Pago</th>
-                      <th className="px-4 py-3 font-medium text-right">Lucro</th>
-                      <th className="px-4 py-3 font-medium">Status</th>
-                      <th className="px-4 py-3 text-right font-medium">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.map((c) => {
-                      const status = getStatus(c);
-                      return (
-                        <tr
-                          key={c.id}
-                          className="border-b border-line/60 transition-colors hover:bg-frost/5"
-                        >
-                          <td className="px-4 py-3">
-                            <div className="font-medium">{c.name}</div>
-                            <div className="text-xs text-mist">
-                              {c.login}
-                              {c.whatsapp ? ` · ${c.whatsapp}` : ""}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-mist">{c.server}</td>
-                          <td className="px-4 py-3 text-mist">{formatDate(c.due_date)}</td>
-                          <td className="px-4 py-3 text-mist">
-                            {formatDate(c.financial_due_date)}
-                          </td>
-                          <td className="px-4 py-3 text-right text-mist">{money(c.cost)}</td>
-                          <td className="px-4 py-3 text-right text-mist">{money(c.paid)}</td>
-                          <td
-                            className={`px-4 py-3 text-right font-medium ${
-                              c.paid - c.cost > 0 ? "text-ok" : "text-danger"
-                            }`}
-                          >
-                            {money(c.paid - c.cost)}
-                          </td>
-                          <td className="px-4 py-3">
-                            <StatusBadge status={status} />
-                          </td>
-                          <td className="px-4 py-3 text-right whitespace-nowrap">
-                            <RowActions
-                              client={c}
-                              template={template}
-                               overdueTemplate={overdueTemplate}
-                              onRenew={() => renew(c)}
-                              onEdit={() => {
-                                setEditing(c);
-                                setFormOpen(true);
-                              }}
-                              onDelete={() => deleteMutation.mutate(c.id)}
-                            />
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+            <section className="mt-4 hidden rounded-2xl bg-panel/60 ring-1 ring-line backdrop-blur-sm lg:block" aria-label="Tabela de clientes">
+              <table className="w-full table-fixed border-collapse text-[13px]">
+                <colgroup>
+                  <col style={{ width: "19%" }} />
+                  <col style={{ width: "9%" }} />
+                  <col style={{ width: "11%" }} />
+                  <col style={{ width: "11%" }} />
+                  <col style={{ width: "18%" }} />
+                  <col style={{ width: "17%" }} />
+                  <col style={{ width: "15%" }} />
+                </colgroup>
+                <thead>
+                  <tr className="border-b border-line text-left text-[10px] tracking-wide text-mist uppercase">
+                    <th className="px-3 py-3 font-medium">Cliente</th>
+                    <th className="px-2 py-3 font-medium">Servidor</th>
+                    <th className="px-2 py-3 font-medium">Vencimento</th>
+                    <th className="px-2 py-3 font-medium">Financeiro</th>
+                    <th className="px-2 py-3 font-medium">Valores</th>
+                    <th className="px-2 py-3 font-medium">Status</th>
+                    <th className="px-2 py-3 text-right font-medium">Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((client) => {
+                    const status = getStatus(client);
+                    const profit = client.paid - client.cost;
+                    return (
+                      <tr key={client.id} className="border-b border-line/60 align-middle transition-colors last:border-b-0 hover:bg-frost/5">
+                        <td className="min-w-0 px-3 py-3">
+                          <div className="truncate font-medium" title={client.name}>{client.name}</div>
+                          <div className="truncate text-xs text-mist" title={client.login}>{client.login}</div>
+                          {client.whatsapp && <div className="truncate text-[11px] text-mist" title={client.whatsapp}>{client.whatsapp}</div>}
+                        </td>
+                        <td className="break-words px-2 py-3 text-mist">{client.server}</td>
+                        <td className="px-2 py-3 text-xs text-mist">{formatDate(client.due_date)}</td>
+                        <td className="px-2 py-3 text-xs text-mist">{formatDate(client.financial_due_date)}</td>
+                        <td className="px-2 py-3">
+                          <div className="space-y-0.5 text-[11px] leading-4 text-mist">
+                            <div>Pago <span className="font-medium text-frost">{money(client.paid)}</span></div>
+                            <div>Custo {money(client.cost)}</div>
+                            <div>Lucro <span className={`font-semibold ${profit >= 0 ? "text-ok" : "text-danger"}`}>{money(profit)}</span></div>
+                          </div>
+                        </td>
+                        <td className="px-2 py-3">
+                          <div className="max-w-full overflow-hidden"><StatusBadge status={status} /></div>
+                        </td>
+                        <td className="px-2 py-3 text-right">
+                          <RowActions
+                            client={client}
+                            template={template}
+                            overdueTemplate={overdueTemplate}
+                            onRenew={() => renew(client)}
+                            onEdit={() => { setEditing(client); setFormOpen(true); }}
+                            onDelete={() => deleteMutation.mutate(client.id)}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </section>
 
-            <section className="mt-4 space-y-3 md:hidden">
+            <section className="mt-4 space-y-3 lg:hidden">
               {filtered.map((c) => {
                 const status = getStatus(c);
                 return (
@@ -1272,24 +1266,35 @@ function RowActions({
   onDelete: () => void;
 }) {
   return (
-    <div className="flex items-center justify-end gap-3">
-      <button onClick={onRenew} className="font-display text-xs font-medium text-cyan hover:text-frost">
+    <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
+      <button onClick={onRenew} className="font-display shrink-0 text-xs font-medium text-cyan hover:text-frost">
         Renovar
       </button>
-      <a
-        href={renewalMessageLink(client, template, overdueTemplate)}
-        target="_blank"
-        rel="noreferrer"
-        className="font-display text-xs font-medium text-ok hover:text-frost"
-      >
-        Enviar renovação
-      </a>
-      <button onClick={onEdit} className="font-display text-xs font-medium text-mist hover:text-frost">
+      <button onClick={onEdit} className="font-display shrink-0 text-xs font-medium text-mist hover:text-frost">
         Editar
       </button>
-      <button onClick={onDelete} className="font-display text-xs font-medium text-danger hover:text-frost">
-        Excluir
-      </button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label={`Mais ações para ${client.name}`}
+            title="Mais ações"
+            className="grid size-7 shrink-0 place-items-center rounded-lg bg-panel2 text-mist ring-1 ring-line hover:text-frost"
+          >
+            <MoreHorizontal size={17} aria-hidden="true" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" sideOffset={5} className="min-w-[170px] border-line bg-panel2 text-frost">
+          <DropdownMenuItem asChild>
+            <a href={renewalMessageLink(client, template, overdueTemplate)} target="_blank" rel="noreferrer">
+              Enviar renovação
+            </a>
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={onDelete} className="text-danger focus:bg-danger/10 focus:text-danger">
+            Excluir cliente
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }
