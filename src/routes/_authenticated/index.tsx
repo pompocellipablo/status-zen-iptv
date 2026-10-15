@@ -602,6 +602,8 @@ function Painel() {
   const openRenewals = (target: Tab) => {
     setTab(target);
     if (target === "breve") setRange(0);
+    // Atalho de vencimentos de hoje: trate um servidor por vez.
+    if (target === "hoje") setSortMode("servidor-asc");
     void navigate({ to: "/", search: { aba: "renovacoes" } });
   };
 
