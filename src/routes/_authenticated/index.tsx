@@ -790,8 +790,6 @@ function Painel() {
                 <SelectContent className="border-line bg-panel2 text-frost shadow-lg">
                   <SelectItem value="vencimento-asc">Vencimento ↑</SelectItem>
                   <SelectItem value="vencimento-desc">Vencimento ↓</SelectItem>
-                  <SelectItem value="nome-asc">Nome A–Z</SelectItem>
-                  <SelectItem value="nome-desc">Nome Z–A</SelectItem>
                   <SelectItem value="login-asc">Login A–Z</SelectItem>
                   <SelectItem value="login-desc">Login Z–A</SelectItem>
                 </SelectContent>
