@@ -46,6 +46,9 @@ import {
 } from "@/lib/iptv";
 
 export const Route = createFileRoute("/_authenticated/")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    aba: search.aba === "renovacoes" ? ("renovacoes" as const) : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "MaxFlix — Gestão de clientes IPTV" },
@@ -97,8 +100,10 @@ const num = (value: string) => Number(String(value).replace(",", ".")) || 0;
 function Painel() {
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const { aba } = Route.useSearch();
+  const view = aba === "renovacoes" ? "renovacoes" : "dashboard";
   const [tab, setTab] = useState<Tab>("todos");
-  const [range, setRange] = useState(1);
+  const [range, setRange] = useState(0);
   const [search, setSearch] = useState("");
   const [serverFilter, setServerFilter] = useState("todos");
   const [sortMode, setSortMode] = useState<ClientSortMode>("vencimento-asc");
@@ -458,7 +463,7 @@ function Painel() {
         if (tab === "todos" && s.key === "vencido") return false;
         if (tab === "vencidos" && s.key !== "vencido") return false;
         if (tab === "hoje" && s.key !== "hoje") return false;
-        if (tab === "breve" && s.days !== range) return false;
+        if (tab === "breve" && (range === 0 ? (s.days < 1 || s.days > 5) : s.days !== range)) return false;
         if (tab === "cobranca" && s.key !== "vencido" && s.key !== "hoje" && s.key !== "breve")
           return false;
         if (serverFilter !== "todos" && c.server !== serverFilter) return false;
@@ -497,6 +502,8 @@ function Painel() {
       .slice(0, 6)
       .map(([month, v]) => ({ month, ...v, lucro: v.faturado - v.custo }));
   }, [payments]);
+
+  const currentMonthBilling = monthlyBilling.find((m) => m.month === toISODate(today()).slice(0, 7));
 
   const forecastEntries = useMemo<ForecastEntry[]>(
     () =>
@@ -574,6 +581,12 @@ function Painel() {
     });
   };
 
+  const openRenewals = (target: Tab) => {
+    setTab(target);
+    if (target === "breve") setRange(0);
+    void navigate({ to: "/", search: { aba: "renovacoes" } });
+  };
+
   const tabBtn = (active: boolean) =>
     `font-display text-sm font-medium px-3 py-1.5 rounded-lg ${
       active ? "bg-cyan/15 text-cyan ring-1 ring-cyan/30" : "text-mist hover:bg-frost/5"
@@ -621,14 +634,20 @@ function Painel() {
               </button>
             </div>
           </div>
+          <nav aria-label="Áreas do MaxFlix" className="flex items-center gap-2 overflow-x-auto rounded-2xl bg-panel/70 p-2 ring-1 ring-line">
+            <Link to="/" search={{ aba: undefined }} aria-current={view === "dashboard" ? "page" : undefined}
+              className={`whitespace-nowrap rounded-xl px-3.5 py-2.5 text-sm font-semibold ${view === "dashboard" ? "bg-cyan/15 text-cyan ring-1 ring-cyan/40" : "text-mist hover:bg-panel2 hover:text-frost"}`}>
+              Dashboard
+            </Link>
+            <Link to="/" search={{ aba: "renovacoes" }} aria-current={view === "renovacoes" ? "page" : undefined}
+              className={`whitespace-nowrap rounded-xl px-3.5 py-2.5 text-sm font-semibold ${view === "renovacoes" ? "bg-cyan/15 text-cyan ring-1 ring-cyan/40" : "text-mist hover:bg-panel2 hover:text-frost"}`}>
+              Renovações
+            </Link>
+            <Link to="/creditos" className="whitespace-nowrap rounded-xl px-3.5 py-2.5 text-sm font-semibold text-mist hover:bg-panel2 hover:text-cyan">Créditos</Link>
+            <Link to="/revendedores" className="whitespace-nowrap rounded-xl px-3.5 py-2.5 text-sm font-semibold text-mist hover:bg-panel2 hover:text-cyan">Revendedores</Link>
+          </nav>
           <div className="flex flex-col gap-3 rounded-2xl bg-panel/40 p-3 ring-1 ring-line/60 lg:flex-row lg:items-center lg:justify-between">
             <nav aria-label="Navegação e relatórios" className="flex flex-wrap items-center gap-2">
-              <Button asChild variant="outline" className="h-9 border-line bg-panel text-cyan hover:bg-panel2 hover:text-cyan">
-                <Link to="/revendedores">Revendedores</Link>
-              </Button>
-              <Button asChild variant="outline" className="h-9 border-line bg-panel text-cyan hover:bg-panel2 hover:text-cyan">
-                <Link to="/creditos">Créditos</Link>
-              </Button>
               <button onClick={() => setForecastOpen(true)} className="font-display rounded-xl bg-panel px-3 py-2 text-sm font-medium text-cyan ring-1 ring-cyan/30 hover:bg-cyan/10">
                 Previsão de lucro
               </button>
@@ -641,7 +660,10 @@ function Painel() {
                 <span className="text-mist">⌕</span>
                 <input
                   value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    if (e.target.value.trim() && view !== "renovacoes") void navigate({ to: "/", search: { aba: "renovacoes" } });
+                  }}
                   className="min-w-0 w-full bg-transparent text-sm text-frost outline-none placeholder:text-mist/60"
                   placeholder="Buscar cliente"
                 />
@@ -656,7 +678,17 @@ function Painel() {
           </div>
         </header>
 
-        <section className="mt-6 grid grid-cols-2 gap-3 sm:mt-8 sm:grid-cols-3 lg:grid-cols-6">
+        <div className={view === "dashboard" ? "" : "hidden"}>
+          <div className="mt-7 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h1 className="font-display text-2xl font-semibold">Visão geral</h1>
+              <p className="mt-1 text-sm text-mist">Vencimentos, créditos e resultado registrado em um só lugar.</p>
+            </div>
+            <button onClick={() => openRenewals("hoje")} className="rounded-xl bg-cyan/15 px-4 py-2.5 text-sm font-semibold text-cyan ring-1 ring-cyan/30 hover:bg-cyan/25">
+              Ver vencimentos de hoje →
+            </button>
+          </div>
+        <section className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           <MetricCard label="Clientes" value={String(summary.total)} hint="total cadastrado" />
           <MetricCard
             label="Ativos"
@@ -689,9 +721,9 @@ function Painel() {
             valueClass="text-warn"
           />
           <MetricCard
-            label="Lucro total"
+            label="Margem prevista"
             value={money(summary.lucro)}
-            hint="clientes não vencidos"
+            hint="não é lucro líquido"
             valueClass="text-cyan text-[clamp(0.75rem,12cqi,1.5rem)]"
             cardClass="bg-cyan/10 ring-cyan/40"
             labelClass="text-cyan/80"
@@ -737,6 +769,56 @@ function Painel() {
           )}
         </section>
 
+        <section className="mt-5 grid gap-3 lg:grid-cols-2" aria-label="Ações prioritárias e financeiro">
+          <div className="rounded-2xl bg-panel/70 p-4 ring-1 ring-line">
+            <h2 className="font-display text-base font-semibold">Atenção necessária</h2>
+            <p className="mt-1 text-xs text-mist">Cada login mantém seu próprio vencimento.</p>
+            <div className="mt-4 flex flex-col gap-2">
+              <button type="button" onClick={() => openRenewals("hoje")} className="flex items-center justify-between rounded-xl bg-background/70 px-3 py-3 text-left text-sm ring-1 ring-line hover:ring-today/50">
+                <span>Vencem hoje</span><strong className="text-today">{summary.hoje} acessos →</strong>
+              </button>
+              <button type="button" onClick={() => openRenewals("breve")} className="flex items-center justify-between rounded-xl bg-background/70 px-3 py-3 text-left text-sm ring-1 ring-line hover:ring-warn/50">
+                <span>Próximos 5 dias (sem hoje)</span><strong className="text-warn">{summary.proximos} acessos →</strong>
+              </button>
+              <button type="button" onClick={() => openRenewals("vencidos")} className="flex items-center justify-between rounded-xl bg-background/70 px-3 py-3 text-left text-sm ring-1 ring-line hover:ring-danger/50">
+                <span>Vencidos</span><strong className="text-danger">{summary.vencidos} acessos →</strong>
+              </button>
+              {!stockLoading && !stockError && stockOverview.filter((stock) => stock.shortageFive > 0).map((stock) => (
+                <Link key={stock.name} to="/creditos" search={{ servidor: stock.name }} className="flex items-center justify-between rounded-xl bg-warn/10 px-3 py-3 text-left text-sm ring-1 ring-warn/30 hover:ring-warn">
+                  <span>Créditos: {stock.label}</span><strong className="text-warn">Faltam {stock.shortageFive} →</strong>
+                </Link>
+              ))}
+              {stockError && <p role="alert" className="text-xs text-warn">Não foi possível conferir todos os saldos.</p>}
+            </div>
+          </div>
+          <div className="rounded-2xl bg-panel/70 p-4 ring-1 ring-line">
+            <h2 className="font-display text-base font-semibold">Financeiro — mês atual</h2>
+            <p className="mt-1 text-xs text-mist">Somente renovações já registradas no MaxFlix.</p>
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <div className="rounded-xl bg-background/70 p-3 ring-1 ring-line">
+                <p className="text-xs text-mist">Receita registrada</p>
+                <p className="mt-2 break-words font-display text-xl font-semibold text-cyan">{money(currentMonthBilling?.faturado ?? 0)}</p>
+              </div>
+              <div className="rounded-xl bg-background/70 p-3 ring-1 ring-line">
+                <p className="text-xs text-mist">Margem registrada</p>
+                <p className="mt-2 break-words font-display text-xl font-semibold text-ok">{money(currentMonthBilling?.lucro ?? 0)}</p>
+              </div>
+            </div>
+            <p className="mt-3 text-xs leading-relaxed text-mist">
+              Margem = receita menos custo lançado nas renovações. Não considera taxas de compra de créditos e outras despesas; não é lucro líquido.
+            </p>
+            <button onClick={() => setForecastOpen(true)} className="mt-4 rounded-xl bg-cyan/10 px-3 py-2 text-sm font-semibold text-cyan ring-1 ring-cyan/25 hover:bg-cyan/20">
+              Consultar previsão de lucro →
+            </button>
+          </div>
+        </section>
+        </div>
+
+        <div className={view === "renovacoes" ? "" : "hidden"}>
+          <div className="mt-7">
+            <h1 className="font-display text-2xl font-semibold">Clientes e renovações</h1>
+            <p className="mt-1 text-sm text-mist">Um cartão por login, cada um com seu vencimento.</p>
+          </div>
         <section className="mt-6 flex flex-wrap items-center gap-2 sm:mt-8">
           <nav className="flex flex-wrap items-center gap-1 rounded-xl bg-panel p-1 ring-1 ring-line">
             {tabs.map((t) => (
@@ -762,7 +844,7 @@ function Painel() {
               <>
                 <span className="hidden text-xs text-mist sm:inline">Vence em</span>
                 <div className="flex items-center gap-1 rounded-xl bg-panel p-1 ring-1 ring-line">
-                  {[1, 2, 3, 4, 5].map((d) => (
+                  {[0, 1, 2, 3, 4, 5].map((d) => (
                     <button
                       key={d}
                       onClick={() => setRange(d)}
@@ -772,7 +854,7 @@ function Painel() {
                           : "text-mist hover:bg-frost/5"
                       }`}
                     >
-                      {d}
+                      {d === 0 ? "1–5 dias" : `${d}d`}
                     </button>
                   ))}
                 </div>
@@ -848,7 +930,7 @@ function Painel() {
                       <div className="min-w-0">
                         <p className="font-display break-words text-base font-semibold sm:text-lg">{c.name}</p>
                         <p className="truncate text-xs text-mist">
-                          {c.login} · {c.server}
+                          {c.login}
                         </p>
                       </div>
                       <StatusBadge status={status} />
@@ -866,8 +948,8 @@ function Painel() {
                         <p className="mt-1 break-words text-sm font-semibold sm:text-base">{money(c.paid)}</p>
                       </div>
                       <div className="min-w-0">
-                        <p className="text-[11px] text-mist">Custo</p>
-                        <p className="mt-1 break-words text-sm font-medium sm:text-base">{money(c.cost)}</p>
+                        <p className="text-[11px] text-mist">Servidor</p>
+                        <p className="mt-1 break-words text-sm font-medium sm:text-base">{c.server}</p>
                       </div>
                       <div className="min-w-0">
                         <p className="text-[11px] text-mist">Lucro</p>
@@ -960,7 +1042,9 @@ function Painel() {
           </>
         )}
 
-        {monthlyBilling.length > 0 && (
+        </div>
+
+        {view === "dashboard" && monthlyBilling.length > 0 && (
           <section className="mt-8 rounded-2xl bg-panel/60 p-5 ring-1 ring-line backdrop-blur-sm">
             <h2 className="font-display text-base font-semibold">Faturamento por mês</h2>
             <p className="mt-1 text-xs text-mist">Renovações registradas no painel.</p>
