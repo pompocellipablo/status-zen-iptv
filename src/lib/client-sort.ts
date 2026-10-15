@@ -3,19 +3,29 @@ export type ClientSortMode =
   | "vencimento-asc"
   | "vencimento-desc"
   | "login-asc"
-  | "login-desc";
+  | "login-desc"
+  | "servidor-asc"
+  | "servidor-desc";
 
-type SortableClient = { name: string; login: string; due_date: string };
+type SortableClient = { name: string; login: string; server: string; due_date: string };
 const collator = new Intl.Collator("pt-BR", { numeric: true, sensitivity: "base" });
 
 export function sortClients<T extends SortableClient>(clients: readonly T[], mode: ClientSortMode): T[] {
-  const [field, direction] = mode.split("-") as ["vencimento" | "login", "asc" | "desc"];
+  const [field, direction] = mode.split("-") as ["vencimento" | "login" | "servidor", "asc" | "desc"];
   const order = direction === "desc" ? -1 : 1;
   return [...clients].sort((a, b) => {
     const comparison = field === "vencimento"
       ? a.due_date.localeCompare(b.due_date)
-      : collator.compare(a.login, b.login);
+      : field === "servidor"
+        ? collator.compare(a.server, b.server)
+        : collator.compare(a.login, b.login);
     if (comparison !== 0) return comparison * order;
+    // Agrupa os acessos por servidor; dentro de cada um, vencimentos mais próximos primeiro.
+    if (field === "servidor") {
+      return a.due_date.localeCompare(b.due_date) ||
+        collator.compare(a.login, b.login) ||
+        collator.compare(a.name, b.name);
+    }
     // Keep client ordering predictable when their chosen field is equal.
     return collator.compare(a.name, b.name) || collator.compare(a.login, b.login);
   });
