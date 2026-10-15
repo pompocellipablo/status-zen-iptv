@@ -1,5 +1,5 @@
 import { IS_ISOLATED_READ_ONLY_PREVIEW } from '@/lib/isolated-preview-mode';
-import { creditStockOverview } from "@/lib/credit-stock-overview";
+import { creditStockOverview, prioritizeCreditStocks } from "@/lib/credit-stock-overview";
 import type { CreditMovement } from "@/lib/server-credits";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
@@ -242,7 +242,7 @@ function Painel() {
   const clients = useMemo(() => clientsQuery.data ?? [], [clientsQuery.data]);
   const payments = useMemo(() => paymentsQuery.data ?? [], [paymentsQuery.data]);
   const stockOverview = useMemo(
-    () => creditStockOverview(stockMovementsQuery.data ?? [], stockAlertsQuery.data ?? [], clients),
+    () => prioritizeCreditStocks(creditStockOverview(stockMovementsQuery.data ?? [], stockAlertsQuery.data ?? [], clients)),
     [stockMovementsQuery.data, stockAlertsQuery.data, clients],
   );
   const stockLoading = stockMovementsQuery.isLoading || stockAlertsQuery.isLoading || clientsQuery.isLoading;
