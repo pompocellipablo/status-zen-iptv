@@ -154,7 +154,12 @@ function Revendedores() {
       <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
         <header className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 border-b border-line pb-6 sm:flex sm:items-center">
           <div className="min-w-0">
-            <Link to="/" className="inline-flex items-center gap-1 text-sm text-mist hover:text-cyan"><ArrowLeft size={16} /> Clientes</Link>
+            <nav aria-label="Áreas do MaxFlix" className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+          <Link to="/" className="inline-flex items-center gap-1 text-mist hover:text-cyan"><ArrowLeft size={16} /> Dashboard</Link>
+          <Link to="/" search={{ aba: "renovacoes" }} className="text-mist hover:text-cyan">Renovações</Link>
+          <Link to="/creditos" className="text-mist hover:text-cyan">Créditos</Link>
+          <Link to="/revendedores" className="text-mist hover:text-cyan">Revendedores</Link>
+        </nav>
             <h1 className="mt-3 truncate font-display text-2xl font-semibold sm:text-3xl">Revendedores</h1>
             <p className="mt-1 text-sm text-mist">Vendas de créditos</p>
           </div>
