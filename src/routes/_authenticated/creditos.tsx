@@ -129,10 +129,10 @@ function ServerCredits() {
               <span className={`font-display text-2xl font-semibold ${!row.configured ? "text-mist" : row.lowStock ? "text-warn" : "text-cyan"}`}>
                 {row.configured ? row.balance : "—"}
               </span>
-              <span className="text-xs text-mist">{row.totalClients} clientes</span>
+              <span className="text-xs text-mist">{row.totalClients} {row.totalClients === 1 ? "cliente" : "clientes"}</span>
             </span>
             <span className="w-full text-[11px] text-mist">
-              {row.configured ? `${row.five} renovações previstas em 5 dias` : "Informar saldo inicial"}
+              {row.configured ? `${row.five} ${row.five === 1 ? "renovação prevista" : "renovações previstas"} em 5 dias` : "Informar saldo inicial"}
             </span>
             {row.configured && row.shortageFive > 0 && (
               <span className="w-full text-[11px] font-semibold text-warn">
@@ -155,8 +155,8 @@ function ServerCredits() {
               </div>
             </div>
             <div className="mt-3 flex flex-wrap gap-3 text-xs text-mist">
-              <span>{selected.totalClients} clientes cadastrados</span>
-              <span>{selected.five} renovações previstas até 5 dias</span>
+              <span>{selected.totalClients} {selected.totalClients === 1 ? "cliente cadastrado" : "clientes cadastrados"}</span>
+              <span>{selected.five} {selected.five === 1 ? "renovação prevista" : "renovações previstas"} até 5 dias</span>
               {selected.configured && selected.shortageFive > 0 && (
                 <span className="font-semibold text-warn">Previsão de falta de {selected.shortageFive} créditos</span>
               )}
