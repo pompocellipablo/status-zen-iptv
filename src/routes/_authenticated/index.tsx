@@ -813,76 +813,13 @@ function Painel() {
           </p>
         ) : (
           <>
-            <section className="mt-4 hidden rounded-2xl bg-panel/60 ring-1 ring-line backdrop-blur-sm lg:block" aria-label="Tabela de clientes">
-              <table className="w-full table-fixed border-collapse text-[13px]">
-                <colgroup>
-                  <col style={{ width: "18%" }} />
-                  <col style={{ width: "9%" }} />
-                  <col style={{ width: "11%" }} />
-                  <col style={{ width: "11%" }} />
-                  <col style={{ width: "17%" }} />
-                  <col style={{ width: "16%" }} />
-                  <col style={{ width: "18%" }} />
-                </colgroup>
-                <thead>
-                  <tr className="border-b border-line text-left text-[10px] tracking-wide text-mist uppercase">
-                    <th className="px-3 py-3 font-medium">Cliente</th>
-                    <th className="px-2 py-3 font-medium">Servidor</th>
-                    <th className="px-2 py-3 font-medium">Vencimento</th>
-                    <th className="px-2 py-3 font-medium">Financeiro</th>
-                    <th className="px-2 py-3 font-medium">Valores</th>
-                    <th className="px-2 py-3 font-medium">Status</th>
-                    <th className="px-2 py-3 text-right font-medium">Ações</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {paginated.rows.map((client) => {
-                    const status = getStatus(client);
-                    const profit = client.paid - client.cost;
-                    return (
-                      <tr key={client.id} className="border-b border-line/60 align-middle transition-colors last:border-b-0 hover:bg-frost/5">
-                        <td className="min-w-0 px-3 py-3">
-                          <div className="truncate font-medium" title={client.name}>{client.name}</div>
-                          <div className="truncate text-xs text-mist" title={client.login}>{client.login}</div>
-                          {client.whatsapp && <div className="truncate text-[11px] text-mist" title={client.whatsapp}>{client.whatsapp}</div>}
-                        </td>
-                        <td className="break-words px-2 py-3 text-mist">{client.server}</td>
-                        <td className="px-2 py-3 text-xs text-mist">{formatDate(client.due_date)}</td>
-                        <td className="px-2 py-3 text-xs text-mist">{formatDate(client.financial_due_date)}</td>
-                        <td className="px-2 py-3">
-                          <div className="space-y-0.5 text-[11px] leading-4 text-mist">
-                            <div>Pago <span className="font-medium text-frost">{money(client.paid)}</span></div>
-                            <div>Custo {money(client.cost)}</div>
-                            <div>Lucro <span className={`font-semibold ${profit >= 0 ? "text-ok" : "text-danger"}`}>{money(profit)}</span></div>
-                          </div>
-                        </td>
-                        <td className="px-2 py-3">
-                          <div className="max-w-full overflow-hidden"><StatusBadge status={status} /></div>
-                        </td>
-                        <td className="px-2 py-3 text-right">
-                          <RowActions
-                            client={client}
-                            template={template}
-                            overdueTemplate={overdueTemplate}
-                            onRenew={() => renew(client)}
-                            onEdit={() => { setEditing(client); setFormOpen(true); }}
-                            onDelete={() => deleteMutation.mutate(client.id)}
-                          />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </section>
-
-            <section className="mt-4 space-y-3 lg:hidden">
+            <section className="mt-4 grid grid-cols-1 items-start gap-3 md:grid-cols-2" aria-label="Clientes em cartões">
               {paginated.rows.map((c) => {
                 const status = getStatus(c);
                 return (
                   <div
                     key={c.id}
-                    className={`rounded-2xl p-4 ring-1 ${
+                    className={`min-w-0 rounded-2xl p-4 ring-1 sm:p-5 ${
                       status.key === "vencido"
                         ? "bg-danger/10 ring-danger/40"
                         : "bg-panel/70 ring-line"
@@ -890,7 +827,7 @@ function Painel() {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="font-display truncate text-base font-semibold">{c.name}</p>
+                        <p className="font-display break-words text-base font-semibold sm:text-lg">{c.name}</p>
                         <p className="truncate text-xs text-mist">
                           {c.login} · {c.server}
                         </p>
@@ -903,18 +840,18 @@ function Painel() {
                         <span> · Financeiro: {formatDate(c.financial_due_date)}</span>
                       )}
                     </p>
-                    <div className="mt-3 grid grid-cols-3 gap-2 rounded-xl bg-background/40 p-3">
+                    <div className="mt-3 grid grid-cols-3 gap-2 rounded-xl bg-background/40 p-3 sm:p-4">
                       <div className="min-w-0">
                         <p className="text-[11px] text-mist">Pago</p>
-                        <p className="mt-1 break-words text-sm font-semibold">{money(c.paid)}</p>
+                        <p className="mt-1 break-words text-sm font-semibold sm:text-base">{money(c.paid)}</p>
                       </div>
                       <div className="min-w-0">
                         <p className="text-[11px] text-mist">Custo</p>
-                        <p className="mt-1 break-words text-sm font-medium">{money(c.cost)}</p>
+                        <p className="mt-1 break-words text-sm font-medium sm:text-base">{money(c.cost)}</p>
                       </div>
                       <div className="min-w-0">
                         <p className="text-[11px] text-mist">Lucro</p>
-                        <p className={`mt-1 break-words text-sm font-semibold ${c.paid - c.cost >= 0 ? "text-ok" : "text-danger"}`}>
+                        <p className={`mt-1 break-words text-sm font-semibold sm:text-base ${c.paid - c.cost >= 0 ? "text-ok" : "text-danger"}`}>
                           {money(c.paid - c.cost)}
                         </p>
                       </div>
@@ -1319,57 +1256,6 @@ function MetricCard({
         {value}
       </p>
       <p className={`mt-2 text-xs ${hintClass}`}>{hint}</p>
-    </div>
-  );
-}
-
-function RowActions({
-  client,
-  template,
-  overdueTemplate,
-  onRenew,
-  onEdit,
-  onDelete,
-}: {
-  client: Client;
-  template: string;
-  overdueTemplate: string;
-  onRenew: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
-}) {
-  return (
-    <div className="flex flex-nowrap items-center justify-end gap-1.5 whitespace-nowrap">
-      <button type="button" onClick={onRenew} className="font-display shrink-0 text-[11px] font-semibold text-cyan hover:text-frost">
-        Renovar
-      </button>
-      <a
-        href={renewalMessageLink(client, template, overdueTemplate)}
-        target="_blank"
-        rel="noreferrer"
-        aria-label={`Enviar renovação pelo WhatsApp para ${client.name}`}
-        className="font-display shrink-0 text-[11px] font-medium text-ok hover:text-frost"
-      >
-        <span className="hidden xl:inline">WhatsApp</span><span className="xl:hidden">WA</span>
-      </a>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            aria-label={`Mais ações para ${client.name}`}
-            title="Editar ou excluir"
-            className="grid size-7 shrink-0 place-items-center rounded-lg bg-panel2 text-mist ring-1 ring-line hover:text-frost"
-          >
-            <MoreHorizontal size={17} aria-hidden="true" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" sideOffset={5} className="min-w-[170px] border-line bg-panel2 text-frost">
-          <DropdownMenuItem onSelect={onEdit}>Editar cliente</DropdownMenuItem>
-          <DropdownMenuItem onSelect={onDelete} className="text-danger focus:bg-danger/10 focus:text-danger">
-            Excluir cliente
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
     </div>
   );
 }
