@@ -9,6 +9,7 @@ import { ClientForm, type ClientDraft } from "@/components/ClientForm";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ImportDialog } from "@/components/ImportDialog";
 import { Button } from "@/components/ui/button";
+import { paginateClients } from "@/lib/client-pagination";
 import { MoreHorizontal } from "lucide-react";
 import {
   DropdownMenu,
@@ -93,6 +94,7 @@ function Painel() {
   const [search, setSearch] = useState("");
   const [serverFilter, setServerFilter] = useState("todos");
   const [asc, setAsc] = useState(true);
+  const [page, setPage] = useState(1);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Client | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -459,6 +461,19 @@ function Painel() {
         asc ? a.due_date.localeCompare(b.due_date) : b.due_date.localeCompare(a.due_date),
       );
   }, [clients, tab, range, search, serverFilter, asc]);
+  
+  // Apply search, status, server, and sort to the entire list BEFORE paging.
+  // Reset page when those controls change; preserve overall summary and CSV export.
+  useEffect(() => {
+    setPage(1);
+  }, [tab, range, search, serverFilter, asc]);
+
+  const paginated = useMemo(() => paginateClients(filtered, page), [filtered, page]);
+  const changePage = (nextPage: number) => {
+    setPage(Math.max(1, Math.min(nextPage, paginated.totalPages)));
+    document.getElementById("maxflix-client-results")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
 
   const monthlyBilling = useMemo(() => {
     const map = new Map<string, { faturado: number; custo: number; count: number }>();
@@ -771,6 +786,16 @@ function Painel() {
           </div>
         </section>
 
+        <div id="maxflix-client-results" className="scroll-mt-4" aria-live="polite">
+          {!clientsQuery.isLoading && (
+            <p className="mt-4 text-xs text-mist">
+              {paginated.count === 0
+                ? "Nenhum cliente encontrado com os filtros atuais."
+                : `Exibindo ${paginated.first}–${paginated.last} de ${paginated.count} clientes · 25 por página`}
+            </p>
+          )}
+        </div>
+
         {notice && (
           <div className="mt-4 flex items-center justify-between gap-3 rounded-xl bg-cyan/10 px-3 py-2 text-sm text-cyan ring-1 ring-cyan/30">
             <span>{notice}</span>
@@ -811,7 +836,7 @@ function Painel() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((client) => {
+                  {paginated.rows.map((client) => {
                     const status = getStatus(client);
                     const profit = client.paid - client.cost;
                     return (
@@ -852,7 +877,7 @@ function Painel() {
             </section>
 
             <section className="mt-4 space-y-3 lg:hidden">
-              {filtered.map((c) => {
+              {paginated.rows.map((c) => {
                 const status = getStatus(c);
                 return (
                   <div
@@ -927,6 +952,45 @@ function Painel() {
                 );
               })}
             </section>
+            {paginated.totalPages > 1 && (
+              <nav aria-label="Páginas de clientes" className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-panel/70 px-3 py-3 ring-1 ring-line">
+                <p className="text-xs text-mist">
+                  Exibindo {paginated.first}–{paginated.last} de {paginated.count} clientes
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={paginated.page <= 1}
+                    onClick={() => changePage(paginated.page - 1)}
+                    className="min-h-10 rounded-lg bg-panel2 px-3 text-sm font-medium text-frost ring-1 ring-line hover:bg-frost/5 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    ← Anterior
+                  </button>
+                  <label className="flex items-center gap-1.5 text-xs text-mist">
+                    Página
+                    <select
+                      value={paginated.page}
+                      onChange={(event) => changePage(Number(event.target.value))}
+                      aria-label="Selecionar página de clientes"
+                      className="min-h-10 rounded-lg bg-panel2 px-2 text-sm text-frost ring-1 ring-line"
+                    >
+                      {Array.from({ length: paginated.totalPages }, (_, index) => index + 1).map((pageNumber) => (
+                        <option key={pageNumber} value={pageNumber}>{pageNumber}</option>
+                      ))}
+                    </select>
+                    de {paginated.totalPages}
+                  </label>
+                  <button
+                    type="button"
+                    disabled={paginated.page >= paginated.totalPages}
+                    onClick={() => changePage(paginated.page + 1)}
+                    className="min-h-10 rounded-lg bg-panel2 px-3 text-sm font-medium text-frost ring-1 ring-line hover:bg-frost/5 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Próxima →
+                  </button>
+                </div>
+              </nav>
+            )}
           </>
         )}
 
