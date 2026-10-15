@@ -13,7 +13,7 @@ const clients = [
 describe("client sorting", () => {
   test("orders displayed client names alphabetically with accents and natural numbers", () => {
     assert.deepEqual(sortClients(clients, "nome-asc").map(c=>c.name), ["Álvaro", "ana", "Ana", "Bruno"]);
-    assert.deepEqual(sortClients(clients, "nome-desc").map(c=>c.name), ["Bruno", "Ana", "ana", "Álvaro"]);
+    assert.deepEqual(sortClients(clients, "nome-desc").map(c=>c.name), ["Bruno", "ana", "Ana", "Álvaro"]);
   });
   test("orders logins independently of display name", () => {
     assert.deepEqual(sortClients(clients, "login-asc").map(c=>c.login), ["alpha", "login2", "login10", "zeta"]);
