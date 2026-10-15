@@ -548,6 +548,24 @@ function Painel() {
     [clients],
   );
 
+  // Contagem de acessos cadastrados em cada servidor (UniP2P e Uniplay separados).
+  // Não depende do estoque de créditos nem considera pessoas responsáveis únicas.
+  const serverClientCounts = useMemo(
+    () => SERVERS.map((server) => {
+      const registered = clients.filter((client) => client.server === server);
+      const expired = registered.filter((client) => getStatus(client).key === "vencido").length;
+      const todayCount = registered.filter((client) => getStatus(client).key === "hoje").length;
+      return {
+        server,
+        total: registered.length,
+        active: registered.length - expired,
+        expired,
+        dueToday: todayCount,
+      };
+    }).sort((a, b) => b.total - a.total || a.server.localeCompare(b.server, "pt-BR")),
+    [clients],
+  );
+
   const signOut = async () => {
     await qc.cancelQueries();
     qc.clear();
@@ -584,6 +602,12 @@ function Painel() {
   const openRenewals = (target: Tab) => {
     setTab(target);
     if (target === "breve") setRange(0);
+    void navigate({ to: "/", search: { aba: "renovacoes" } });
+  };
+
+  const openServerRenewals = (server: string) => {
+    setServerFilter(server);
+    setTab("todos");
     void navigate({ to: "/", search: { aba: "renovacoes" } });
   };
 
@@ -811,6 +835,47 @@ function Painel() {
               Consultar previsão de lucro →
             </button>
           </div>
+        </section>
+
+        <section className="mt-5 rounded-2xl bg-panel/70 p-4 ring-1 ring-line sm:p-5" aria-label="Clientes por servidor">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h2 className="font-display text-base font-semibold">Clientes por servidor</h2>
+              <p className="mt-1 text-xs text-mist">
+                Contagem de acessos cadastrados por servidor, incluindo vencidos. Cada login é contado separadamente.
+              </p>
+            </div>
+            <span className="rounded-lg bg-background/70 px-3 py-1.5 text-xs text-mist ring-1 ring-line">
+              {summary.total} acessos no total
+            </span>
+          </div>
+          {clientsQuery.isLoading ? (
+            <p className="mt-4 text-sm text-mist">Carregando clientes por servidor…</p>
+          ) : clientsQuery.isError ? (
+            <p role="alert" className="mt-4 text-sm text-warn">Não foi possível carregar a quantidade de clientes por servidor.</p>
+          ) : (
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+              {serverClientCounts.map((item) => (
+                <button
+                  key={item.server}
+                  type="button"
+                  onClick={() => openServerRenewals(item.server)}
+                  aria-label={`Ver renovações de ${item.server}: ${item.total} acessos, ${item.expired} vencidos`}
+                  className="min-w-0 rounded-xl bg-background/70 p-3 text-left ring-1 ring-line transition-colors hover:bg-cyan/10 hover:ring-cyan/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan"
+                >
+                  <span className="block truncate text-xs font-medium text-mist" title={item.server}>{item.server}</span>
+                  <span className="mt-2 block font-display text-2xl font-semibold leading-none text-cyan">{item.total}</span>
+                  <span className="mt-1 block text-[11px] text-mist">{item.total === 1 ? "acesso" : "acessos"}</span>
+                  <span className="mt-3 block text-[11px] text-ok">{item.active} ativos</span>
+                  <span className={`mt-0.5 block text-[11px] ${item.expired > 0 ? "text-danger" : "text-mist"}`}>{item.expired} vencidos</span>
+                  {item.dueToday > 0 && <span className="mt-1 block text-[11px] text-today">{item.dueToday} vencem hoje</span>}
+                </button>
+              ))}
+            </div>
+          )}
+          <p className="mt-3 text-[11px] text-mist">
+            Toque em um servidor para filtrar a aba Renovações. Uniplay e UniP2P têm acessos separados, embora compartilhem créditos.
+          </p>
         </section>
         </div>
 
