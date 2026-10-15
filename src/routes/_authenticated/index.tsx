@@ -445,8 +445,8 @@ function Painel() {
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return sortClients(clients
-      .filter((c) => {
+    return sortClients(
+      clients.filter((c) => {
         const s = getStatus(c);
         if (tab === "todos" && s.key === "vencido") return false;
         if (tab === "vencidos" && s.key !== "vencido") return false;
@@ -457,8 +457,9 @@ function Painel() {
         if (serverFilter !== "todos" && c.server !== serverFilter) return false;
         if (term && !`${c.name} ${c.login}`.toLowerCase().includes(term)) return false;
         return true;
-      })
-      , sortMode);
+      }),
+      sortMode,
+    );
   }, [clients, tab, range, search, serverFilter, sortMode]);
   
   // Apply search, status, server, and sort to the entire list BEFORE paging.
