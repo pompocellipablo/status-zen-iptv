@@ -813,19 +813,20 @@ function Painel() {
           </p>
         ) : (
           <>
-            <section className="mt-4 grid grid-cols-1 items-start gap-3 md:grid-cols-2" aria-label="Clientes em cartões">
+            <section className="mt-4 space-y-3" aria-label="Clientes em cartões">
               {paginated.rows.map((c) => {
                 const status = getStatus(c);
                 return (
                   <div
                     key={c.id}
-                    className={`min-w-0 rounded-2xl p-4 ring-1 sm:p-5 ${
+                    className={`min-w-0 rounded-2xl p-4 ring-1 sm:p-5 xl:grid xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_minmax(0,0.85fr)] xl:items-center xl:gap-5 ${
                       status.key === "vencido"
                         ? "bg-danger/10 ring-danger/40"
                         : "bg-panel/70 ring-line"
                     }`}
                   >
-                    <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="font-display break-words text-base font-semibold sm:text-lg">{c.name}</p>
                         <p className="truncate text-xs text-mist">
@@ -840,7 +841,8 @@ function Painel() {
                         <span> · Financeiro: {formatDate(c.financial_due_date)}</span>
                       )}
                     </p>
-                    <div className="mt-3 grid grid-cols-3 gap-2 rounded-xl bg-background/40 p-3 sm:p-4">
+                    </div>
+                    <div className="mt-3 grid grid-cols-3 gap-2 rounded-xl bg-background/40 p-3 sm:p-4 xl:mt-0">
                       <div className="min-w-0">
                         <p className="text-[11px] text-mist">Pago</p>
                         <p className="mt-1 break-words text-sm font-semibold sm:text-base">{money(c.paid)}</p>
@@ -856,7 +858,7 @@ function Painel() {
                         </p>
                       </div>
                     </div>
-                    <div className="mt-3 flex items-stretch gap-2">
+                    <div className="mt-3 flex items-stretch gap-2 xl:mt-0">
                       <button
                         type="button"
                         onClick={() => renew(c)}
