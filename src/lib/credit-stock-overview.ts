@@ -59,3 +59,17 @@ export function creditStockOverview(
     };
   });
 }
+
+/**
+ * Dashboard-only ordering: stocks with forecast shortages first, then the
+ * busiest pools in the next five days; total clients breaks remaining ties.
+ * Credit management keeps its regular server ordering.
+ */
+export function prioritizeCreditStocks(rows: readonly CreditStockRow[]): CreditStockRow[] {
+  return [...rows].sort((a, b) =>
+    b.shortageFive - a.shortageFive ||
+    b.five - a.five ||
+    b.totalClients - a.totalClients ||
+    a.label.localeCompare(b.label, "pt-BR"),
+  );
+}
