@@ -939,6 +939,8 @@ function Painel() {
                   <SelectItem value="vencimento-desc">Vencimento ↓</SelectItem>
                   <SelectItem value="login-asc">Login A–Z</SelectItem>
                   <SelectItem value="login-desc">Login Z–A</SelectItem>
+                  <SelectItem value="servidor-asc">Servidor A–Z</SelectItem>
+                  <SelectItem value="servidor-desc">Servidor Z–A</SelectItem>
                 </SelectContent>
               </Select>
             </div>
