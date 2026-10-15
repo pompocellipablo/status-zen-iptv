@@ -9,6 +9,13 @@ import { ClientForm, type ClientDraft } from "@/components/ClientForm";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ImportDialog } from "@/components/ImportDialog";
 import { Button } from "@/components/ui/button";
+import { MoreHorizontal } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { ImportRow } from "@/lib/import-clients";
 import {
   DEFAULT_TEMPLATE,
@@ -558,108 +565,74 @@ function Painel() {
       </div>
 
       <div className="relative z-10 mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
-        <header className="flex flex-col gap-4 xl:flex-row xl:items-center">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-cyan/15 ring-1 ring-cyan/30">
-               <span className="font-display text-sm font-semibold text-cyan">M</span>
+        <header className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-cyan/15 ring-1 ring-cyan/30">
+                <span className="font-display text-sm font-semibold text-cyan">M</span>
+              </div>
+              <div className="min-w-0 leading-none">
+                <p className="font-display truncate text-base font-semibold">Max<span className="text-cyan">Flix</span></p>
+                <p className="mt-1 text-[11px] tracking-wide text-mist">Gestão de clientes IPTV</p>
+              </div>
             </div>
-            <div className="min-w-0 leading-none">
-              <p className="font-display truncate text-base font-semibold">
-                Max<span className="text-cyan">Flix</span>
-              </p>
-              <p className="mt-1 text-[11px] tracking-wide text-mist">Gestão de clientes IPTV</p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => { setEditing(null); setFormOpen(true); }}
+                className="font-display rounded-xl bg-cyan px-3 py-2 text-sm font-semibold text-background ring-1 ring-cyan/40 hover:brightness-110"
+              >
+                + Novo cliente
+              </button>
+              <button
+                onClick={toggleFinancials}
+                className={`grid size-9 shrink-0 place-items-center rounded-xl ring-1 ${financialsHidden ? "bg-cyan/15 text-cyan ring-cyan/30" : "bg-panel text-mist ring-line hover:text-frost"}`}
+                aria-label={financialsHidden ? "Mostrar valores financeiros" : "Ocultar valores financeiros"}
+                title={financialsHidden ? "Mostrar valores" : "Ocultar valores"}
+              >
+                {financialsHidden ? <EyeOffIcon /> : <EyeIcon />}
+              </button>
+              <button
+                onClick={signOut}
+                className="font-display rounded-xl bg-panel px-3 py-2 text-sm font-medium text-mist ring-1 ring-line hover:text-danger"
+              >
+                Sair
+              </button>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2 xl:ml-auto xl:justify-end">
-            <Button asChild variant="outline" className="border-line bg-panel text-cyan hover:bg-panel2 hover:text-cyan">
-              <Link to="/revendedores">Revendedores</Link>
-            </Button>
-            <Button asChild variant="outline" className="border-line bg-panel text-cyan hover:bg-panel2 hover:text-cyan">
-              <Link to="/creditos">Créditos</Link>
-            </Button>
-            <div className="hidden w-64 items-center gap-2 rounded-xl bg-panel px-3 py-2 ring-1 ring-line sm:flex">
-              <span className="text-sm text-mist">⌕</span>
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full bg-transparent text-sm text-frost outline-none placeholder:text-mist/60"
-                placeholder="Buscar por nome ou login"
-              />
+          <div className="flex flex-col gap-3 rounded-2xl bg-panel/40 p-3 ring-1 ring-line/60 lg:flex-row lg:items-center lg:justify-between">
+            <nav aria-label="Navegação e relatórios" className="flex flex-wrap items-center gap-2">
+              <Button asChild variant="outline" className="h-9 border-line bg-panel text-cyan hover:bg-panel2 hover:text-cyan">
+                <Link to="/revendedores">Revendedores</Link>
+              </Button>
+              <Button asChild variant="outline" className="h-9 border-line bg-panel text-cyan hover:bg-panel2 hover:text-cyan">
+                <Link to="/creditos">Créditos</Link>
+              </Button>
+              <button onClick={() => setForecastOpen(true)} className="font-display rounded-xl bg-panel px-3 py-2 text-sm font-medium text-cyan ring-1 ring-cyan/30 hover:bg-cyan/10">
+                Previsão de lucro
+              </button>
+              <button onClick={() => setServerReportOpen(true)} className="font-display rounded-xl bg-panel px-3 py-2 text-sm font-medium text-cyan ring-1 ring-cyan/30 hover:bg-cyan/10">
+                Servidores
+              </button>
+            </nav>
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <label className="flex min-w-[180px] flex-1 items-center gap-2 rounded-xl bg-panel px-3 py-2 ring-1 ring-line lg:max-w-[235px]" aria-label="Buscar cliente">
+                <span className="text-mist">⌕</span>
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="min-w-0 w-full bg-transparent text-sm text-frost outline-none placeholder:text-mist/60"
+                  placeholder="Buscar cliente"
+                />
+              </label>
+              <button onClick={() => setSettingsOpen(true)} className="font-display rounded-xl bg-panel px-3 py-2 text-sm font-medium text-mist ring-1 ring-line hover:bg-frost/5">
+                Mensagem
+              </button>
+              <button onClick={() => setImportOpen(true)} className="font-display rounded-xl bg-panel px-3 py-2 text-sm font-medium text-mist ring-1 ring-line hover:bg-frost/5">
+                Importar
+              </button>
             </div>
-            <button
-              onClick={() => setForecastOpen(true)}
-              className="font-display hidden rounded-xl bg-panel px-3 py-2 text-sm font-medium text-cyan ring-1 ring-cyan/30 hover:bg-cyan/10 lg:block"
-            >
-              Previsão de lucro
-            </button>
-            <button
-              onClick={() => setServerReportOpen(true)}
-              className="font-display hidden rounded-xl bg-panel px-3 py-2 text-sm font-medium text-cyan ring-1 ring-cyan/30 hover:bg-cyan/10 lg:block"
-            >
-              Servidores
-            </button>
-            <button
-              onClick={toggleFinancials}
-              className={`grid size-9 shrink-0 place-items-center rounded-xl ring-1 ${financialsHidden ? "bg-cyan/15 text-cyan ring-cyan/30" : "bg-panel text-mist ring-line hover:text-frost"}`}
-              aria-label={financialsHidden ? "Mostrar valores financeiros" : "Ocultar valores financeiros"}
-              title={financialsHidden ? "Mostrar valores" : "Ocultar valores"}
-            >
-              {financialsHidden ? <EyeOffIcon /> : <EyeIcon />}
-            </button>
-            <button
-              onClick={() => setSettingsOpen(true)}
-              className="font-display rounded-xl bg-panel px-3 py-2 text-sm font-medium text-mist ring-1 ring-line hover:bg-frost/5"
-            >
-              Mensagem
-            </button>
-            <button
-              onClick={() => setImportOpen(true)}
-              className="font-display rounded-xl bg-panel px-3 py-2 text-sm font-medium text-mist ring-1 ring-line hover:bg-frost/5"
-            >
-              Importar
-            </button>
-            <button
-              onClick={() => {
-                setEditing(null);
-                setFormOpen(true);
-              }}
-              className="font-display rounded-xl bg-cyan py-2 pr-3 pl-2 text-sm font-semibold text-background ring-1 ring-cyan/40 transition-transform hover:-translate-y-px"
-            >
-              <span className="inline-flex items-center gap-1.5">
-                <span className="text-base leading-none">+</span> Novo cliente
-              </span>
-            </button>
-            <button
-              onClick={signOut}
-              className="font-display rounded-xl bg-panel px-3 py-2 text-sm font-medium text-mist ring-1 ring-line hover:text-danger"
-              aria-label="Sair do painel"
-            >
-              Sair
-            </button>
           </div>
         </header>
-
-        <div className="mt-4 sm:hidden">
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-xl bg-panel px-3 py-2.5 text-sm text-frost ring-1 ring-line outline-none placeholder:text-mist/60"
-            placeholder="Buscar por nome ou login"
-          />
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <button onClick={() => setForecastOpen(true)} className="font-display rounded-xl bg-cyan/10 px-3 py-2.5 text-sm font-semibold text-cyan ring-1 ring-cyan/30">Previsão de lucro</button>
-            <button onClick={() => setServerReportOpen(true)} className="font-display rounded-xl bg-panel px-3 py-2.5 text-sm font-semibold text-cyan ring-1 ring-cyan/30">Servidores</button>
-          </div>
-        </div>
-
-        <div className="mt-4 hidden sm:block lg:hidden">
-          <button
-            onClick={() => setForecastOpen(true)}
-            className="font-display rounded-xl bg-cyan/10 px-3 py-2 text-sm font-semibold text-cyan ring-1 ring-cyan/30"
-          >
-            Previsão de lucro
-          </button>
-        </div>
 
         <section className="mt-6 grid grid-cols-2 gap-3 sm:mt-8 sm:grid-cols-3 lg:grid-cols-6">
           <MetricCard label="Clientes" value={String(summary.total)} hint="total cadastrado" />
