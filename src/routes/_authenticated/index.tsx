@@ -816,13 +816,13 @@ function Painel() {
             <section className="mt-4 hidden rounded-2xl bg-panel/60 ring-1 ring-line backdrop-blur-sm lg:block" aria-label="Tabela de clientes">
               <table className="w-full table-fixed border-collapse text-[13px]">
                 <colgroup>
-                  <col style={{ width: "19%" }} />
+                  <col style={{ width: "18%" }} />
                   <col style={{ width: "9%" }} />
                   <col style={{ width: "11%" }} />
                   <col style={{ width: "11%" }} />
-                  <col style={{ width: "18%" }} />
                   <col style={{ width: "17%" }} />
-                  <col style={{ width: "15%" }} />
+                  <col style={{ width: "16%" }} />
+                  <col style={{ width: "18%" }} />
                 </colgroup>
                 <thead>
                   <tr className="border-b border-line text-left text-[10px] tracking-wide text-mist uppercase">
@@ -1339,8 +1339,8 @@ function RowActions({
   onDelete: () => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
-      <button type="button" onClick={onRenew} className="font-display shrink-0 text-xs font-semibold text-cyan hover:text-frost">
+    <div className="flex flex-nowrap items-center justify-end gap-1.5 whitespace-nowrap">
+      <button type="button" onClick={onRenew} className="font-display shrink-0 text-[11px] font-semibold text-cyan hover:text-frost">
         Renovar
       </button>
       <a
@@ -1348,9 +1348,9 @@ function RowActions({
         target="_blank"
         rel="noreferrer"
         aria-label={`Enviar renovação pelo WhatsApp para ${client.name}`}
-        className="font-display shrink-0 text-xs font-medium text-ok hover:text-frost"
+        className="font-display shrink-0 text-[11px] font-medium text-ok hover:text-frost"
       >
-        WhatsApp
+        <span className="hidden xl:inline">WhatsApp</span><span className="xl:hidden">WA</span>
       </a>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
