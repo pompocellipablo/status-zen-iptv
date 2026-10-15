@@ -114,7 +114,12 @@ function ServerCredits() {
   return <main className="min-h-screen bg-background text-frost">
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
       <header className="border-b border-line pb-6">
-        <Link to="/" className="inline-flex items-center gap-1 text-sm text-mist hover:text-cyan"><ArrowLeft size={16} /> Clientes</Link>
+        <nav aria-label="Áreas do MaxFlix" className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+          <Link to="/" className="inline-flex items-center gap-1 text-mist hover:text-cyan"><ArrowLeft size={16} /> Dashboard</Link>
+          <Link to="/" search={{ aba: "renovacoes" }} className="text-mist hover:text-cyan">Renovações</Link>
+          <Link to="/creditos" className="text-mist hover:text-cyan">Créditos</Link>
+          <Link to="/revendedores" className="text-mist hover:text-cyan">Revendedores</Link>
+        </nav>
         <h1 className="mt-3 font-display text-2xl font-semibold sm:text-3xl">Créditos dos servidores</h1>
       </header>
       {notice && <div role="status" className="mt-5 flex items-center justify-between gap-3 rounded-md border border-cyan/30 bg-cyan/10 px-3 py-2 text-sm text-cyan">{notice}<Button variant="ghost" size="icon" aria-label="Fechar aviso" onClick={() => setNotice("")}><X /></Button></div>}
