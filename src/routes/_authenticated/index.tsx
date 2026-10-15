@@ -1,4 +1,4 @@
-import { creditStockOverview } from "@/lib/credit-stock-overview";
+import { creditStockOverview, prioritizeCreditStocks } from "@/lib/credit-stock-overview";
 import type { CreditMovement } from "@/lib/server-credits";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
@@ -8,6 +8,22 @@ import { ClientForm, type ClientDraft } from "@/components/ClientForm";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ImportDialog } from "@/components/ImportDialog";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { paginateClients } from "@/lib/client-pagination";
+import { sortClients, type ClientSortMode } from "@/lib/client-sort";
+import { MessageCircle, MoreHorizontal, RefreshCw } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { ImportRow } from "@/lib/import-clients";
 import {
   DEFAULT_TEMPLATE,
@@ -84,7 +100,8 @@ function Painel() {
   const [range, setRange] = useState(1);
   const [search, setSearch] = useState("");
   const [serverFilter, setServerFilter] = useState("todos");
-  const [asc, setAsc] = useState(true);
+  const [sortMode, setSortMode] = useState<ClientSortMode>("vencimento-asc");
+  const [page, setPage] = useState(1);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Client | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -223,9 +240,8 @@ function Painel() {
   const overdueTemplate = settingsQuery.data?.overdue ?? DEFAULT_OVERDUE_TEMPLATE;
   const clients = useMemo(() => clientsQuery.data ?? [], [clientsQuery.data]);
   const payments = useMemo(() => paymentsQuery.data ?? [], [paymentsQuery.data]);
-
   const stockOverview = useMemo(
-    () => creditStockOverview(stockMovementsQuery.data ?? [], stockAlertsQuery.data ?? [], clients),
+    () => prioritizeCreditStocks(creditStockOverview(stockMovementsQuery.data ?? [], stockAlertsQuery.data ?? [], clients)),
     [stockMovementsQuery.data, stockAlertsQuery.data, clients],
   );
   const stockLoading = stockMovementsQuery.isLoading || stockAlertsQuery.isLoading || clientsQuery.isLoading;
@@ -431,8 +447,8 @@ function Painel() {
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return clients
-      .filter((c) => {
+    return sortClients(
+      clients.filter((c) => {
         const s = getStatus(c);
         if (tab === "todos" && s.key === "vencido") return false;
         if (tab === "vencidos" && s.key !== "vencido") return false;
@@ -443,11 +459,23 @@ function Painel() {
         if (serverFilter !== "todos" && c.server !== serverFilter) return false;
         if (term && !`${c.name} ${c.login}`.toLowerCase().includes(term)) return false;
         return true;
-      })
-      .sort((a, b) =>
-        asc ? a.due_date.localeCompare(b.due_date) : b.due_date.localeCompare(a.due_date),
-      );
-  }, [clients, tab, range, search, serverFilter, asc]);
+      }),
+      sortMode,
+    );
+  }, [clients, tab, range, search, serverFilter, sortMode]);
+  
+  // Apply search, status, server, and sort to the entire list BEFORE paging.
+  // Reset page when those controls change; preserve overall summary and CSV export.
+  useEffect(() => {
+    setPage(1);
+  }, [tab, range, search, serverFilter, sortMode]);
+
+  const paginated = useMemo(() => paginateClients(filtered, page), [filtered, page]);
+  const changePage = (nextPage: number) => {
+    setPage(Math.max(1, Math.min(nextPage, paginated.totalPages)));
+    document.getElementById("maxflix-client-results")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
 
   const monthlyBilling = useMemo(() => {
     const map = new Map<string, { faturado: number; custo: number; count: number }>();
@@ -554,108 +582,74 @@ function Painel() {
       </div>
 
       <div className="relative z-10 mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
-        <header className="flex flex-col gap-4 xl:flex-row xl:items-center">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-cyan/15 ring-1 ring-cyan/30">
-               <span className="font-display text-sm font-semibold text-cyan">M</span>
+        <header className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-cyan/15 ring-1 ring-cyan/30">
+                <span className="font-display text-sm font-semibold text-cyan">M</span>
+              </div>
+              <div className="min-w-0 leading-none">
+                <p className="font-display truncate text-base font-semibold">Max<span className="text-cyan">Flix</span></p>
+                <p className="mt-1 text-[11px] tracking-wide text-mist">Gestão de clientes IPTV</p>
+              </div>
             </div>
-            <div className="min-w-0 leading-none">
-              <p className="font-display truncate text-base font-semibold">
-                Max<span className="text-cyan">Flix</span>
-              </p>
-              <p className="mt-1 text-[11px] tracking-wide text-mist">Gestão de clientes IPTV</p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => { setEditing(null); setFormOpen(true); }}
+                className="font-display rounded-xl bg-cyan px-3 py-2 text-sm font-semibold text-background ring-1 ring-cyan/40 hover:brightness-110"
+              >
+                + Novo cliente
+              </button>
+              <button
+                onClick={toggleFinancials}
+                className={`grid size-9 shrink-0 place-items-center rounded-xl ring-1 ${financialsHidden ? "bg-cyan/15 text-cyan ring-cyan/30" : "bg-panel text-mist ring-line hover:text-frost"}`}
+                aria-label={financialsHidden ? "Mostrar valores financeiros" : "Ocultar valores financeiros"}
+                title={financialsHidden ? "Mostrar valores" : "Ocultar valores"}
+              >
+                {financialsHidden ? <EyeOffIcon /> : <EyeIcon />}
+              </button>
+              <button
+                onClick={signOut}
+                className="font-display rounded-xl bg-panel px-3 py-2 text-sm font-medium text-mist ring-1 ring-line hover:text-danger"
+              >
+                Sair
+              </button>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2 xl:ml-auto xl:justify-end">
-            <Button asChild variant="outline" className="border-line bg-panel text-cyan hover:bg-panel2 hover:text-cyan">
-              <Link to="/revendedores">Revendedores</Link>
-            </Button>
-            <Button asChild variant="outline" className="border-line bg-panel text-cyan hover:bg-panel2 hover:text-cyan">
-              <Link to="/creditos">Créditos</Link>
-            </Button>
-            <div className="hidden w-64 items-center gap-2 rounded-xl bg-panel px-3 py-2 ring-1 ring-line sm:flex">
-              <span className="text-sm text-mist">⌕</span>
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full bg-transparent text-sm text-frost outline-none placeholder:text-mist/60"
-                placeholder="Buscar por nome ou login"
-              />
+          <div className="flex flex-col gap-3 rounded-2xl bg-panel/40 p-3 ring-1 ring-line/60 lg:flex-row lg:items-center lg:justify-between">
+            <nav aria-label="Navegação e relatórios" className="flex flex-wrap items-center gap-2">
+              <Button asChild variant="outline" className="h-9 border-line bg-panel text-cyan hover:bg-panel2 hover:text-cyan">
+                <Link to="/revendedores">Revendedores</Link>
+              </Button>
+              <Button asChild variant="outline" className="h-9 border-line bg-panel text-cyan hover:bg-panel2 hover:text-cyan">
+                <Link to="/creditos">Créditos</Link>
+              </Button>
+              <button onClick={() => setForecastOpen(true)} className="font-display rounded-xl bg-panel px-3 py-2 text-sm font-medium text-cyan ring-1 ring-cyan/30 hover:bg-cyan/10">
+                Previsão de lucro
+              </button>
+              <button onClick={() => setServerReportOpen(true)} className="font-display rounded-xl bg-panel px-3 py-2 text-sm font-medium text-cyan ring-1 ring-cyan/30 hover:bg-cyan/10">
+                Servidores
+              </button>
+            </nav>
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <label className="flex min-w-[180px] flex-1 items-center gap-2 rounded-xl bg-panel px-3 py-2 ring-1 ring-line lg:max-w-[235px]" aria-label="Buscar cliente">
+                <span className="text-mist">⌕</span>
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="min-w-0 w-full bg-transparent text-sm text-frost outline-none placeholder:text-mist/60"
+                  placeholder="Buscar cliente"
+                />
+              </label>
+              <button onClick={() => setSettingsOpen(true)} className="font-display rounded-xl bg-panel px-3 py-2 text-sm font-medium text-mist ring-1 ring-line hover:bg-frost/5">
+                Mensagem
+              </button>
+              <button onClick={() => setImportOpen(true)} className="font-display rounded-xl bg-panel px-3 py-2 text-sm font-medium text-mist ring-1 ring-line hover:bg-frost/5">
+                Importar
+              </button>
             </div>
-            <button
-              onClick={() => setForecastOpen(true)}
-              className="font-display hidden rounded-xl bg-panel px-3 py-2 text-sm font-medium text-cyan ring-1 ring-cyan/30 hover:bg-cyan/10 lg:block"
-            >
-              Previsão de lucro
-            </button>
-            <button
-              onClick={() => setServerReportOpen(true)}
-              className="font-display hidden rounded-xl bg-panel px-3 py-2 text-sm font-medium text-cyan ring-1 ring-cyan/30 hover:bg-cyan/10 lg:block"
-            >
-              Servidores
-            </button>
-            <button
-              onClick={toggleFinancials}
-              className={`grid size-9 shrink-0 place-items-center rounded-xl ring-1 ${financialsHidden ? "bg-cyan/15 text-cyan ring-cyan/30" : "bg-panel text-mist ring-line hover:text-frost"}`}
-              aria-label={financialsHidden ? "Mostrar valores financeiros" : "Ocultar valores financeiros"}
-              title={financialsHidden ? "Mostrar valores" : "Ocultar valores"}
-            >
-              {financialsHidden ? <EyeOffIcon /> : <EyeIcon />}
-            </button>
-            <button
-              onClick={() => setSettingsOpen(true)}
-              className="font-display rounded-xl bg-panel px-3 py-2 text-sm font-medium text-mist ring-1 ring-line hover:bg-frost/5"
-            >
-              Mensagem
-            </button>
-            <button
-              onClick={() => setImportOpen(true)}
-              className="font-display rounded-xl bg-panel px-3 py-2 text-sm font-medium text-mist ring-1 ring-line hover:bg-frost/5"
-            >
-              Importar
-            </button>
-            <button
-              onClick={() => {
-                setEditing(null);
-                setFormOpen(true);
-              }}
-              className="font-display rounded-xl bg-cyan py-2 pr-3 pl-2 text-sm font-semibold text-background ring-1 ring-cyan/40 transition-transform hover:-translate-y-px"
-            >
-              <span className="inline-flex items-center gap-1.5">
-                <span className="text-base leading-none">+</span> Novo cliente
-              </span>
-            </button>
-            <button
-              onClick={signOut}
-              className="font-display rounded-xl bg-panel px-3 py-2 text-sm font-medium text-mist ring-1 ring-line hover:text-danger"
-              aria-label="Sair do painel"
-            >
-              Sair
-            </button>
           </div>
         </header>
-
-        <div className="mt-4 sm:hidden">
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-xl bg-panel px-3 py-2.5 text-sm text-frost ring-1 ring-line outline-none placeholder:text-mist/60"
-            placeholder="Buscar por nome ou login"
-          />
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <button onClick={() => setForecastOpen(true)} className="font-display rounded-xl bg-cyan/10 px-3 py-2.5 text-sm font-semibold text-cyan ring-1 ring-cyan/30">Previsão de lucro</button>
-            <button onClick={() => setServerReportOpen(true)} className="font-display rounded-xl bg-panel px-3 py-2.5 text-sm font-semibold text-cyan ring-1 ring-cyan/30">Servidores</button>
-          </div>
-        </div>
-
-        <div className="mt-4 hidden sm:block lg:hidden">
-          <button
-            onClick={() => setForecastOpen(true)}
-            className="font-display rounded-xl bg-cyan/10 px-3 py-2 text-sm font-semibold text-cyan ring-1 ring-cyan/30"
-          >
-            Previsão de lucro
-          </button>
-        </div>
 
         <section className="mt-6 grid grid-cols-2 gap-3 sm:mt-8 sm:grid-cols-3 lg:grid-cols-6">
           <MetricCard label="Clientes" value={String(summary.total)} hint="total cadastrado" />
@@ -710,17 +704,17 @@ function Painel() {
           ) : stockError ? (
             <p role="alert" className="py-2 text-xs text-warn">Não foi possível carregar os saldos. Abra Créditos para conferir.</p>
           ) : (
-            <div className="flex gap-2 overflow-x-auto pb-2 xl:grid xl:grid-cols-9 xl:overflow-visible xl:pb-0" aria-label="Saldos resumidos por servidor">
+            <div className="grid grid-cols-2 gap-2 min-[360px]:grid-cols-3 md:grid-cols-5 xl:grid-cols-9" aria-label="Saldos resumidos por servidor">
               {stockOverview.map((row) => (
                 <Link
                   key={row.name}
                   to="/creditos"
                   search={{ servidor: row.name }}
                   aria-label={`${row.label}: ${row.configured ? `${row.balance} créditos` : "saldo não informado"}, ${row.totalClients} ${row.totalClients === 1 ? "cliente" : "clientes"}`}
-                  className={`flex w-[134px] shrink-0 flex-col gap-1 rounded-xl px-3 py-2.5 ring-1 transition-colors hover:bg-frost/5 sm:w-[150px] xl:w-auto xl:min-w-0 ${row.lowStock ? "bg-warn/5 ring-warn/40" : "bg-background/70 ring-line"}`}
+                  className={`flex min-h-[92px] min-w-0 flex-col gap-1 rounded-xl px-2.5 py-2.5 ring-1 transition-colors hover:bg-frost/5 sm:px-3 ${row.lowStock ? "bg-warn/5 ring-warn/40" : "bg-background/70 ring-line"}`}
                 >
                   <span className="truncate text-[11px] font-medium text-mist" title={row.label}>{row.name === "Uniplay" ? "Uni / P2P" : row.label}</span>
-                  <span className={`font-display text-xl font-semibold leading-tight ${!row.configured ? "text-mist" : row.lowStock ? "text-warn" : "text-cyan"}`}>
+                  <span className={`font-display text-lg font-semibold leading-tight sm:text-xl ${!row.configured ? "text-mist" : row.lowStock ? "text-warn" : "text-cyan"}`}>
                     {row.configured ? row.balance : "—"}
                     <span className="ml-1 text-[10px] font-normal text-mist">créd.</span>
                   </span>
@@ -746,19 +740,19 @@ function Painel() {
               </button>
             ))}
           </nav>
-          <div className="flex items-center gap-2 sm:ml-auto">
-            <select
-              value={serverFilter}
-              onChange={(e) => setServerFilter(e.target.value)}
-              className="font-display rounded-xl bg-panel px-3 py-2 text-sm font-medium text-mist ring-1 ring-line outline-none hover:bg-frost/5"
-            >
-              <option value="todos" className="bg-panel">Todos os servidores</option>
-              {SERVERS.map((s) => (
-                <option key={s} value={s} className="bg-panel">
-                  {s}
-                </option>
-              ))}
-            </select>
+          <div className="flex min-w-0 flex-wrap items-center gap-2 sm:ml-auto">
+            <Select value={serverFilter} onValueChange={setServerFilter}>
+              <SelectTrigger
+                aria-label="Filtrar clientes por servidor"
+                className="h-10 w-[175px] max-w-full rounded-xl border-0 bg-panel px-3 text-sm font-medium text-mist ring-1 ring-line hover:bg-panel2"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="border-line bg-panel2 text-frost shadow-lg">
+                <SelectItem value="todos">Todos os servidores</SelectItem>
+                {SERVERS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              </SelectContent>
+            </Select>
             {tab === "breve" && (
               <>
                 <span className="hidden text-xs text-mist sm:inline">Vence em</span>
@@ -779,12 +773,23 @@ function Painel() {
                 </div>
               </>
             )}
-            <button
-              onClick={() => setAsc((v) => !v)}
-              className="font-display rounded-xl bg-panel px-3 py-2 text-sm font-medium text-mist ring-1 ring-line hover:bg-frost/5"
-            >
-              Vencimento {asc ? "↑" : "↓"}
-            </button>
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="hidden whitespace-nowrap text-sm text-mist sm:inline">Ordenar por</span>
+              <Select value={sortMode} onValueChange={(value) => setSortMode(value as ClientSortMode)}>
+                <SelectTrigger
+                  aria-label="Ordenar clientes"
+                  className="h-10 w-[165px] max-w-full rounded-xl border-0 bg-panel px-3 text-sm font-medium text-frost ring-1 ring-line hover:bg-panel2"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="border-line bg-panel2 text-frost shadow-lg">
+                  <SelectItem value="vencimento-asc">Vencimento ↑</SelectItem>
+                  <SelectItem value="vencimento-desc">Vencimento ↓</SelectItem>
+                  <SelectItem value="login-asc">Login A–Z</SelectItem>
+                  <SelectItem value="login-desc">Login Z–A</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <button
               onClick={exportCSV}
               className="font-display rounded-xl bg-panel px-3 py-2 text-sm font-medium text-mist ring-1 ring-line hover:bg-frost/5"
@@ -793,6 +798,16 @@ function Painel() {
             </button>
           </div>
         </section>
+
+        <div id="maxflix-client-results" className="scroll-mt-4" aria-live="polite">
+          {!clientsQuery.isLoading && (
+            <p className="mt-4 text-xs text-mist">
+              {paginated.count === 0
+                ? "Nenhum cliente encontrado com os filtros atuais."
+                : `Exibindo ${paginated.first}–${paginated.last} de ${paginated.count} clientes · 25 por página`}
+            </p>
+          )}
+        </div>
 
         {notice && (
           <div className="mt-4 flex items-center justify-between gap-3 rounded-xl bg-cyan/10 px-3 py-2 text-sm text-cyan ring-1 ring-cyan/30">
@@ -811,151 +826,132 @@ function Painel() {
           </p>
         ) : (
           <>
-            <section className="mt-4 hidden overflow-hidden rounded-2xl bg-panel/60 ring-1 ring-line backdrop-blur-sm md:block">
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse text-sm">
-                  <thead>
-                    <tr className="border-b border-line text-left text-[11px] tracking-wide text-mist uppercase">
-                      <th className="px-4 py-3 font-medium">Cliente</th>
-                      <th className="px-4 py-3 font-medium">Servidor</th>
-                      <th className="px-4 py-3 font-medium">Vencimento</th>
-                      <th className="px-4 py-3 font-medium">Financeiro</th>
-                      <th className="px-4 py-3 font-medium text-right">Custo</th>
-                      <th className="px-4 py-3 font-medium text-right">Pago</th>
-                      <th className="px-4 py-3 font-medium text-right">Lucro</th>
-                      <th className="px-4 py-3 font-medium">Status</th>
-                      <th className="px-4 py-3 text-right font-medium">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.map((c) => {
-                      const status = getStatus(c);
-                      return (
-                        <tr
-                          key={c.id}
-                          className="border-b border-line/60 transition-colors hover:bg-frost/5"
-                        >
-                          <td className="px-4 py-3">
-                            <div className="font-medium">{c.name}</div>
-                            <div className="text-xs text-mist">
-                              {c.login}
-                              {c.whatsapp ? ` · ${c.whatsapp}` : ""}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-mist">{c.server}</td>
-                          <td className="px-4 py-3 text-mist">{formatDate(c.due_date)}</td>
-                          <td className="px-4 py-3 text-mist">
-                            {formatDate(c.financial_due_date)}
-                          </td>
-                          <td className="px-4 py-3 text-right text-mist">{money(c.cost)}</td>
-                          <td className="px-4 py-3 text-right text-mist">{money(c.paid)}</td>
-                          <td
-                            className={`px-4 py-3 text-right font-medium ${
-                              c.paid - c.cost > 0 ? "text-ok" : "text-danger"
-                            }`}
-                          >
-                            {money(c.paid - c.cost)}
-                          </td>
-                          <td className="px-4 py-3">
-                            <StatusBadge status={status} />
-                          </td>
-                          <td className="px-4 py-3 text-right whitespace-nowrap">
-                            <RowActions
-                              client={c}
-                              template={template}
-                               overdueTemplate={overdueTemplate}
-                              onRenew={() => renew(c)}
-                              onEdit={() => {
-                                setEditing(c);
-                                setFormOpen(true);
-                              }}
-                              onDelete={() => deleteMutation.mutate(c.id)}
-                            />
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-
-            <section className="mt-4 space-y-3 md:hidden">
-              {filtered.map((c) => {
+            <section className="mt-4 space-y-3" aria-label="Clientes em cartões">
+              {paginated.rows.map((c) => {
                 const status = getStatus(c);
                 return (
                   <div
                     key={c.id}
-                    className={`rounded-2xl p-4 ring-1 ${
+                    className={`min-w-0 rounded-2xl p-4 ring-1 sm:p-5 xl:grid xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_minmax(0,0.85fr)] xl:items-center xl:gap-5 ${
                       status.key === "vencido"
                         ? "bg-danger/10 ring-danger/40"
                         : "bg-panel/70 ring-line"
                     }`}
                   >
-                    <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="font-display truncate text-base font-semibold">{c.name}</p>
+                        <p className="font-display break-words text-base font-semibold sm:text-lg">{c.name}</p>
                         <p className="truncate text-xs text-mist">
                           {c.login} · {c.server}
                         </p>
                       </div>
                       <StatusBadge status={status} />
                     </div>
-                    <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-                      <div>
-                        <p className="text-mist">Vence</p>
-                        <p className="mt-0.5">{formatDate(c.due_date)}</p>
+                    <p className="mt-2 text-xs text-mist">
+                      Vence: <span className="font-medium text-frost">{formatDate(c.due_date)}</span>
+                      {c.financial_due_date && c.financial_due_date !== c.due_date && (
+                        <span> · Financeiro: {formatDate(c.financial_due_date)}</span>
+                      )}
+                    </p>
+                    </div>
+                    <div className="mt-3 grid grid-cols-3 gap-2 rounded-xl bg-background/40 p-3 sm:p-4 xl:mt-0">
+                      <div className="min-w-0">
+                        <p className="text-[11px] text-mist">Pago</p>
+                        <p className="mt-1 break-words text-sm font-semibold sm:text-base">{money(c.paid)}</p>
                       </div>
-                      <div>
-                        <p className="text-mist">Pago</p>
-                        <p className="mt-0.5">{money(c.paid)}</p>
+                      <div className="min-w-0">
+                        <p className="text-[11px] text-mist">Custo</p>
+                        <p className="mt-1 break-words text-sm font-medium sm:text-base">{money(c.cost)}</p>
                       </div>
-                      <div>
-                        <p className="text-mist">Lucro</p>
-                        <p
-                          className={`mt-0.5 font-medium ${
-                            c.paid - c.cost > 0 ? "text-ok" : "text-danger"
-                          }`}
-                        >
+                      <div className="min-w-0">
+                        <p className="text-[11px] text-mist">Lucro</p>
+                        <p className={`mt-1 break-words text-sm font-semibold sm:text-base ${c.paid - c.cost >= 0 ? "text-ok" : "text-danger"}`}>
                           {money(c.paid - c.cost)}
                         </p>
                       </div>
                     </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
+                    <div className="mt-3 flex items-stretch gap-2 xl:mt-0">
                       <button
+                        type="button"
                         onClick={() => renew(c)}
-                        className="font-display flex-1 rounded-xl bg-cyan/15 py-2 text-sm font-medium text-cyan ring-1 ring-cyan/30"
+                        className="font-display flex min-h-11 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl bg-cyan/15 px-2 text-sm font-semibold text-cyan ring-1 ring-cyan/30 hover:bg-cyan/25"
                       >
-                        Renovar
+                        <RefreshCw size={15} aria-hidden="true" /> Renovar
                       </button>
                       <a
                         href={renewalMessageLink(c, template, overdueTemplate)}
                         target="_blank"
                         rel="noreferrer"
-                        className="font-display flex-1 rounded-xl bg-panel2 py-2 text-center text-sm font-medium text-mist ring-1 ring-line"
+                        aria-label={`Enviar renovação pelo WhatsApp para ${c.name}`}
+                        className="font-display flex min-h-11 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl bg-panel2 px-2 text-center text-sm font-medium text-frost ring-1 ring-line hover:bg-frost/5"
                       >
-                        Enviar renovação
+                        <MessageCircle size={17} aria-hidden="true" /> WhatsApp
                       </a>
-                      <button
-                        onClick={() => {
-                          setEditing(c);
-                          setFormOpen(true);
-                        }}
-                        className="font-display rounded-xl bg-panel2 px-3 py-2 text-sm font-medium text-mist ring-1 ring-line"
-                      >
-                        Editar
-                      </button>
-                      <button
-                        onClick={() => deleteMutation.mutate(c.id)}
-                        className="font-display rounded-xl bg-panel2 px-3 py-2 text-sm font-medium text-danger ring-1 ring-line"
-                      >
-                        Excluir
-                      </button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            aria-label={`Mais ações para ${c.name}`}
+                            title="Editar ou excluir"
+                            className="grid size-11 shrink-0 place-items-center rounded-xl bg-panel2 text-mist ring-1 ring-line hover:text-frost"
+                          >
+                            <MoreHorizontal size={20} aria-hidden="true" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" sideOffset={5} className="min-w-[170px] border-line bg-panel2 text-frost">
+                          <DropdownMenuItem onSelect={() => { setEditing(c); setFormOpen(true); }}>
+                            Editar cliente
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => deleteMutation.mutate(c.id)} className="text-danger focus:bg-danger/10 focus:text-danger">
+                            Excluir cliente
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </div>
                 );
               })}
             </section>
+            {paginated.totalPages > 1 && (
+              <nav aria-label="Páginas de clientes" className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-panel/70 px-3 py-3 ring-1 ring-line">
+                <p className="text-xs text-mist">
+                  Exibindo {paginated.first}–{paginated.last} de {paginated.count} clientes
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={paginated.page <= 1}
+                    onClick={() => changePage(paginated.page - 1)}
+                    className="min-h-10 rounded-lg bg-panel2 px-3 text-sm font-medium text-frost ring-1 ring-line hover:bg-frost/5 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    ← Anterior
+                  </button>
+                  <div className="flex items-center gap-1.5 text-xs text-mist">
+                    Página
+                    <Select value={String(paginated.page)} onValueChange={(value) => changePage(Number(value))}>
+                      <SelectTrigger aria-label="Selecionar página de clientes" className="h-10 w-[66px] rounded-lg border-0 bg-panel2 px-2 text-sm text-frost ring-1 ring-line">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="border-line bg-panel2 text-frost shadow-lg">
+                        {Array.from({ length: paginated.totalPages }, (_, index) => index + 1).map((pageNumber) => (
+                          <SelectItem key={pageNumber} value={String(pageNumber)}>{pageNumber}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    de {paginated.totalPages}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={paginated.page >= paginated.totalPages}
+                    onClick={() => changePage(paginated.page + 1)}
+                    className="min-h-10 rounded-lg bg-panel2 px-3 text-sm font-medium text-frost ring-1 ring-line hover:bg-frost/5 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Próxima →
+                  </button>
+                </div>
+              </nav>
+            )}
           </>
         )}
 
@@ -1275,44 +1271,6 @@ function MetricCard({
         {value}
       </p>
       <p className={`mt-2 text-xs ${hintClass}`}>{hint}</p>
-    </div>
-  );
-}
-
-function RowActions({
-  client,
-  template,
-  overdueTemplate,
-  onRenew,
-  onEdit,
-  onDelete,
-}: {
-  client: Client;
-  template: string;
-  overdueTemplate: string;
-  onRenew: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
-}) {
-  return (
-    <div className="flex items-center justify-end gap-3">
-      <button onClick={onRenew} className="font-display text-xs font-medium text-cyan hover:text-frost">
-        Renovar
-      </button>
-      <a
-        href={renewalMessageLink(client, template, overdueTemplate)}
-        target="_blank"
-        rel="noreferrer"
-        className="font-display text-xs font-medium text-ok hover:text-frost"
-      >
-        Enviar renovação
-      </a>
-      <button onClick={onEdit} className="font-display text-xs font-medium text-mist hover:text-frost">
-        Editar
-      </button>
-      <button onClick={onDelete} className="font-display text-xs font-medium text-danger hover:text-frost">
-        Excluir
-      </button>
     </div>
   );
 }
