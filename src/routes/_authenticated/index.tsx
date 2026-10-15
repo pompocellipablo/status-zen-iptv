@@ -797,11 +797,11 @@ function Painel() {
             <div className="mt-4 grid grid-cols-2 gap-3">
               <div className="rounded-xl bg-background/70 p-3 ring-1 ring-line">
                 <p className="text-xs text-mist">Receita registrada</p>
-                <p className="mt-2 break-words font-display text-xl font-semibold text-cyan">{money(currentMonthBilling?.faturado ?? 0)}</p>
+                <p className="mt-2 break-words font-display text-xl font-semibold text-cyan">{paymentsQuery.isLoading ? "Carregando…" : paymentsQuery.isError ? "Indisponível" : money(currentMonthBilling?.faturado ?? 0)}</p>
               </div>
               <div className="rounded-xl bg-background/70 p-3 ring-1 ring-line">
                 <p className="text-xs text-mist">Margem registrada</p>
-                <p className="mt-2 break-words font-display text-xl font-semibold text-ok">{money(currentMonthBilling?.lucro ?? 0)}</p>
+                <p className="mt-2 break-words font-display text-xl font-semibold text-ok">{paymentsQuery.isLoading ? "Carregando…" : paymentsQuery.isError ? "Indisponível" : money(currentMonthBilling?.lucro ?? 0)}</p>
               </div>
             </div>
             <p className="mt-3 text-xs leading-relaxed text-mist">
@@ -1058,7 +1058,7 @@ function Painel() {
                     {money(m.faturado)}
                   </p>
                   <p className="mt-2 text-xs text-mist">
-                    {m.count} renovações · lucro{" "}
+                    {m.count} renovações · margem{" "}
                     <span className={m.lucro >= 0 ? "text-ok" : "text-danger"}>
                       {money(m.lucro)}
                     </span>
