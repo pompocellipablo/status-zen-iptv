@@ -10,6 +10,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { ImportDialog } from "@/components/ImportDialog";
 import { Button } from "@/components/ui/button";
 import { paginateClients } from "@/lib/client-pagination";
+import { sortClients, type ClientSortMode } from "@/lib/client-sort";
 import { MessageCircle, MoreHorizontal, RefreshCw } from "lucide-react";
 import {
   DropdownMenu,
@@ -93,7 +94,7 @@ function Painel() {
   const [range, setRange] = useState(1);
   const [search, setSearch] = useState("");
   const [serverFilter, setServerFilter] = useState("todos");
-  const [asc, setAsc] = useState(true);
+  const [sortMode, setSortMode] = useState<ClientSortMode>("vencimento-asc");
   const [page, setPage] = useState(1);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Client | null>(null);
@@ -444,7 +445,7 @@ function Painel() {
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return clients
+    return sortClients(clients
       .filter((c) => {
         const s = getStatus(c);
         if (tab === "todos" && s.key === "vencido") return false;
@@ -457,16 +458,14 @@ function Painel() {
         if (term && !`${c.name} ${c.login}`.toLowerCase().includes(term)) return false;
         return true;
       })
-      .sort((a, b) =>
-        asc ? a.due_date.localeCompare(b.due_date) : b.due_date.localeCompare(a.due_date),
-      );
-  }, [clients, tab, range, search, serverFilter, asc]);
+      , sortMode);
+  }, [clients, tab, range, search, serverFilter, sortMode]);
   
   // Apply search, status, server, and sort to the entire list BEFORE paging.
   // Reset page when those controls change; preserve overall summary and CSV export.
   useEffect(() => {
     setPage(1);
-  }, [tab, range, search, serverFilter, asc]);
+  }, [tab, range, search, serverFilter, sortMode]);
 
   const paginated = useMemo(() => paginateClients(filtered, page), [filtered, page]);
   const changePage = (nextPage: number) => {
@@ -771,12 +770,22 @@ function Painel() {
                 </div>
               </>
             )}
-            <button
-              onClick={() => setAsc((v) => !v)}
-              className="font-display rounded-xl bg-panel px-3 py-2 text-sm font-medium text-mist ring-1 ring-line hover:bg-frost/5"
-            >
-              Vencimento {asc ? "↑" : "↓"}
-            </button>
+            <label className="flex min-w-0 items-center gap-2 rounded-xl bg-panel px-3 py-2 text-sm text-mist ring-1 ring-line">
+              <span className="whitespace-nowrap">Ordenar por</span>
+              <select
+                aria-label="Ordenar clientes"
+                value={sortMode}
+                onChange={(event) => setSortMode(event.target.value as ClientSortMode)}
+                className="min-w-0 max-w-[150px] bg-transparent text-sm font-medium text-frost outline-none sm:max-w-none"
+              >
+                <option value="vencimento-asc">Vencimento ↑</option>
+                <option value="vencimento-desc">Vencimento ↓</option>
+                <option value="nome-asc">Nome A–Z</option>
+                <option value="nome-desc">Nome Z–A</option>
+                <option value="login-asc">Login A–Z</option>
+                <option value="login-desc">Login Z–A</option>
+              </select>
+            </label>
             <button
               onClick={exportCSV}
               className="font-display rounded-xl bg-panel px-3 py-2 text-sm font-medium text-mist ring-1 ring-line hover:bg-frost/5"
