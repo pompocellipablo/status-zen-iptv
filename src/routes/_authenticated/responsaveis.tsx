@@ -250,6 +250,7 @@ function FinancialContactsPreview() {
             <Link to="/creditos" className="text-mist hover:text-cyan">Créditos</Link>
             <Link to="/revendedores" className="text-mist hover:text-cyan">Revendedores</Link>
             <span className="font-semibold text-cyan" aria-current="page">Responsáveis</span>
+            <Link to="/comunicacao" className="text-mist hover:text-cyan">Comunicação</Link>
           </nav>
           <div className="mt-5 flex flex-wrap items-start justify-between gap-4">
             <div>
