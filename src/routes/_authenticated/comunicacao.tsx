@@ -126,14 +126,16 @@ function CommunicationPage() {
       if (IS_ISOLATED_READ_ONLY_PREVIEW) {
         setLocalPhones(old => ({ ...old, [c.id]: valid ?? "" }));
         setLocalTracking(old => ({ ...old,
-          [c.id]: { ...effectiveTracking(c.id, old), phone_reviewed: false } }));
+          [c.id]: { ...effectiveTracking(c.id, old), phone_reviewed: false,
+            sent_at: null, replied_at: null } }));
       } else {
         const { error } = await supabase.from("clients")
           .update({ whatsapp: valid ?? null }).eq("id", c.id);
         if (error) throw error;
         if (canonicalPhone(c.whatsapp) !== valid) {
           const result = await supabase.from("whatsapp_migration_tracking")
-            .upsert({ ...effectiveTracking(c.id, tracking), phone_reviewed: false },
+             .upsert({ ...effectiveTracking(c.id, tracking), phone_reviewed: false,
+              sent_at: null, replied_at: null },
               { onConflict: "client_id" });
           if (result.error) throw result.error;
         }
