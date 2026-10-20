@@ -672,6 +672,7 @@ function Painel() {
             <Link to="/creditos" className="whitespace-nowrap rounded-xl px-3.5 py-2.5 text-sm font-semibold text-mist hover:bg-panel2 hover:text-cyan">Créditos</Link>
             <Link to="/revendedores" className="whitespace-nowrap rounded-xl px-3.5 py-2.5 text-sm font-semibold text-mist hover:bg-panel2 hover:text-cyan">Revendedores</Link>
             <Link to="/responsaveis" className="whitespace-nowrap rounded-xl px-3.5 py-2.5 text-sm font-semibold text-mist hover:bg-panel2 hover:text-cyan">Responsáveis</Link>
+            <Link to="/comunicacao" className="whitespace-nowrap rounded-xl px-3.5 py-2.5 text-sm font-semibold text-mist hover:bg-panel2 hover:text-cyan">Comunicação</Link>
           </nav>
           <div className="flex flex-col gap-3 rounded-2xl bg-panel/40 p-3 ring-1 ring-line/60 lg:flex-row lg:items-center lg:justify-between">
             <nav aria-label="Navegação e relatórios" className="flex flex-wrap items-center gap-2">
