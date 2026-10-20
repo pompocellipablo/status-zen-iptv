@@ -62,6 +62,44 @@ export type Database = {
         }
         Relationships: []
       }
+      whatsapp_migration_tracking: {
+        Row: {
+          client_id: string
+          phone_reviewed: boolean
+          agenda_updated: boolean
+          sent_at: string | null
+          replied_at: string | null
+          payer_name: string | null
+          updated_at: string
+        }
+        Insert: {
+          client_id: string
+          phone_reviewed?: boolean
+          agenda_updated?: boolean
+          sent_at?: string | null
+          replied_at?: string | null
+          payer_name?: string | null
+          updated_at?: string
+        }
+        Update: {
+          client_id?: string
+          phone_reviewed?: boolean
+          agenda_updated?: boolean
+          sent_at?: string | null
+          replied_at?: string | null
+          payer_name?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_migration_tracking_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: true
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payments: {
         Row: {
           amount: number
