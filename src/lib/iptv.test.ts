@@ -46,6 +46,12 @@ describe("mensagem de renovação", () => {
   test("vencido recebe somente a mensagem de cobrança", () => {
     const url = new URL(renewalMessageLink(client, "Normal {nome}", "Venceu {nome}", base));
     assert.equal(url.searchParams.get("text"), "Venceu Ana");
+    assert.equal(url.pathname, "/5521999999999");
+  });
+  test("renovação internacional usa o mesmo telefone do cadastro", () => {
+    const url = new URL(renewalMessageLink({ ...client, whatsapp: "+351969682294" }, "Normal {nome}", "Venceu {nome}", base));
+    assert.equal(url.pathname, "/351969682294");
+    assert.equal(url.searchParams.get("text"), "Venceu Ana");
   });
   test("cliente que vence hoje ou depois recebe a mensagem normal", () => {
     for (const due_date of ["2026-09-28", "2026-09-29"]) {
