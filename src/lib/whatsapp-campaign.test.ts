@@ -32,6 +32,18 @@ describe("contact numbers", () => {
     assert.equal(canonicalPhone("123"), null);
     assert.equal(canonicalPhone(null), null);
   });
+  test("accepts Portuguese mobile numbers and keeps their country code", () => {
+    assert.equal(canonicalPhone("+351 969 682 294"), "351969682294");
+    assert.equal(canonicalPhone("351969682294"), "351969682294");
+    assert.equal(canonicalPhone("00351 969 682 294"), "351969682294");
+    assert.equal(campaignWhatsAppLink("+351 969 682 294", "Olá"), "https://wa.me/351969682294?text=Ol%C3%A1");
+  });
+  test("preserves explicitly provided country codes for other countries", () => {
+    assert.equal(canonicalPhone("+1 202 555 0199"), "12025550199");
+    assert.equal(canonicalPhone("+44 7700 900123"), "447700900123");
+    assert.equal(canonicalPhone("969682294"), null);
+    assert.equal(canonicalPhone("+351 abc"), null);
+  });
   test("opens WhatsApp with the prefilled migration message", () => {
     const link = campaignWhatsAppLink("21999999999");
     assert.ok(link?.startsWith("https://wa.me/5521999999999?text="));
