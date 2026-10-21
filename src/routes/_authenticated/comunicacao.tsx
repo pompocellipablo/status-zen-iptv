@@ -178,7 +178,7 @@ function CommunicationPage() {
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
       <nav aria-label="Áreas do MaxFlix" className="flex flex-wrap gap-x-4 gap-y-2 text-sm">
         <Link to="/" className="inline-flex items-center gap-1 text-mist hover:text-cyan"><ArrowLeft size={16}/> Dashboard</Link>
-        <Link to="/" search={{ aba: "renovacoes" }} className="text-mist hover:text-cyan">Renovações</Link>
+        <Link to="/" className="text-mist hover:text-cyan">Renovações</Link>
         <Link to="/creditos" className="text-mist hover:text-cyan">Créditos</Link>
         <Link to="/revendedores" className="text-mist hover:text-cyan">Revendedores</Link>
         <span aria-current="page" className="font-semibold text-cyan">Comunicação</span>
