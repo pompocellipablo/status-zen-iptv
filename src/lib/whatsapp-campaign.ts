@@ -1,4 +1,5 @@
-import { daysUntil, type Client } from "./iptv";
+import { canonicalPhone, daysUntil, type Client } from "./iptv";
+export { canonicalPhone } from "./iptv";
 
 export type CampaignAccess = Pick<Client, "id" | "name" | "login" | "server" | "due_date" | "whatsapp">;
 
@@ -34,14 +35,6 @@ Obrigado pela confiança de sempre! 💙
 
 export function eligibleForMigration(client: CampaignAccess, current?: Date): boolean {
   return daysUntil(client.due_date, current) >= -10;
-}
-
-/** Remove separators, accept 10-11 BR local digits or 12-13 with prefix 55. */
-export function canonicalPhone(raw: string | null | undefined): string | null {
-  const digits = (raw ?? "").replace(/\D/g, "");
-  if ((digits.length === 12 || digits.length === 13) && digits.startsWith("55")) return digits;
-  if (digits.length === 10 || digits.length === 11) return "55" + digits;
-  return null;
 }
 
 export function campaignWhatsAppLink(phone: string, message = MIGRATION_MESSAGE): string | null {
