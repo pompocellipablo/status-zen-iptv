@@ -57,6 +57,9 @@ function CommunicationPage() {
   const [page, setPage] = useState(1);
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
+  const [phoneFeedback, setPhoneFeedback] = useState<Record<string, { text: string; ok: boolean }>>({});
+  const feedback = (id: string, text: string, ok = false) =>
+    setPhoneFeedback(previous => ({ ...previous, [id]: { text, ok } }));
   const [opened, setOpened] = useState<Record<string, boolean>>({});
   const [showMessage, setShowMessage] = useState(false);
   const [message, setMessage] = useState(MIGRATION_MESSAGE);
@@ -117,26 +120,29 @@ function CommunicationPage() {
 
   async function savePhone(c: CampaignAccess) {
     if (trackingQuery.isLoading || trackingQuery.isError) {
+      feedback(c.id, "Não foi possível consultar o controle de mensagens. Tente atualizar a página.");
       setNotice("Controle de envios indisponivel. O telefone nao foi alterado.");
       return;
     }
-    const raw = (draftPhones[c.id] ?? phoneFor(c)).replace(/\D/g, "");
+    const raw = (draftPhones[c.id] ?? phoneFor(c)).trim();
     const valid = raw ? canonicalPhone(raw) : null;
     if (raw && !valid) {
-      setNotice("Informe DDD + numero (10 ou 11 digitos), com ou sem 55.");
+      feedback(c.id, "Número inválido. Use DDD + celular para o Brasil ou prefixo internacional, como +351 969 682 294.");
       return;
     }
     if (canonicalPhone(c.whatsapp) === valid) {
       setDraftPhones(old => { const next = { ...old }; delete next[c.id]; return next; });
+      feedback(c.id, "Esse número já está salvo no cadastro.", true);
       setNotice("Esse numero ja consta no cadastro.");
       return;
     }
     setBusy(c.id);
     setNotice("");
+    setPhoneFeedback(prev => { const next = { ...prev }; delete next[c.id]; return next; });
     let phoneSaved = false;
     try {
       const { data, error } = await supabase.from("clients")
-        .update({ whatsapp: valid }).eq("id", c.id).select("id,whatsapp").single();
+        .update({ whatsapp: valid && !valid.startsWith("55") ? "+" + valid : valid }).eq("id", c.id).select("id,whatsapp").single();
       if (error || data?.id !== c.id) throw error ?? new Error("Cliente nao confirmado");
       phoneSaved = true;
       // Never treat a NEW telephone as notified when an OLD telephone was contacted.
@@ -150,8 +156,12 @@ function CommunicationPage() {
         }, { onConflict: "client_id" });
       if (result.error) throw result.error;
       setDraftPhones(old => { const next = { ...old }; delete next[c.id]; return next; });
+      feedback(c.id, "Número salvo! Ele também será usado na aba Renovações.", true);
       setNotice("Numero salvo! O mesmo telefone sera usado na aba Renovacoes.");
     } catch {
+      feedback(c.id, phoneSaved
+        ? "Telefone salvo, mas houve falha ao atualizar o histórico de mensagens. Confira antes de enviar."
+        : "Não foi possível salvar o número. Tente novamente.");
       setNotice(phoneSaved
         ? "Telefone salvo, mas o status de envio nao foi reiniciado. Confira antes de avisar."
         : "Falha ao gravar o telefone. Nenhum numero foi alterado.");
@@ -274,7 +284,10 @@ function CommunicationPage() {
                   Número celular / WhatsApp
                   <input type="tel" inputMode="tel" maxLength={22}
                     aria-label={"WhatsApp de " + c.name} placeholder="21999999999"
-                    value={draft} onChange={e => setDraftPhones(old => ({ ...old, [c.id]: e.target.value }))}
+                    value={draft} onChange={e => {
+                      setDraftPhones(old => ({ ...old, [c.id]: e.target.value }));
+                      setPhoneFeedback(prev => { const next = { ...prev }; delete next[c.id]; return next; });
+                    }}
                     className="mt-1.5 h-10 w-full rounded-xl bg-background px-3 text-sm text-frost ring-1 ring-line outline-none focus:ring-cyan/40"/>
                 </label>
                 <Button variant="outline" className="h-10 border-line text-cyan"
@@ -282,6 +295,9 @@ function CommunicationPage() {
                   Salvar número
                 </Button>
               </div>
+              {phoneFeedback[c.id] && <p role="status" className={`mt-2 text-xs ${phoneFeedback[c.id].ok ? "text-ok" : "text-warn"}`}>
+                {phoneFeedback[c.id].text}
+              </p>}
               <div className="mt-4 flex flex-wrap gap-x-6 gap-y-3">
                 <label className="flex items-center gap-2 text-xs text-mist">
                   <input type="checkbox" className="size-4 accent-cyan" checked={t.phone_reviewed}
