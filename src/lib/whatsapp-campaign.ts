@@ -20,6 +20,9 @@ Essa mudança é para organizar melhor as conversas, separar o atendimento das m
 
 📲 *Meu novo número de atendimento: (21) 99534-4044*
 
+💳 *Chave Pix (celular): (21) 99534-4044*
+Se for fazer um pagamento por Pix, você também pode usar esse número como chave. Confirme os dados do recebedor antes de concluir a transferência.
+
 Salve este contato como *Pablo — MaxFlix*. A partir de agora, este será o novo canal para receber nossas atualizações, avisos importantes e promoções.
 
 Também é importante salvar o novo número na sua agenda. Se o contato não estiver salvo, você poderá deixar de receber essas informações.
