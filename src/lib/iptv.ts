@@ -164,8 +164,30 @@ export function renewalDates(dueDate: string, months: number, base = today()) {
   };
 }
 
+/**
+ * WhatsApp links use E.164 digits (without '+'). Brazilian 10/11-digit numbers
+ * default to +55; numbers with an explicit international prefix keep it.
+ * Portuguese +351 numbers are also recognized when pasted without '+'.
+ */
+export function canonicalPhone(raw: string | null | undefined): string | null {
+  const text = (raw ?? "").trim();
+  if (!text || !/^\+?[\d\s().-]+$/.test(text)) return null;
+
+  let digits = text.replace(/\D/g, "");
+  const explicitInternational = text.startsWith("+") || digits.startsWith("00");
+  if (digits.startsWith("00")) digits = digits.slice(2);
+
+  if (explicitInternational) {
+    return /^[1-9]\d{7,14}$/.test(digits) ? digits : null;
+  }
+  if (digits.startsWith("55") && (digits.length === 12 || digits.length === 13)) return digits;
+  if (digits.startsWith("351") && digits.length === 12) return digits;
+  if (digits.length === 10 || digits.length === 11) return "55" + digits;
+  return null;
+}
+
 export function whatsappLink(client: Client, template: string): string {
-  const digits = (client.whatsapp ?? "").replace(/\D/g, "");
+  const digits = canonicalPhone(client.whatsapp) ?? "";
   const message = template
     .replaceAll("{nome}", client.name)
     .replaceAll("{login}", client.login)
