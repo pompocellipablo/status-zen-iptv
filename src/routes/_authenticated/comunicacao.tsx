@@ -196,7 +196,7 @@ function CommunicationPage() {
       </div>}
       {showMessage && <section className="mt-4 rounded-xl bg-panel/80 p-4 ring-1 ring-line">
         <h2 className="font-semibold">Texto de migração para o novo WhatsApp</h2>
-        <p className="mt-1 text-xs text-mist">Editável nesta sessão. Não anuncia data de corte ou alteração de Pix ainda não confirmadas.</p>
+        <p className="mt-1 text-xs text-mist">Editável nesta sessão. O número novo e a chave Pix foram confirmados. A data de encerramento do atendimento anterior ainda não foi definida.</p>
         <textarea rows={12} aria-label="Mensagem da campanha" value={message}
           onChange={e => setMessage(e.target.value)} maxLength={6000}
           className="mt-3 w-full rounded-xl bg-background p-3 text-sm leading-relaxed ring-1 ring-line outline-none focus:ring-cyan/40"/>
