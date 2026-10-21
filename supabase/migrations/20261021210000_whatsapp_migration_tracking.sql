@@ -41,6 +41,9 @@ begin
 end;
 $sql$;
 
+-- Supabase projects may grant ALL table privileges to anon/authenticated by default.
+-- Explicitly remove TRUNCATE/TRIGGER/REFERENCES and all anonymous access.
+revoke all privileges on table public.whatsapp_migration_tracking from public, anon, authenticated;
 grant select, insert, update, delete on public.whatsapp_migration_tracking to authenticated;
 
 comment on table public.whatsapp_migration_tracking is
