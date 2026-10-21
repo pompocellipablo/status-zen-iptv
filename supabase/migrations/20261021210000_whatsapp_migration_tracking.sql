@@ -19,16 +19,27 @@ create index if not exists whatsapp_migration_tracking_sent_idx
 alter table public.whatsapp_migration_tracking enable row level security;
 
 -- The same single authenticated owner allowed on clients.
-create policy whatsapp_migration_tracking_owner
-  on public.whatsapp_migration_tracking for all to authenticated
-  using (
-    (select auth.uid()) = 'c70b3e1f-e5d2-4caf-ae09-019964dbf30e'::uuid
-    and exists (select 1 from public.clients c where c.id = client_id)
-  )
-  with check (
-    (select auth.uid()) = 'c70b3e1f-e5d2-4caf-ae09-019964dbf30e'::uuid
-    and exists (select 1 from public.clients c where c.id = client_id)
-  );
+do $sql$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public'
+      and tablename = 'whatsapp_migration_tracking'
+      and policyname = 'whatsapp_migration_tracking_owner'
+  ) then
+    create policy whatsapp_migration_tracking_owner
+      on public.whatsapp_migration_tracking for all to authenticated
+      using (
+        (select auth.uid()) = 'c70b3e1f-e5d2-4caf-ae09-019964dbf30e'::uuid
+        and exists (select 1 from public.clients c where c.id = client_id)
+      )
+      with check (
+        (select auth.uid()) = 'c70b3e1f-e5d2-4caf-ae09-019964dbf30e'::uuid
+        and exists (select 1 from public.clients c where c.id = client_id)
+      );
+  end if;
+end;
+$sql$;
 
 grant select, insert, update, delete on public.whatsapp_migration_tracking to authenticated;
 
