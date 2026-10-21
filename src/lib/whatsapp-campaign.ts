@@ -14,22 +14,23 @@ export type CampaignTracking = {
 
 export const NEW_WHATSAPP = "21995344044";
 
-export const MIGRATION_MESSAGE = `Tenho uma novidade: agora meu atendimento vai ter um nome, *MaxFlix*, e um WhatsApp exclusivo para os clientes. Continuo sendo eu cuidando de tudo! 🤝
+export const MIGRATION_MESSAGE = `📢 *NOVO WHATSAPP DE ATENDIMENTO*
 
-Essa mudança é para organizar melhor as conversas, separar o atendimento das mensagens pessoais e do trabalho e conseguir dar mais atenção ao suporte e às renovações.
+Oi! Tudo bem? 😊
 
-📲 *Meu novo número de atendimento: (21) 99534-4044*
+Tenho uma novidade: meu atendimento agora vai se chamar *MaxFlix*. Mas pode ficar tranquilo: *sou eu mesmo que continuo te atendendo!* 🤝
+
+📲 *Novo WhatsApp: (21) 99534-4044*
+
+Por favor, salve como *Pablo — MaxFlix* e me mande um *“Oi”* por lá, para já conversarmos pelo contato novo.
+
+*Daqui para frente, suporte, renovações e avisos serão feitos por esse número.* O WhatsApp antigo deixará de ser utilizado para esses assuntos.
 
 💳 *Chave Pix (celular): (21) 99534-4044*
-Se for fazer um pagamento por Pix, você também pode usar esse número como chave. Confirme os dados do recebedor antes de concluir a transferência.
+Esse também é o número da minha chave Pix. Confira os dados do recebedor antes de pagar.
 
-Salve este contato como *Pablo — MaxFlix*. A partir de agora, este será o novo canal para receber nossas atualizações, avisos importantes e promoções.
-
-Também é importante salvar o novo número na sua agenda. Se o contato não estiver salvo, você poderá deixar de receber essas informações.
-
-Daqui para frente, peço que me chame por esse número para tratar de suporte, renovações e outras dúvidas. 😊
-
-Obrigado pela confiança de sempre! Essa organização vai facilitar para todo mundo. 💙`;
+Obrigado pela confiança de sempre! 💙
+*MaxFlix — Tudo em um só lugar*`;
 
 export function eligibleForMigration(client: CampaignAccess, current?: Date): boolean {
   return daysUntil(client.due_date, current) >= -10;
