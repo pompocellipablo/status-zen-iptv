@@ -94,6 +94,7 @@ export function ReferralPanel({ clients, initialClient, onClose, onUseFreeMonth 
     [movements],
   );
   const active = !!client && getStatus(client).key !== "vencido";
+  const pendingLinked = clients.filter(item => item.referred_by_client_id === clientId && !alreadyIndicated.has(item.id));
   const message = client ? referralMessage(client, balance) : "";
   const messageLink = client ? referralWhatsAppUrl(client.whatsapp, message) : null;
 
@@ -117,8 +118,26 @@ export function ReferralPanel({ clients, initialClient, onClose, onUseFreeMonth 
       setReferredId("");
       setNotice("Indicação confirmada! +1 ponto registrado no histórico.");
       await refresh();
+      await qc.invalidateQueries({ queryKey: ["clients"] });
     },
     onError: (error: Error) => setNotice(`Falha ao registrar indicação: ${error.message}`),
+  });
+
+  const pendingPaymentMutation = useMutation({
+    mutationFn: async (referredClientId: string) => {
+      const { error } = await supabase.rpc("referral_award", {
+        p_client_id: clientId,
+        p_referred_client_id: referredClientId,
+        p_payment_confirmed: true,
+      });
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      setNotice("Primeiro pagamento confirmado! +1 ponto creditado automaticamente.");
+      await refresh();
+      await qc.invalidateQueries({ queryKey: ["clients"] });
+    },
+    onError: (error: Error) => setNotice(`Não foi possível pontuar: ${error.message}`),
   });
 
   const claimMutation = useMutation({
@@ -175,7 +194,7 @@ export function ReferralPanel({ clients, initialClient, onClose, onUseFreeMonth 
 
   const loading = movementsQuery.isLoading || rewardsQuery.isLoading;
   const error = movementsQuery.error ?? rewardsQuery.error;
-  const actionBusy = awardMutation.isPending || claimMutation.isPending || deliverMutation.isPending || busy;
+  const actionBusy = awardMutation.isPending || pendingPaymentMutation.isPending || claimMutation.isPending || deliverMutation.isPending || busy;
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-background/90 p-3 backdrop-blur-sm sm:p-6">
@@ -227,16 +246,43 @@ export function ReferralPanel({ clients, initialClient, onClose, onUseFreeMonth 
                   Após mais de um dia de inatividade, o saldo é zerado.
                 </p>
               )}
+              {pendingLinked.length > 0 && (
+                <section className="mt-5 rounded-xl bg-cyan/5 p-4 ring-1 ring-cyan/30">
+                  <h3 className="font-display font-semibold">⏳ Aguardando primeiro pagamento ({pendingLinked.length})</h3>
+                  <p className="mt-1 text-xs text-mist">
+                    Estes clientes já informaram quem indicou no cadastro, mas ainda não geraram pontos.
+                    Confirme somente após receber o pagamento.
+                  </p>
+                  <div className="mt-3 space-y-2">
+                    {pendingLinked.map(pending => (
+                      <div key={pending.id} className="flex flex-col gap-2 rounded-lg bg-panel p-3 ring-1 ring-line sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0">
+                          <p className="break-words text-sm font-medium">{pending.name}</p>
+                          <p className="text-xs text-mist">{pending.login} · {pending.server}</p>
+                        </div>
+                        <button className={smallButton} disabled={!active || actionBusy}
+                          onClick={() => {
+                            if (window.confirm(`Confirma que ${pending.name} realizou o primeiro pagamento? O indicador receberá 1 ponto.`)) {
+                              pendingPaymentMutation.mutate(pending.id);
+                            }
+                          }}>
+                          Confirmar pagamento (+1 ponto)
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
               <div className="mt-5 grid gap-4 lg:grid-cols-2">
                 <section className="rounded-xl bg-background/60 p-4 ring-1 ring-line">
-                  <h3 className="font-display font-semibold">➕ Registrar indicação</h3>
-                  <p className="mt-1 text-xs text-mist">Selecione o amigo que contratou e confirme manualmente o primeiro pagamento.</p>
+                  <h3 className="font-display font-semibold">➕ Registro manual (clientes antigos)</h3>
+                  <p className="mt-1 text-xs text-mist">Para clientes novos, prefira o campo "Indicado por" no cadastro. Aqui você também pode registrar indicações antigas.</p>
                   <label htmlFor="referred-client" className="mt-4 block text-xs text-mist">Cliente indicado</label>
                   <select id="referred-client" value={referredId} onChange={e => setReferredId(e.target.value)}
                     className={fieldClass} disabled={!active || actionBusy}>
                     <option value="">Selecione um cliente cadastrado</option>
                     {clients.slice().sort((a,b) => a.name.localeCompare(b.name, "pt-BR"))
-                      .filter(c => c.id !== clientId && !alreadyIndicated.has(c.id))
+                      .filter(c => c.id !== clientId && !alreadyIndicated.has(c.id) && (!c.referred_by_client_id || c.referred_by_client_id === clientId))
                       .map(c => <option key={c.id} value={c.id}>{c.name} — {c.login}</option>)}
                   </select>
                   <label className="mt-4 flex items-start gap-2 text-sm text-mist">
