@@ -1,12 +1,13 @@
-import { canonicalPhone, type Client } from "./iptv";
+import { canonicalPhone, getStatus, type Client } from "./iptv";
 
 export type ReferralMovement = {
   id: string;
   client_id: string;
   referred_client_id: string | null;
-  kind: "indicacao" | "resgate" | "expiracao";
+  kind: "indicacao" | "resgate" | "expiracao" | "estorno";
   points: number;
   note: string | null;
+  reversed_expiration_id: string | null;
   created_at: string;
 };
 
@@ -19,6 +20,22 @@ export type ReferralReward = {
   created_at: string;
   completed_at: string | null;
 };
+
+/** Active customers only for new registrations; overdue clients keep their historical links. */
+export function canReceiveNewReferral(client: Client): boolean {
+  return getStatus(client).key !== "vencido";
+}
+
+export function latestUnreversedExpiration(
+  clientId: string,
+  movements: ReferralMovement[],
+): ReferralMovement | null {
+  const latest = movements
+    .filter(m => m.client_id === clientId && m.kind === "expiracao")
+    .sort((a,b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id))[0];
+  if (!latest) return null;
+  return movements.some(m => m.reversed_expiration_id === latest.id) ? null : latest;
+}
 
 export const FREE_MONTH_COST = 2;
 export const DEVICE_COST = 10;
