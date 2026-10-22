@@ -2,12 +2,13 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
   referralBalance, referralsToPrize, pendingFreeMonths, referralMessage, referralWhatsAppUrl,
+  canReceiveNewReferral, latestUnreversedExpiration,
   type ReferralMovement, type ReferralReward,
 } from "./referrals.ts";
 
 const movement = (client_id: string, points: number, kind: ReferralMovement["kind"]): ReferralMovement => ({
   id: `${client_id}-${points}-${kind}`, client_id, referred_client_id: kind === "indicacao" ? "ref" : null,
-  kind, points, note: null, created_at: "2026-10-22T12:00:00Z",
+  kind, points, note: null, reversed_expiration_id: null, created_at: "2026-10-22T12:00:00Z",
 });
 const reward = (client_id: string, kind: ReferralReward["reward"], status: ReferralReward["status"]): ReferralReward => ({
   id: "r", movement_id: "m", client_id, reward: kind, status,
@@ -37,6 +38,23 @@ describe("referral accounting", () => {
       reward("b", "mes_gratis", "pendente"),
       reward("a", "fire_stick", "pendente"),
     ]), 1);
+  });
+});
+
+describe("referral selection and historical expiry", () => {
+  test("expired subscriptions cannot be new referrers", () => {
+    const sample = { due_date: "2020-01-01" } as Parameters<typeof canReceiveNewReferral>[0];
+    assert.equal(canReceiveNewReferral(sample), false);
+  });
+
+  test("expirations can be reviewed without deleting historical awards", () => {
+    const expired = { ...movement("a", -2, "expiracao"), id: "expiry" };
+    const first = movement("a", 1, "indicacao");
+    const records = [first, expired];
+    assert.equal(latestUnreversedExpiration("a", records)?.id, "expiry");
+    const correction = { ...movement("a", 2, "estorno"), reversed_expiration_id: "expiry" };
+    assert.equal(latestUnreversedExpiration("a", [...records, correction]), null);
+    assert.equal(records.filter(x => x.kind === "indicacao").length, 1);
   });
 });
 
