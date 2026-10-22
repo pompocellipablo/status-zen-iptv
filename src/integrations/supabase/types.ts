@@ -84,6 +84,7 @@ export type Database = {
           kind: string
           points: number
           note: string | null
+          reversed_expiration_id: string | null
           created_at: string
         }
         Insert: {
@@ -93,6 +94,7 @@ export type Database = {
           kind: string
           points: number
           note?: string | null
+          reversed_expiration_id?: string | null
           created_at?: string
         }
         Update: {
@@ -102,6 +104,7 @@ export type Database = {
           kind?: string
           points?: number
           note?: string | null
+          reversed_expiration_id?: string | null
           created_at?: string
         }
         Relationships: [
@@ -110,6 +113,13 @@ export type Database = {
             columns: ["client_id"]
             isOneToOne: false
             referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "referral_point_movements_reversed_expiration_id_fkey"
+            columns: ["reversed_expiration_id"]
+            isOneToOne: true
+            referencedRelation: "referral_point_movements"
             referencedColumns: ["id"]
           },
           {
@@ -404,6 +414,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      referral_restore_expiration: {
+        Args: { p_client_id: string; p_expiration_id: string }
+        Returns: number
+      }
       referral_award: {
         Args: { p_client_id: string; p_referred_client_id: string; p_payment_confirmed: boolean }
         Returns: undefined
