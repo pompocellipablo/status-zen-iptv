@@ -62,6 +62,96 @@ export type Database = {
         }
         Relationships: []
       }
+      referral_point_movements: {
+        Row: {
+          id: string
+          client_id: string
+          referred_client_id: string | null
+          kind: string
+          points: number
+          note: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          client_id: string
+          referred_client_id?: string | null
+          kind: string
+          points: number
+          note?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          client_id?: string
+          referred_client_id?: string | null
+          kind?: string
+          points?: number
+          note?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "referral_point_movements_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "referral_point_movements_referred_client_id_fkey"
+            columns: ["referred_client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      referral_rewards: {
+        Row: {
+          id: string
+          movement_id: string
+          client_id: string
+          reward: string
+          status: string
+          created_at: string
+          completed_at: string | null
+        }
+        Insert: {
+          id?: string
+          movement_id: string
+          client_id: string
+          reward: string
+          status?: string
+          created_at?: string
+          completed_at?: string | null
+        }
+        Update: {
+          id?: string
+          movement_id?: string
+          client_id?: string
+          reward?: string
+          status?: string
+          created_at?: string
+          completed_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "referral_rewards_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "referral_rewards_movement_id_fkey"
+            columns: ["movement_id"]
+            isOneToOne: true
+            referencedRelation: "referral_point_movements"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       whatsapp_migration_tracking: {
         Row: {
           client_id: string
@@ -300,6 +390,30 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      referral_award: {
+        Args: { p_client_id: string; p_referred_client_id: string; p_payment_confirmed: boolean }
+        Returns: undefined
+      }
+      referral_claim: {
+        Args: { p_client_id: string; p_reward: string }
+        Returns: string
+      }
+      referral_expire_client: {
+        Args: { p_client_id: string }
+        Returns: number
+      }
+      referral_mark_delivered: {
+        Args: { p_reward_id: string }
+        Returns: undefined
+      }
+      referral_reset_expired: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
+      referral_use_free_month: {
+        Args: { p_client_id: string; p_expected_due_date: string }
+        Returns: string
+      }
       renew_client_with_credit: {
         Args: {
           p_client_id: string
