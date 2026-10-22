@@ -99,7 +99,7 @@ export function ClientForm({
       setError("Selecione quem indicou o cliente antes de confirmar o pagamento.");
       return;
     }
-    if (draft.referral_first_payment_confirmed && paid <= 0) {
+    if (!referralAlreadyConfirmed && draft.referral_first_payment_confirmed && paid <= 0) {
       setError("Para confirmar o primeiro pagamento, informe um valor pago maior que zero.");
       return;
     }
