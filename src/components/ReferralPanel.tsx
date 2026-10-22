@@ -6,6 +6,8 @@ import { getStatus, isPackageCovered, formatDate, type Client } from "@/lib/iptv
 import {
   DEVICE_COST,
   FREE_MONTH_COST,
+  canReceiveNewReferral,
+  latestUnreversedExpiration,
   pendingFreeMonths,
   referralBalance,
   referralMessage,
@@ -30,7 +32,7 @@ const smallButton =
 export function ReferralPanel({ clients, initialClient, onClose, onUseFreeMonth }: Props) {
   const qc = useQueryClient();
   const [clientId, setClientId] = useState(
-    initialClient?.id ?? clients.find(c => getStatus(c).key !== "vencido")?.id ?? ""
+    initialClient?.id ?? clients.find(c => canReceiveNewReferral(c))?.id ?? ""
   );
   const [showInactiveHistory, setShowInactiveHistory] = useState(false);
   const [referredId, setReferredId] = useState("");
@@ -96,7 +98,8 @@ export function ReferralPanel({ clients, initialClient, onClose, onUseFreeMonth 
     new Set(movements.filter(item => item.kind === "indicacao").map(item => item.referred_client_id)),
     [movements],
   );
-  const active = !!client && getStatus(client).key !== "vencido";
+  const active = !!client && canReceiveNewReferral(client);
+  const restorableExpiration = active ? latestUnreversedExpiration(clientId, movements) : null;
   const pendingLinked = clients.filter(item => item.referred_by_client_id === clientId && !alreadyIndicated.has(item.id));
   const message = client ? referralMessage(client, balance) : "";
   const messageLink = client ? referralWhatsAppUrl(client.whatsapp, message) : null;
@@ -141,6 +144,21 @@ export function ReferralPanel({ clients, initialClient, onClose, onUseFreeMonth 
       await qc.invalidateQueries({ queryKey: ["clients"] });
     },
     onError: (error: Error) => setNotice(`Não foi possível pontuar: ${error.message}`),
+  });
+
+  const restoreMutation = useMutation({
+    mutationFn: async (expirationId: string) => {
+      const { error } = await supabase.rpc("referral_restore_expiration", {
+        p_client_id: clientId,
+        p_expiration_id: expirationId,
+      });
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      setNotice("Pontos restaurados após revisão do vencimento. O histórico original foi preservado.");
+      await refresh();
+    },
+    onError: (error: Error) => setNotice(`Não foi possível restaurar os pontos: ${error.message}`),
   });
 
   const claimMutation = useMutation({
@@ -197,7 +215,7 @@ export function ReferralPanel({ clients, initialClient, onClose, onUseFreeMonth 
 
   const loading = movementsQuery.isLoading || rewardsQuery.isLoading;
   const error = movementsQuery.error ?? rewardsQuery.error;
-  const actionBusy = awardMutation.isPending || pendingPaymentMutation.isPending || claimMutation.isPending || deliverMutation.isPending || busy;
+  const actionBusy = awardMutation.isPending || pendingPaymentMutation.isPending || restoreMutation.isPending || claimMutation.isPending || deliverMutation.isPending || busy;
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-background/90 p-3 backdrop-blur-sm sm:p-6">
@@ -221,7 +239,7 @@ export function ReferralPanel({ clients, initialClient, onClose, onUseFreeMonth 
             className={fieldClass}>
             {clients
               .filter(c =>
-                getStatus(c).key !== "vencido" || c.id === clientId || showInactiveHistory
+                canReceiveNewReferral(c) || c.id === clientId || showInactiveHistory
               )
               .slice().sort((a,b) => a.name.localeCompare(b.name, "pt-BR"))
               .map(c => (
@@ -259,9 +277,29 @@ export function ReferralPanel({ clients, initialClient, onClose, onUseFreeMonth 
               </div>
               {!active && (
                 <p role="alert" className="mt-4 rounded-xl bg-warn/10 p-3 text-sm text-warn ring-1 ring-warn/30">
-                  Assinatura vencida. É necessário reativar para registrar indicações ou resgatar pontos.
-                  Após mais de um dia de inatividade, o saldo é zerado.
+                  Assinatura vencida. Novas indicações e resgates ficam indisponíveis,
+                  mas as indicações antigas permanecem registradas no histórico.
+                  Se o vencimento estiver errado, corrija a data no cadastro.
                 </p>
+              )}
+              {restorableExpiration && (
+                <section className="mt-4 rounded-xl bg-cyan/5 p-4 text-sm ring-1 ring-cyan/30">
+                  <h3 className="font-display font-semibold">↩ Revisão de pontos após correção de vencimento</h3>
+                  <p className="mt-1 text-xs text-mist">
+                    Existem {Math.abs(restorableExpiration.points)} pontos anteriormente zerados por atraso.
+                    Se foi apenas um esquecimento de atualizar a data (sem interrupção real do serviço),
+                    você pode restaurá-los. Uma renovação realmente atrasada não dá direito ao estorno.
+                    A indicação e o registro de expiração continuam no histórico.
+                  </p>
+                  <button className={`mt-3 ${smallButton}`} disabled={actionBusy}
+                    onClick={() => {
+                      if (window.confirm("Confirma que o vencimento estava incorreto e que o cliente NÃO ficou realmente inativo por mais de um dia? Os pontos zerados serão restaurados e o ajuste ficará registrado.")) {
+                        restoreMutation.mutate(restorableExpiration.id);
+                      }
+                    }}>
+                    Restaurar {Math.abs(restorableExpiration.points)} pontos por correção
+                  </button>
+                </section>
               )}
               {pendingLinked.length > 0 && (
                 <section className="mt-5 rounded-xl bg-cyan/5 p-4 ring-1 ring-cyan/30">
@@ -276,11 +314,11 @@ export function ReferralPanel({ clients, initialClient, onClose, onUseFreeMonth 
                         <div className="min-w-0">
                           <p className="break-words text-sm font-medium">{pending.name}</p>
                           <p className="text-xs text-mist">{pending.login} · {pending.server}
-                            {getStatus(pending).key === "vencido" ? " · Vencido: ajuste a data antes de confirmar" : ""}
+                            {!canReceiveNewReferral(pending) ? " · Vencido: ajuste a data antes de confirmar" : ""}
                           </p>
                         </div>
                         <button className={smallButton}
-                          disabled={!active || actionBusy || getStatus(pending).key === "vencido"}
+                          disabled={!active || actionBusy || !canReceiveNewReferral(pending)}
                           onClick={() => {
                             if (window.confirm(`Confirma que ${pending.name} realizou o primeiro pagamento? O indicador receberá 1 ponto.`)) {
                               pendingPaymentMutation.mutate(pending.id);
@@ -303,7 +341,7 @@ export function ReferralPanel({ clients, initialClient, onClose, onUseFreeMonth 
                     <option value="">Selecione um cliente cadastrado</option>
                     {clients.slice().sort((a,b) => a.name.localeCompare(b.name, "pt-BR"))
                       .filter(c => c.id !== clientId
-                        && getStatus(c).key !== "vencido"
+                        && canReceiveNewReferral(c)
                         && !alreadyIndicated.has(c.id)
                         && (!c.referred_by_client_id || c.referred_by_client_id === clientId))
                       .map(c => <option key={c.id} value={c.id}>{c.name} — {c.login}</option>)}
