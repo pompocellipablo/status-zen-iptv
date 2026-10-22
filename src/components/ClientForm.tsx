@@ -220,7 +220,8 @@ export function ClientForm({
           <div className="sm:col-span-2 rounded-xl bg-background/70 p-4 ring-1 ring-cyan/20">
             <p className="font-display text-sm font-semibold text-frost">🎁 Indicação de cliente</p>
             <p className="mt-1 text-xs text-mist">
-              Quem indicou este cliente? Se não houve indicação, deixe como "Sem indicação".
+              Selecione um cliente ativo. Se não houve indicação, deixe como "Sem indicação".
+              Indicações antigas permanecem vinculadas mesmo se o indicador vencer.
             </p>
             <label className="mt-3 block">
               <span className={labelClass}>Indicado por (opcional)</span>
@@ -248,6 +249,13 @@ export function ClientForm({
                 <option value="">Sem indicação</option>
                 {clients
                   .filter(candidate => candidate.id !== client?.id)
+                  // Only ACTIVE clients may be chosen for NEW referrals.
+                  // Keep an already linked expired referrer visible when editing,
+                  // so the existing attribution is never silently lost.
+                  .filter(candidate =>
+                    getStatus(candidate).key !== "vencido"
+                    || candidate.id === draft.referred_by_client_id
+                  )
                   .filter(candidate =>
                     !referrerSearch.trim()
                     || candidate.id === draft.referred_by_client_id
@@ -258,7 +266,7 @@ export function ClientForm({
                   .sort((a,b) => a.name.localeCompare(b.name, "pt-BR"))
                   .map(candidate => (
                     <option key={candidate.id} value={candidate.id}>
-                      {candidate.name} — {candidate.whatsapp || candidate.login}
+                      {candidate.name} — {candidate.whatsapp || candidate.login}{getStatus(candidate).key === "vencido" ? " (inativo — vínculo anterior)" : ""}
                     </option>
                   ))}
               </select>
