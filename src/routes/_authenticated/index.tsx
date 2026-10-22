@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { ClientForm, type ClientDraft } from "@/components/ClientForm";
+import { ReferralPanel } from "@/components/ReferralPanel";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ImportDialog } from "@/components/ImportDialog";
 import { Button } from "@/components/ui/button";
@@ -106,6 +107,8 @@ function Painel() {
   const [editing, setEditing] = useState<Client | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [referralsOpen, setReferralsOpen] = useState(false);
+  const [referralClient, setReferralClient] = useState<Client | null>(null);
   const [forecastOpen, setForecastOpen] = useState(false);
   const [serverReportOpen, setServerReportOpen] = useState(false);
   const [renewingBusy, setRenewingBusy] = useState(false);
@@ -384,6 +387,32 @@ function Painel() {
     }
   };
 
+  const useReferralMonth = async (client: Client): Promise<boolean> => {
+    if (renewingBusy) return false;
+    setRenewingBusy(true);
+    try {
+      const { error } = await supabase.rpc("referral_use_free_month", {
+        p_client_id: client.id,
+        p_expected_due_date: client.due_date,
+      });
+      if (error) throw error;
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["clients"] }),
+        qc.invalidateQueries({ queryKey: ["payments"] }),
+        qc.invalidateQueries({ queryKey: ["server-credit-movements"] }),
+        qc.invalidateQueries({ queryKey: ["credit-stock-dashboard-movements"] }),
+        qc.invalidateQueries({ queryKey: ["referral-rewards"] }),
+      ]);
+      setNotice(`Mês grátis de ${client.name} aplicado! Vencimento atualizado sem lançar pagamento.`);
+      return true;
+    } catch (error) {
+      setNotice(`Não foi possível utilizar o mês grátis de ${client.name}: ${error instanceof Error ? error.message : "Tente novamente."}`);
+      return false;
+    } finally {
+      setRenewingBusy(false);
+    }
+  };
+
   const renew = async (client: Client) => {
     const newDue = nextDueDate(client.due_date);
     const coveredByPackage = client.financial_due_date && client.financial_due_date >= newDue;
@@ -398,6 +427,16 @@ function Painel() {
         paymentCost: 0,
       });
       if (done) setNotice(`Pacote pago até ${formatDate(client.financial_due_date)} — 1 crédito descontado de ${client.server} (${client.name})`);
+      return;
+    }
+    const { data: freeMonths, error: rewardError } = await supabase.from("referral_rewards")
+      .select("id").eq("client_id", client.id).eq("reward", "mes_gratis").eq("status", "pendente").limit(1);
+    if (rewardError) {
+      setNotice(`Não foi possível verificar os benefícios de ${client.name}: ${rewardError.message}`);
+      return;
+    }
+    if (freeMonths?.length && window.confirm(`${client.name} possui 1 mês grátis resgatado. Deseja usar nesta renovação?`)) {
+      await useReferralMonth(client);
       return;
     }
     setRenewing(client);
@@ -626,6 +665,10 @@ function Painel() {
               </Button>
               <Button asChild variant="outline" className="h-9 border-line bg-panel text-cyan hover:bg-panel2 hover:text-cyan">
                 <Link to="/comunicacao">Comunicação</Link>
+              </Button>
+              <Button onClick={() => { setReferralClient(null); setReferralsOpen(true); }}
+                variant="outline" className="h-9 border-line bg-panel text-cyan hover:bg-panel2 hover:text-cyan">
+                🎁 Indicações
               </Button>
               <button onClick={() => setForecastOpen(true)} className="font-display rounded-xl bg-panel px-3 py-2 text-sm font-medium text-cyan ring-1 ring-cyan/30 hover:bg-cyan/10">
                 Previsão de lucro
@@ -906,6 +949,9 @@ function Painel() {
                           <DropdownMenuItem onSelect={() => { setEditing(c); setFormOpen(true); }}>
                             Editar cliente
                           </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => { setReferralClient(c); setReferralsOpen(true); }}>
+                            🎁 Indicações e pontos
+                          </DropdownMenuItem>
                           <DropdownMenuItem onSelect={() => deleteMutation.mutate(c.id)} className="text-danger focus:bg-danger/10 focus:text-danger">
                             Excluir cliente
                           </DropdownMenuItem>
@@ -984,6 +1030,14 @@ function Painel() {
         )}
       </div>
 
+      {referralsOpen && (
+        <ReferralPanel
+          clients={clients}
+          initialClient={referralClient}
+          onClose={() => { setReferralsOpen(false); setReferralClient(null); }}
+          onUseFreeMonth={useReferralMonth}
+        />
+      )}
       {formOpen && (
         <ClientForm
           client={editing}
