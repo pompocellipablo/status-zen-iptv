@@ -29,7 +29,10 @@ const smallButton =
 
 export function ReferralPanel({ clients, initialClient, onClose, onUseFreeMonth }: Props) {
   const qc = useQueryClient();
-  const [clientId, setClientId] = useState(initialClient?.id ?? clients[0]?.id ?? "");
+  const [clientId, setClientId] = useState(
+    initialClient?.id ?? clients.find(c => getStatus(c).key !== "vencido")?.id ?? ""
+  );
+  const [showInactiveHistory, setShowInactiveHistory] = useState(false);
   const [referredId, setReferredId] = useState("");
   const [paymentConfirmed, setPaymentConfirmed] = useState(false);
   const [notice, setNotice] = useState("");
@@ -216,9 +219,23 @@ export function ReferralPanel({ clients, initialClient, onClose, onUseFreeMonth 
           <select id="referral-client" value={clientId}
             onChange={event => { setClientId(event.target.value); setReferredId(""); setNotice(""); }}
             className={fieldClass}>
-            {clients.slice().sort((a,b) => a.name.localeCompare(b.name, "pt-BR"))
-              .map(c => <option key={c.id} value={c.id}>{c.name} — {c.login} ({c.server})</option>)}
+            {clients
+              .filter(c =>
+                getStatus(c).key !== "vencido" || c.id === clientId || showInactiveHistory
+              )
+              .slice().sort((a,b) => a.name.localeCompare(b.name, "pt-BR"))
+              .map(c => (
+                <option key={c.id} value={c.id}>
+                  {c.name} — {c.login} ({c.server})
+                  {getStatus(c).key === "vencido" ? " · Inativo (histórico)" : ""}
+                </option>
+              ))}
           </select>
+          <label className="mt-2 flex items-center gap-2 text-xs text-mist">
+            <input type="checkbox" checked={showInactiveHistory}
+              onChange={event => setShowInactiveHistory(event.target.checked)} />
+            Mostrar clientes inativos somente para consultar histórico e corrigir pontos
+          </label>
         </div>
 
         {loading ? <p className="mt-6 text-sm text-mist">Carregando pontos e resgates…</p>
@@ -258,9 +275,12 @@ export function ReferralPanel({ clients, initialClient, onClose, onUseFreeMonth 
                       <div key={pending.id} className="flex flex-col gap-2 rounded-lg bg-panel p-3 ring-1 ring-line sm:flex-row sm:items-center sm:justify-between">
                         <div className="min-w-0">
                           <p className="break-words text-sm font-medium">{pending.name}</p>
-                          <p className="text-xs text-mist">{pending.login} · {pending.server}</p>
+                          <p className="text-xs text-mist">{pending.login} · {pending.server}
+                            {getStatus(pending).key === "vencido" ? " · Vencido: ajuste a data antes de confirmar" : ""}
+                          </p>
                         </div>
-                        <button className={smallButton} disabled={!active || actionBusy}
+                        <button className={smallButton}
+                          disabled={!active || actionBusy || getStatus(pending).key === "vencido"}
                           onClick={() => {
                             if (window.confirm(`Confirma que ${pending.name} realizou o primeiro pagamento? O indicador receberá 1 ponto.`)) {
                               pendingPaymentMutation.mutate(pending.id);
@@ -282,7 +302,10 @@ export function ReferralPanel({ clients, initialClient, onClose, onUseFreeMonth 
                     className={fieldClass} disabled={!active || actionBusy}>
                     <option value="">Selecione um cliente cadastrado</option>
                     {clients.slice().sort((a,b) => a.name.localeCompare(b.name, "pt-BR"))
-                      .filter(c => c.id !== clientId && !alreadyIndicated.has(c.id) && (!c.referred_by_client_id || c.referred_by_client_id === clientId))
+                      .filter(c => c.id !== clientId
+                        && getStatus(c).key !== "vencido"
+                        && !alreadyIndicated.has(c.id)
+                        && (!c.referred_by_client_id || c.referred_by_client_id === clientId))
                       .map(c => <option key={c.id} value={c.id}>{c.name} — {c.login}</option>)}
                   </select>
                   <label className="mt-4 flex items-start gap-2 text-sm text-mist">
