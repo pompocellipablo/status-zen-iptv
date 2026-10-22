@@ -71,10 +71,12 @@ export function ClientForm({
 }) {
   const [draft, setDraft] = useState<ClientDraft>(() => toDraft(client));
   const [error, setError] = useState<string | null>(null);
+  const [referrerSearch, setReferrerSearch] = useState("");
 
   useEffect(() => {
     setDraft(toDraft(client));
     setError(null);
+    setReferrerSearch("");
   }, [client]);
 
   const cost = Number(draft.cost.replace(",", ".")) || 0;
@@ -222,18 +224,36 @@ export function ClientForm({
             </p>
             <label className="mt-3 block">
               <span className={labelClass}>Indicado por (opcional)</span>
+              <input
+                type="search"
+                className={fieldClass}
+                value={referrerSearch}
+                onChange={e => setReferrerSearch(e.target.value)}
+                placeholder="Buscar pelo nome, login ou WhatsApp"
+                aria-label="Pesquisar cliente indicador"
+                disabled={referralAlreadyConfirmed}
+              />
               <select
                 className={fieldClass}
                 value={draft.referred_by_client_id}
                 disabled={referralAlreadyConfirmed}
-                onChange={e => set({
-                  referred_by_client_id: e.target.value,
-                  referral_first_payment_confirmed: false,
-                })}
+                onChange={e => {
+                  set({
+                    referred_by_client_id: e.target.value,
+                    referral_first_payment_confirmed: false,
+                  });
+                  setReferrerSearch("");
+                }}
               >
                 <option value="">Sem indicação</option>
                 {clients
                   .filter(candidate => candidate.id !== client?.id)
+                  .filter(candidate =>
+                    !referrerSearch.trim()
+                    || candidate.id === draft.referred_by_client_id
+                    || `${candidate.name} ${candidate.login} ${candidate.whatsapp ?? ""}`
+                      .toLocaleLowerCase("pt-BR").includes(referrerSearch.trim().toLocaleLowerCase("pt-BR"))
+                  )
                   .slice()
                   .sort((a,b) => a.name.localeCompare(b.name, "pt-BR"))
                   .map(candidate => (
