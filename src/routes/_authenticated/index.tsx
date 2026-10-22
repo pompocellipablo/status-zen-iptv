@@ -104,6 +104,7 @@ function Painel() {
   const [sortMode, setSortMode] = useState<ClientSortMode>("vencimento-asc");
   const [page, setPage] = useState(1);
   const [formOpen, setFormOpen] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Client | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -265,6 +266,8 @@ function Painel() {
         due_date: draft.due_date,
         financial_due_date: draft.financial_due_date || null,
         whatsapp: draft.whatsapp.trim() || null,
+        referred_by_client_id: draft.referred_by_client_id || null,
+        referral_first_payment_confirmed: draft.referral_first_payment_confirmed,
         prev_cost: cost,
         prev_paid: paid,
       };
@@ -276,10 +279,20 @@ function Painel() {
         if (error) throw error;
       }
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       setFormOpen(false);
       setEditing(null);
+      setFormError(null);
       invalidate();
+      void qc.invalidateQueries({ queryKey: ["referral-movements"] });
+      if (variables.draft.referred_by_client_id && variables.draft.referral_first_payment_confirmed) {
+        setNotice("Cliente salvo! A indicação foi registrada e o ponto creditado automaticamente.");
+      } else if (variables.draft.referred_by_client_id) {
+        setNotice("Cliente salvo! Indicação registrada e aguardando confirmação do primeiro pagamento.");
+      }
+    },
+    onError: (error: Error) => {
+      setFormError(`Não foi possível salvar o cliente: ${error.message}`);
     },
   });
 
@@ -634,7 +647,7 @@ function Painel() {
             </div>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => { setEditing(null); setFormOpen(true); }}
+                onClick={() => { setFormError(null); setEditing(null); setFormOpen(true); }}
                 className="font-display rounded-xl bg-cyan px-3 py-2 text-sm font-semibold text-background ring-1 ring-cyan/40 hover:brightness-110"
               >
                 + Novo cliente
@@ -946,7 +959,7 @@ function Painel() {
                           </button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" sideOffset={5} className="min-w-[170px] border-line bg-panel2 text-frost">
-                          <DropdownMenuItem onSelect={() => { setEditing(c); setFormOpen(true); }}>
+                          <DropdownMenuItem onSelect={() => { setFormError(null); setEditing(c); setFormOpen(true); }}>
                             Editar cliente
                           </DropdownMenuItem>
                           <DropdownMenuItem onSelect={() => { setReferralClient(c); setReferralsOpen(true); }}>
@@ -1041,6 +1054,8 @@ function Painel() {
       {formOpen && (
         <ClientForm
           client={editing}
+          clients={clients}
+          saveError={formError}
           saving={saveMutation.isPending}
           onCancel={() => {
             setFormOpen(false);
