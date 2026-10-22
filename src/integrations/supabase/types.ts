@@ -28,6 +28,8 @@ export type Database = {
           prev_paid: number
           server: string
           updated_at: string
+          referred_by_client_id: string | null
+          referral_first_payment_confirmed: boolean
           whatsapp: string | null
         }
         Insert: {
@@ -43,6 +45,8 @@ export type Database = {
           prev_paid?: number
           server: string
           updated_at?: string
+          referred_by_client_id?: string | null
+          referral_first_payment_confirmed?: boolean
           whatsapp?: string | null
         }
         Update: {
@@ -58,9 +62,19 @@ export type Database = {
           prev_paid?: number
           server?: string
           updated_at?: string
+          referred_by_client_id?: string | null
+          referral_first_payment_confirmed?: boolean
           whatsapp?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "clients_referred_by_client_id_fkey"
+            columns: ["referred_by_client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       referral_point_movements: {
         Row: {
