@@ -41,14 +41,14 @@ export function referralMessage(client: Pick<Client, "name">, availablePoints: n
   const missing = referralsToPrize(points);
   const nextStep = missing === 0
     ? "🏆 *PARABÉNS!* Você já tem pontos para solicitar seu *Fire TV Stick* ou *Projetor HY320*! 🎉"
-    : \`🔥 Faltam apenas *\${missing} \${missing === 1 ? "indicação" : "indicações"}* para você conquistar um *Fire TV Stick* ou *Projetor HY320*!\`;
-  return \`🍿 *OLÁ, \${firstName.toUpperCase()}!* 😊
+    : `🔥 Faltam apenas *${missing} ${missing === 1 ? "indicação" : "indicações"}* para você conquistar um *Fire TV Stick* ou *Projetor HY320*!`;
+  return `🍿 *OLÁ, ${firstName.toUpperCase()}!* 😊
 
 🎁 *SEUS PONTOS NA MAXFLIX*
 
-⭐ Você possui *\${points} \${points === 1 ? "PONTO" : "PONTOS"}* disponíveis!
+⭐ Você possui *${points} ${points === 1 ? "PONTO" : "PONTOS"}* disponíveis!
 
-\${nextStep}
+${nextStep}
 
 💡 *VOCÊ ESCOLHE!*
 ✅ *2 pontos:* 1 mês grátis (1 tela).
@@ -58,12 +58,12 @@ export function referralMessage(client: Pick<Client, "name">, availablePoints: n
 
 ⚠️ Para manter seus pontos, não fique com a assinatura desativada por mais de um dia.
 
-💙 Indique seus amigos e continue acumulando! 😉\`;
+💙 Indique seus amigos e continue acumulando! 😉`;
 }
 
 export function referralWhatsAppUrl(phone: string | null, message: string): string | null {
   const normalized = canonicalPhone(phone);
-  return normalized ? \`https://wa.me/\${normalized}?text=\${encodeURIComponent(message)}\` : null;
+  return normalized ? `https://wa.me/${normalized}?text=${encodeURIComponent(message)}` : null;
 }
 
 export function pendingFreeMonths(clientId: string, rewards: ReferralReward[]): number {
