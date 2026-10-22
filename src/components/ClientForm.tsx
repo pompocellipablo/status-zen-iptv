@@ -4,6 +4,7 @@ import {
   SERVER_COSTS,
   formatBRL,
   formatDate,
+  getStatus,
   type Client,
 } from "@/lib/iptv";
 
@@ -16,6 +17,8 @@ export type ClientDraft = {
   due_date: string;
   financial_due_date: string;
   whatsapp: string;
+  referred_by_client_id: string;
+  referral_first_payment_confirmed: boolean;
 };
 
 function toDraft(client: Client | null): ClientDraft {
@@ -29,6 +32,8 @@ function toDraft(client: Client | null): ClientDraft {
       due_date: "",
       financial_due_date: "",
       whatsapp: "",
+      referred_by_client_id: "",
+      referral_first_payment_confirmed: false,
     };
   }
   return {
@@ -40,6 +45,8 @@ function toDraft(client: Client | null): ClientDraft {
     due_date: client.due_date,
     financial_due_date: client.financial_due_date ?? "",
     whatsapp: client.whatsapp ?? "",
+    referred_by_client_id: client.referred_by_client_id ?? "",
+    referral_first_payment_confirmed: client.referral_first_payment_confirmed ?? false,
   };
 }
 
@@ -49,11 +56,15 @@ const labelClass = "text-xs uppercase tracking-wide text-mist";
 
 export function ClientForm({
   client,
+  clients,
   onCancel,
   onSave,
   saving,
+  saveError,
 }: {
   client: Client | null;
+  clients: Client[];
+  saveError?: string | null;
   onCancel: () => void;
   onSave: (draft: ClientDraft) => void;
   saving: boolean;
@@ -69,6 +80,8 @@ export function ClientForm({
   const cost = Number(draft.cost.replace(",", ".")) || 0;
   const paid = Number(draft.paid.replace(",", ".")) || 0;
   const profit = paid - cost;
+  const referrer = clients.find(item => item.id === draft.referred_by_client_id);
+  const referralAlreadyConfirmed = !!client?.referral_first_payment_confirmed;
 
   const set = (patch: Partial<ClientDraft>) => setDraft((d) => ({ ...d, ...patch }));
 
@@ -80,6 +93,14 @@ export function ClientForm({
   const submit = () => {
     if (!draft.name.trim() || !draft.login.trim() || !draft.due_date) {
       setError("Preencha nome, login e data de vencimento.");
+      return;
+    }
+    if (draft.referral_first_payment_confirmed && !draft.referred_by_client_id) {
+      setError("Selecione quem indicou o cliente antes de confirmar o pagamento.");
+      return;
+    }
+    if (draft.referral_first_payment_confirmed && paid <= 0) {
+      setError("Para confirmar o primeiro pagamento, informe um valor pago maior que zero.");
       return;
     }
     setError(null);
@@ -194,6 +215,66 @@ export function ClientForm({
               onChange={(e) => set({ financial_due_date: e.target.value })}
             />
           </label>
+          <div className="sm:col-span-2 rounded-xl bg-background/70 p-4 ring-1 ring-cyan/20">
+            <p className="font-display text-sm font-semibold text-frost">🎁 Indicação de cliente</p>
+            <p className="mt-1 text-xs text-mist">
+              Quem indicou este cliente? Se não houve indicação, deixe como "Sem indicação".
+            </p>
+            <label className="mt-3 block">
+              <span className={labelClass}>Indicado por (opcional)</span>
+              <select
+                className={fieldClass}
+                value={draft.referred_by_client_id}
+                disabled={referralAlreadyConfirmed}
+                onChange={e => set({
+                  referred_by_client_id: e.target.value,
+                  referral_first_payment_confirmed: false,
+                })}
+              >
+                <option value="">Sem indicação</option>
+                {clients
+                  .filter(candidate => candidate.id !== client?.id)
+                  .slice()
+                  .sort((a,b) => a.name.localeCompare(b.name, "pt-BR"))
+                  .map(candidate => (
+                    <option key={candidate.id} value={candidate.id}>
+                      {candidate.name} — {candidate.whatsapp || candidate.login}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            {draft.referred_by_client_id && (
+              <>
+                <label className="mt-3 flex items-start gap-2 text-sm text-frost">
+                  <input
+                    type="checkbox"
+                    className="mt-1 size-4 accent-cyan-500"
+                    checked={draft.referral_first_payment_confirmed}
+                    disabled={referralAlreadyConfirmed}
+                    onChange={e => set({ referral_first_payment_confirmed: e.target.checked })}
+                  />
+                  <span>
+                    <strong>Primeiro pagamento confirmado</strong>
+                    <span className="mt-1 block text-xs text-mist">
+                      {referralAlreadyConfirmed
+                        ? "Indicação já pontuada. O vínculo permanece protegido no histórico."
+                        : "Marque somente após receber o pagamento. Ao salvar, o indicador ganha 1 ponto automaticamente."}
+                    </span>
+                  </span>
+                </label>
+                {referrer && getStatus(referrer).key === "vencido" && !referralAlreadyConfirmed && (
+                  <p className="mt-2 text-xs text-warn">
+                    O indicador está com a assinatura vencida; é necessário regularizá-la antes de creditar pontos.
+                  </p>
+                )}
+                {!draft.referral_first_payment_confirmed && (
+                  <p className="mt-2 text-xs text-cyan">
+                    A indicação ficará pendente, sem pontuar, até você confirmar o primeiro pagamento.
+                  </p>
+                )}
+              </>
+            )}
+          </div>
           <label className="block sm:col-span-2">
             <span className={labelClass}>WhatsApp</span>
             <input
@@ -211,7 +292,7 @@ export function ClientForm({
             {packageNotice}
           </p>
         )}
-        {error && <p className="mt-4 text-sm text-danger">{error}</p>}
+        {(error || saveError) && <p role="alert" className="mt-4 text-sm text-danger">{error || saveError}</p>}
 
         <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
           <button
