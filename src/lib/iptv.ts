@@ -9,6 +9,8 @@ export type Client = {
   due_date: string;
   financial_due_date: string | null;
   whatsapp: string | null;
+  referred_by_client_id?: string | null;
+  referral_first_payment_confirmed?: boolean;
   prev_cost: number;
   prev_paid: number;
   created_at?: string;
