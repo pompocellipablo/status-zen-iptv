@@ -124,7 +124,7 @@ function RecoveryPage(){
   const displayed=filtered.slice((Math.min(page,maxPage)-1)*PAGE_SIZE,Math.min(page,maxPage)*PAGE_SIZE);
   const stats=useMemo(()=>({
     total:people.length,
-    contacted:people.filter(p=>["contatado","interessado","teste","recuperado"].includes(p.status)).length,
+    contacted:people.filter(p=>["contatado","interessado","teste","recuperado","sem_interesse"].includes(p.status)).length,
     interested:people.filter(p=>["interessado","teste"].includes(p.status)).length,
     recovered:people.filter(p=>p.status==="recuperado").length,
     monthly:people.filter(p=>p.status==="recuperado").reduce((sum,p)=>sum+Number(p.monthly_value||0),0),
@@ -246,12 +246,13 @@ function RecoveryPage(){
       </div>
       <Link to="/" className="rounded-xl border border-line px-4 py-2 text-sm hover:bg-panel">Voltar ao painel</Link>
     </div>
-    <section className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+    <section className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
       {[
         ["Ex-clientes",String(stats.total)],
         ["Contatados",String(stats.contacted)],
         ["Interessados / teste",String(stats.interested)],
         ["Recuperados",String(stats.recovered)],
+        ["Conversão de abordados",stats.contacted?((stats.recovered/stats.contacted)*100).toFixed(1).replace(".",",")+"%":"—"],
         ["Receita mensal recuperada",money(stats.monthly)],
       ].map(([label,value])=><div key={label} className="rounded-xl bg-panel p-3 ring-1 ring-line">
         <div className="break-words text-lg font-bold text-cyan">{value}</div>
