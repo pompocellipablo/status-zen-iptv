@@ -682,6 +682,9 @@ function Painel() {
               <Button asChild variant="outline" className="h-9 border-line bg-panel text-cyan hover:bg-panel2 hover:text-cyan">
                 <Link to="/marketing">✨ Marketing IA</Link>
               </Button>
+              <Button asChild variant="outline" className="h-9 border-line bg-panel text-cyan hover:bg-panel2 hover:text-cyan">
+                <Link to="/recuperacao">♻ Recuperação</Link>
+              </Button>
               <Button onClick={() => { setReferralClient(null); setReferralsOpen(true); }}
                 variant="outline" className="h-9 border-line bg-panel text-cyan hover:bg-panel2 hover:text-cyan">
                 🎁 Indicações
