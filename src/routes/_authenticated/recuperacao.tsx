@@ -19,7 +19,7 @@ type FormerClient = {
   last_contacted_at: string | null; recovered_at: string | null;
   created_at: string; updated_at: string;
 };
-type ExistingClient = { id: string; name: string; whatsapp: string | null; due_date: string };
+type ExistingClient = { id: string; name: string; whatsapp: string | null; due_date: string; financial_due_date: string | null };
 type Event = { id: string; former_client_id: string; action: string; from_status: string | null; to_status: string | null; note: string | null; created_at: string };
 
 const STATUS_LABELS: Record<Status,string> = {
@@ -68,6 +68,7 @@ function RecoveryPage(){
   const [events,setEvents]=useState<Event[]>([]);
   const [expanded,setExpanded]=useState("");
   const [filter,setFilter]=useState<Status|"todos">("todos");
+  const [phoneFilter,setPhoneFilter]=useState<"todos"|"sem"|"com">("todos");
   const [search,setSearch]=useState("");
   const [page,setPage]=useState(1);
   const [busy,setBusy]=useState(false);
@@ -95,7 +96,7 @@ function RecoveryPage(){
         catch { syncFailed = true; }
         const [former,clientRows]=await Promise.all([
           listAll<FormerClient>("former_clients"),
-          db.from("clients").select("id,name,whatsapp,due_date").limit(2000),
+          db.from("clients").select("id,name,whatsapp,due_date,financial_due_date").limit(2000),
         ]);
         if(clientRows.error)throw clientRows.error;
         if(active){
@@ -133,12 +134,14 @@ function RecoveryPage(){
   const filtered=useMemo(()=>{
     const q=search.trim().toLocaleLowerCase("pt-BR");
     return people.filter(p=>(filter==="todos"||p.status===filter)
+      && (phoneFilter==="todos" || (phoneFilter==="sem" ? !p.phone : !!p.phone))
       && (!q || (p.name+" "+(p.phone||"")+" "+(p.server||"")+" "+(p.notes||"")).toLocaleLowerCase("pt-BR").includes(q)));
-  },[people,filter,search]);
+  },[people,filter,phoneFilter,search]);
   const maxPage=Math.max(1,Math.ceil(filtered.length/PAGE_SIZE));
   const displayed=filtered.slice((Math.min(page,maxPage)-1)*PAGE_SIZE,Math.min(page,maxPage)*PAGE_SIZE);
   const stats=useMemo(()=>({
     total:people.length,
+    missingPhone:people.filter(p=>!p.phone).length,
     contacted:people.filter(p=>["contatado","interessado","teste","recuperado","sem_interesse"].includes(p.status)).length,
     interested:people.filter(p=>["interessado","teste"].includes(p.status)).length,
     recovered:people.filter(p=>p.status==="recuperado").length,
@@ -169,7 +172,7 @@ function RecoveryPage(){
     if(digits && people.some(p=>p.phone===digits)){
       setNotice("Esse telefone já está cadastrado na base de ex-clientes. Utilize o registro existente.");return;
     }
-    const matches=digits?activeNumbers.get(digits)||[]:[];
+    const matches=digits?(activeNumbers.get(digits)||[]).filter(c=>c.due_date>=new Date().toISOString().slice(0,10) || (c.financial_due_date && c.financial_due_date>=new Date().toISOString().slice(0,10))):[];
     if(matches.length){
       const names=matches.map(c=>c.name).slice(0,3).join(", ");
       if(!window.confirm("Esse número já aparece entre os clientes do MaxFlix ("+names+"). Confira se a pessoa já voltou antes de registrar como ex-cliente. Deseja continuar?"))return;
@@ -189,6 +192,41 @@ function RecoveryPage(){
     }catch(err){
       const msg=String((err as Error)?.message||"");
       setNotice(msg.includes("duplicate")?"Telefone já cadastrado. Confira a ficha existente.":"Não foi possível salvar. Confira os dados e tente novamente.");
+    }finally{setBusy(false);}
+  };
+
+  const updatePhone=async(row:FormerClient)=>{
+    const entered=window.prompt("WhatsApp de "+row.name+" (com DDD). Deixe vazio para manter sem número.",row.phone||"");
+    if(entered===null)return;
+    const digits=phoneDigits(entered);
+    if(!digits)return;
+    if(!digits.startsWith("55") || ![12,13].includes(digits.length)){
+      setNotice("Número inválido. Informe DDD + telefone brasileiro.");
+      return;
+    }
+    if(digits===row.phone)return;
+    if(people.some(p=>p.id!==row.id&&p.phone===digits)){
+      setNotice("Esse telefone já está vinculado a outro ex-cliente. Não foi alterado: revise as duas fichas para evitar duplicidade.");
+      return;
+    }
+    const currentDate=new Date().toISOString().slice(0,10);
+    const live=(activeNumbers.get(digits)||[]).filter(c=>
+      c.due_date>=currentDate || (c.financial_due_date!==null && c.financial_due_date>=currentDate));
+    if(live.length){
+      setNotice("Telefone encontrado em uma assinatura ativa. Verifique se "+row.name+" já voltou antes de associá-lo.");
+      return;
+    }
+    setBusy(true);
+    try{
+      const {error}=await db.from("former_clients").update({phone:digits,updated_at:new Date().toISOString()}).eq("id",row.id);
+      if(error)throw error;
+      await db.from("former_client_events").insert({
+        former_client_id:row.id,action:"observacao",note:"WhatsApp preenchido ou atualizado após revisão manual",
+      });
+      await reload();
+      setNotice("Telefone salvo apenas na base Recuperação. O cadastro original não foi alterado.");
+    }catch{
+      setNotice("Não foi possível salvar o WhatsApp. Confira se ele já pertence a outra ficha.");
     }finally{setBusy(false);}
   };
 
@@ -274,9 +312,10 @@ function RecoveryPage(){
       </div>
       <Link to="/" className="rounded-xl border border-line px-4 py-2 text-sm hover:bg-panel">Voltar ao painel</Link>
     </div>
-    <section className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+    <section className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
       {[
         ["Ex-clientes",String(stats.total)],
+        ["Sem WhatsApp",String(stats.missingPhone)],
         ["Contatados",String(stats.contacted)],
         ["Interessados / teste",String(stats.interested)],
         ["Recuperados",String(stats.recovered)],
@@ -288,7 +327,7 @@ function RecoveryPage(){
       </div>)}
     </section>
     <div className="rounded-xl border border-line bg-panel/60 p-3 text-sm text-mist">
-      Assinaturas vencidas há mais de 10 dias são identificadas automaticamente ao abrir esta aba, desde que tenham WhatsApp válido, não tenham cobertura financeira futura e não compartilhem telefone com um cliente ativo. O registro principal não é apagado. Contatos OFF da agenda só entram após revisão.
+      Assinaturas vencidas há mais de 10 dias são adicionadas automaticamente à Recuperação, inclusive sem WhatsApp. O número poderá ser preenchido aqui depois. Não importamos clientes com cobertura financeira futura nem números vinculados a assinaturas ativas. Nenhuma assinatura original é excluída ou alterada. Contatos OFF da agenda entram somente após revisão.
     </div>
     {notice && <p role="status" className="rounded-xl border border-cyan/30 bg-panel p-3 text-sm">{notice}</p>}
     <section className="space-y-3 rounded-2xl bg-panel p-4 ring-1 ring-line">
@@ -337,19 +376,25 @@ function RecoveryPage(){
           <option value="todos">Todos os status</option>
           {statuses.map(s=><option value={s} key={s}>{STATUS_LABELS[s]}</option>)}
         </select>
+        <select value={phoneFilter} onChange={e=>{setPhoneFilter(e.target.value as "todos"|"sem"|"com");setPage(1);}}
+          aria-label="Filtrar pelo telefone" className="rounded-lg border border-line bg-panel2 px-3 py-2 text-sm">
+          <option value="todos">Todos os telefones</option>
+          <option value="sem">Sem WhatsApp</option>
+          <option value="com">Com WhatsApp</option>
+        </select>
       </div>
       {loading?<p className="p-4 text-sm text-mist">Carregando ex-clientes...</p>:
         !filtered.length?<p className="rounded-xl bg-panel2 p-5 text-center text-sm text-mist">
           {people.length?"Nenhum registro corresponde ao filtro.":"A base está vazia. Você pode incluir os primeiros contatos OFF quando estiverem conferidos."}
         </p>:<div className="space-y-2">
           {displayed.map(row=>{
-            const current= row.phone?activeNumbers.get(row.phone)||[]:[];
+            const current= row.phone?(activeNumbers.get(row.phone)||[]).filter(x=>x.id!==row.linked_client_id && (x.due_date>=new Date().toISOString().slice(0,10) || !!(x.financial_due_date && x.financial_due_date>=new Date().toISOString().slice(0,10)))):[];
             return <div key={row.id} className="space-y-2 rounded-xl border border-line bg-panel2 p-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <div className="break-words font-semibold">{row.name}</div>
-                  <p className="text-xs text-mist">{row.phone||"Sem telefone"} · {ORIGIN_LABELS[row.origin]}{row.server?" · "+row.server:""}</p>
-                  {current.length>0 && <p className="mt-1 text-xs text-amber-400">Atenção: mesmo telefone aparece no cadastro atual do MaxFlix.</p>}
+                  <p className="text-xs text-mist">{row.phone||"Sem telefone — preencher depois"} · {ORIGIN_LABELS[row.origin]}{row.server?" · "+row.server:""}</p>
+                  {current.length>0 && <p className="mt-1 text-xs text-amber-400">Atenção: mesmo telefone aparece em uma assinatura ativa do MaxFlix.</p>}
                 </div>
                 <button className="rounded-lg border border-line px-3 py-1 text-xs hover:bg-panel" onClick={()=>setExpanded(expanded===row.id?"":row.id)}>
                   {expanded===row.id?"Fechar detalhes":"Ver detalhes"}
@@ -376,6 +421,7 @@ function RecoveryPage(){
                 <p className="text-mist">Último contato: {date(row.last_contacted_at)} · Cadastro em: {date(row.created_at)}</p>
                 <p className="whitespace-pre-wrap text-mist">{row.notes||"Sem observações."}</p>
                 <div className="flex flex-wrap gap-2">
+                  <button disabled={busy} onClick={()=>void updatePhone(row)} className="rounded-lg border border-line px-3 py-2 text-xs">{row.phone?"Editar WhatsApp":"Adicionar WhatsApp"}</button>
                   <button disabled={busy} onClick={()=>void updateNotes(row)} className="rounded-lg border border-line px-3 py-2 text-xs">Editar observações</button>
                   {row.status==="recuperado"&&<button disabled={busy} onClick={()=>void updateMonthly(row)} className="rounded-lg border border-line px-3 py-2 text-xs">Corrigir mensalidade recuperada</button>}
                 </div>
