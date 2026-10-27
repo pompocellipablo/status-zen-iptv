@@ -45,6 +45,12 @@ function phoneDigits(value: string | null | undefined):string {
 function money(value:number) { return value.toLocaleString("pt-BR",{style:"currency",currency:"BRL"}); }
 function date(value:string | null) { return value?new Date(value).toLocaleDateString("pt-BR"):"—"; }
 
+async function syncOverdueClients(): Promise<number> {
+  const { data, error } = await db.rpc("sync_overdue_former_clients");
+  if (error) throw error;
+  return typeof data === "number" ? data : Number(data ?? 0);
+}
+
 async function listAll<T>(table:"former_clients"|"former_client_events"):Promise<T[]> {
   const all:T[]=[];
   for(let offset=0;offset<50000;offset+=1000) {
@@ -83,12 +89,21 @@ function RecoveryPage(){
     let active=true;
     const load=async()=>{
       try{
+        let imported = 0;
+        let syncFailed = false;
+        try { imported = await syncOverdueClients(); }
+        catch { syncFailed = true; }
         const [former,clientRows]=await Promise.all([
           listAll<FormerClient>("former_clients"),
           db.from("clients").select("id,name,whatsapp,due_date").limit(2000),
         ]);
         if(clientRows.error)throw clientRows.error;
-        if(active){setPeople(former);setExisting(clientRows.data as ExistingClient[]||[]);}
+        if(active){
+          setPeople(former);
+          setExisting(clientRows.data as ExistingClient[]||[]);
+          if(imported>0)setNotice(imported+" ex-cliente(s) elegível(is) adicionado(s) automaticamente à Recuperação.");
+          else if(syncFailed)setNotice("O histórico carregou, mas a sincronização automática falhou. Use Sincronizar agora para tentar novamente.");
+        }
       }catch{
         if(active)setNotice("Não foi possível carregar a base. Atualize a página e confira sua conexão.");
       }finally{if(active)setLoading(false);}
@@ -129,6 +144,19 @@ function RecoveryPage(){
     recovered:people.filter(p=>p.status==="recuperado").length,
     monthly:people.filter(p=>p.status==="recuperado").reduce((sum,p)=>sum+Number(p.monthly_value||0),0),
   }),[people]);
+
+  const syncNow=async()=>{
+    setBusy(true);
+    try{
+      const added=await syncOverdueClients();
+      await reload();
+      setNotice(added>0
+        ? added+" ex-cliente(s) novo(s) encontrado(s) e registrado(s)."
+        : "Tudo atualizado. Nenhum ex-cliente novo elegível para importar.");
+    }catch{
+      setNotice("Não foi possível sincronizar. Os cadastros existentes foram preservados.");
+    }finally{setBusy(false);}
+  };
 
   const create=async(e:React.FormEvent)=>{
     e.preventDefault();
@@ -260,15 +288,21 @@ function RecoveryPage(){
       </div>)}
     </section>
     <div className="rounded-xl border border-line bg-panel/60 p-3 text-sm text-mist">
-      Os clientes vencidos do painel principal não são importados automaticamente. O mesmo vale para os contatos marcados como OFF: vamos incluí-los somente depois da conferência da agenda, para não tratar clientes ativos como ex-clientes.
+      Assinaturas vencidas há mais de 10 dias são identificadas automaticamente ao abrir esta aba, desde que tenham WhatsApp válido, não tenham cobertura financeira futura e não compartilhem telefone com um cliente ativo. O registro principal não é apagado. Contatos OFF da agenda só entram após revisão.
     </div>
     {notice && <p role="status" className="rounded-xl border border-cyan/30 bg-panel p-3 text-sm">{notice}</p>}
     <section className="space-y-3 rounded-2xl bg-panel p-4 ring-1 ring-line">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="font-display text-lg font-semibold">Base de ex-clientes</h2>
-        <button onClick={()=>setShowForm(!showForm)} className="rounded-xl bg-cyan px-4 py-2 text-sm font-bold text-ink">
-          {showForm?"Fechar":"Adicionar ex-cliente"}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button disabled={busy||loading} onClick={()=>void syncNow()}
+            className="rounded-xl border border-cyan/50 px-4 py-2 text-sm font-bold text-cyan disabled:opacity-40">
+            Sincronizar vencidos +10 dias
+          </button>
+          <button onClick={()=>setShowForm(!showForm)} className="rounded-xl bg-cyan px-4 py-2 text-sm font-bold text-ink">
+            {showForm?"Fechar":"Adicionar ex-cliente"}
+          </button>
+        </div>
       </div>
       {showForm&&<form onSubmit={e=>void create(e)} className="grid gap-3 rounded-xl border border-line bg-panel2 p-3 sm:grid-cols-2">
         <label className="space-y-1 text-sm">Nome *
