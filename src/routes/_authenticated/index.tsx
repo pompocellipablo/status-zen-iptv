@@ -674,18 +674,18 @@ function Painel() {
             <nav aria-label="Acesso rápido" className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:items-center">
               <Button asChild variant="outline"
                 className="h-10 min-w-0 border-line bg-panel px-2 text-xs font-semibold text-cyan hover:bg-panel2 hover:text-cyan sm:px-4 sm:text-sm">
-                <Link to="/indicacoes">🏆 Indicações</Link>
+                <Link to="/indicacoes">Indicações</Link>
               </Button>
               <Button asChild variant="outline"
                 className="h-10 min-w-0 border-line bg-panel px-2 text-xs font-semibold text-cyan hover:bg-panel2 hover:text-cyan sm:px-4 sm:text-sm">
-                <Link to="/recuperacao">♻ Recuperação</Link>
+                <Link to="/recuperacao">Recuperação</Link>
               </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" aria-label="Abrir mais opções do MaxFlix"
                     className="h-10 min-w-0 border-line bg-panel px-2 text-xs font-semibold text-frost hover:bg-panel2 sm:px-4 sm:text-sm">
-                    <MoreHorizontal size={16} aria-hidden="true" className="mr-1 shrink-0" />
-                    Mais opções
+                    <MoreHorizontal size={16} aria-hidden="true" className="shrink-0" />
+                    <span className="sm:hidden">Mais</span><span className="hidden sm:inline">Mais opções</span>
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" sideOffset={6}
