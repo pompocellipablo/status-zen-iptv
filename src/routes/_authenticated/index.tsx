@@ -23,6 +23,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { ImportRow } from "@/lib/import-clients";
@@ -669,38 +671,64 @@ function Painel() {
             </div>
           </div>
           <div className="flex flex-col gap-3 rounded-2xl bg-panel/40 p-3 ring-1 ring-line/60 lg:flex-row lg:items-center lg:justify-between">
-            <nav aria-label="Navegação e relatórios" className="flex flex-wrap items-center gap-2">
-              <Button asChild variant="outline" className="h-9 border-line bg-panel text-cyan hover:bg-panel2 hover:text-cyan">
-                <Link to="/revendedores">Revendedores</Link>
+            <nav aria-label="Acesso rápido" className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:items-center">
+              <Button asChild variant="outline"
+                className="h-10 min-w-0 border-line bg-panel px-2 text-xs font-semibold text-cyan hover:bg-panel2 hover:text-cyan sm:px-4 sm:text-sm">
+                <Link to="/indicacoes">🏆 Indicações</Link>
               </Button>
-              <Button asChild variant="outline" className="h-9 border-line bg-panel text-cyan hover:bg-panel2 hover:text-cyan">
-                <Link to="/creditos">Créditos</Link>
-              </Button>
-              <Button asChild variant="outline" className="h-9 border-line bg-panel text-cyan hover:bg-panel2 hover:text-cyan">
-                <Link to="/comunicacao">Comunicação</Link>
-              </Button>
-              <Button asChild variant="outline" className="h-9 border-line bg-panel text-cyan hover:bg-panel2 hover:text-cyan">
-                <Link to="/marketing">✨ Marketing IA</Link>
-              </Button>
-              <Button asChild variant="outline" className="h-9 border-line bg-panel text-cyan hover:bg-panel2 hover:text-cyan">
+              <Button asChild variant="outline"
+                className="h-10 min-w-0 border-line bg-panel px-2 text-xs font-semibold text-cyan hover:bg-panel2 hover:text-cyan sm:px-4 sm:text-sm">
                 <Link to="/recuperacao">♻ Recuperação</Link>
               </Button>
-              <Button asChild variant="outline" className="h-9 border-line bg-panel text-cyan hover:bg-panel2 hover:text-cyan">
-                <Link to="/indicacoes">🏆 Indicações e Ranking</Link>
-              </Button>
-              <Button onClick={() => { setReferralClient(null); setReferralsOpen(true); }}
-                variant="outline" className="h-9 border-line bg-panel text-cyan hover:bg-panel2 hover:text-cyan">
-                🎁 Pontos e prêmios
-              </Button>
-              <button onClick={() => setForecastOpen(true)} className="font-display rounded-xl bg-panel px-3 py-2 text-sm font-medium text-cyan ring-1 ring-cyan/30 hover:bg-cyan/10">
-                Previsão de lucro
-              </button>
-              <button onClick={() => setServerReportOpen(true)} className="font-display rounded-xl bg-panel px-3 py-2 text-sm font-medium text-cyan ring-1 ring-cyan/30 hover:bg-cyan/10">
-                Servidores
-              </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" aria-label="Abrir mais opções do MaxFlix"
+                    className="h-10 min-w-0 border-line bg-panel px-2 text-xs font-semibold text-frost hover:bg-panel2 sm:px-4 sm:text-sm">
+                    <MoreHorizontal size={16} aria-hidden="true" className="mr-1 shrink-0" />
+                    Mais opções
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" sideOffset={6}
+                  className="w-[min(300px,calc(100vw-32px))] border-line bg-panel2 p-1 text-frost">
+                  <DropdownMenuLabel className="text-xs text-mist">Clientes e atendimento</DropdownMenuLabel>
+                  <DropdownMenuItem onSelect={() => setSettingsOpen(true)} className="py-2.5">
+                    Mensagem de cobrança
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setImportOpen(true)} className="py-2.5">
+                    Importar clientes
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild className="py-2.5">
+                    <Link to="/comunicacao">Comunicação</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator className="bg-line" />
+                  <DropdownMenuLabel className="text-xs text-mist">Financeiro e servidores</DropdownMenuLabel>
+                  <DropdownMenuItem asChild className="py-2.5">
+                    <Link to="/creditos">Créditos</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setServerReportOpen(true)} className="py-2.5">
+                    Relatório de servidores
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setForecastOpen(true)} className="py-2.5">
+                    Previsão de lucro
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild className="py-2.5">
+                    <Link to="/revendedores">Revendedores</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator className="bg-line" />
+                  <DropdownMenuLabel className="text-xs text-mist">Marketing e recompensas</DropdownMenuLabel>
+                  <DropdownMenuItem asChild className="py-2.5">
+                    <Link to="/marketing">✨ Marketing IA</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => { setReferralClient(null); setReferralsOpen(true); }}
+                    className="py-2.5">
+                    🎁 Pontos e prêmios
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </nav>
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <label className="flex min-w-[180px] flex-1 items-center gap-2 rounded-xl bg-panel px-3 py-2 ring-1 ring-line lg:max-w-[235px]" aria-label="Buscar cliente">
+            <div className="min-w-0 flex-1 lg:max-w-[300px]">
+              <label className="flex w-full items-center gap-2 rounded-xl bg-panel px-3 py-2.5 ring-1 ring-line"
+                aria-label="Buscar cliente">
                 <span className="text-mist">⌕</span>
                 <input
                   value={search}
@@ -709,12 +737,6 @@ function Painel() {
                   placeholder="Buscar cliente"
                 />
               </label>
-              <button onClick={() => setSettingsOpen(true)} className="font-display rounded-xl bg-panel px-3 py-2 text-sm font-medium text-mist ring-1 ring-line hover:bg-frost/5">
-                Mensagem
-              </button>
-              <button onClick={() => setImportOpen(true)} className="font-display rounded-xl bg-panel px-3 py-2 text-sm font-medium text-mist ring-1 ring-line hover:bg-frost/5">
-                Importar
-              </button>
             </div>
           </div>
         </header>
