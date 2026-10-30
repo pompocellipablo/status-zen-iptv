@@ -61,12 +61,11 @@ function AuthPage() {
   return (
     <main className="grid min-h-screen place-items-center bg-background px-4 py-10 text-frost">
       <section className="w-full max-w-sm rounded-2xl bg-panel/90 p-6 ring-1 ring-line">
-        <div className="flex items-center gap-3">
-          <div className="grid size-10 place-items-center rounded-xl bg-cyan/15 font-display font-semibold text-cyan ring-1 ring-cyan/30">M</div>
-          <div>
-            <h1 className="font-display text-xl font-semibold">Max<span className="text-cyan">Flix</span></h1>
-            <p className="text-xs text-mist">Acesso ao painel de clientes</p>
-          </div>
+        <div className="flex flex-col items-center gap-2 text-center">
+          <img src="/maxflix-logo.png" alt="Logo oficial MaxFlix" width={112} height={112}
+            className="size-28 rounded-full object-cover drop-shadow-[0_0_12px_rgba(255,185,37,0.2)]" />
+          <h1 className="font-display text-xl font-semibold">Max<span className="text-cyan">Flix</span></h1>
+          <p className="text-xs text-mist">Acesso ao painel de clientes</p>
         </div>
 
         <p className="mt-6 text-sm text-mist">Acesso exclusivo ao proprietário.</p>
