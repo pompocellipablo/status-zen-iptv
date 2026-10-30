@@ -1,6 +1,6 @@
 import { creditStockOverview, prioritizeCreditStocks } from "@/lib/credit-stock-overview";
 import type { CreditMovement } from "@/lib/server-credits";
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -18,14 +18,14 @@ import {
 } from "@/components/ui/select";
 import { paginateClients } from "@/lib/client-pagination";
 import { sortClients, type ClientSortMode } from "@/lib/client-sort";
-import { BarChart3, Coins, FileUp, Gift, Home, LogOut, Menu, MessageCircle, MessageSquare, MoreHorizontal, RefreshCw, RotateCcw, Search, Server, Sparkles, Trophy, Truck } from "lucide-react";
+import { MessageCircle, MoreHorizontal, RefreshCw, Search } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { useMaxFlixNavigationAction } from "@/components/MaxFlixAppShell";
 import type { ImportRow } from "@/lib/import-clients";
 import {
   DEFAULT_TEMPLATE,
@@ -97,7 +97,7 @@ const num = (value: string) => Number(String(value).replace(",", ".")) || 0;
 
 function Painel() {
   const qc = useQueryClient();
-  const navigate = useNavigate();
+  const { pendingAction, clearPendingAction } = useMaxFlixNavigationAction();
   const [tab, setTab] = useState<Tab>("todos");
   const [range, setRange] = useState(1);
   const [search, setSearch] = useState("");
@@ -109,7 +109,6 @@ function Painel() {
   const [editing, setEditing] = useState<Client | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [referralsOpen, setReferralsOpen] = useState(false);
   const [referralClient, setReferralClient] = useState<Client | null>(null);
   const [forecastOpen, setForecastOpen] = useState(false);
@@ -118,6 +117,30 @@ function Painel() {
   const [financialsHidden, setFinancialsHidden] = useState(false);
   const [financialsReady, setFinancialsReady] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+
+  // The persistent navigation drawer can open home-only tools from other pages.
+  useEffect(() => {
+    if (!pendingAction) return;
+    clearPendingAction();
+    switch (pendingAction) {
+      case "pontos":
+        setReferralClient(null);
+        setReferralsOpen(true);
+        break;
+      case "mensagem":
+        setSettingsOpen(true);
+        break;
+      case "importar":
+        setImportOpen(true);
+        break;
+      case "previsao":
+        setForecastOpen(true);
+        break;
+      case "servidores":
+        setServerReportOpen(true);
+        break;
+    }
+  }, [pendingAction, clearPendingAction]);
 
   useEffect(() => {
     setFinancialsHidden(window.localStorage.getItem("maxflix-hide-financials") === "true");
@@ -590,13 +613,6 @@ function Painel() {
     [clients],
   );
 
-  const signOut = async () => {
-    await qc.cancelQueries();
-    qc.clear();
-    await supabase.auth.signOut();
-    await navigate({ to: "/auth", replace: true });
-  };
-
   const exportCSV = () => {
     const blob = new Blob([`\uFEFF${toCSV(filtered)}`], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -636,110 +652,7 @@ function Painel() {
       </div>
 
       <div className="relative z-10 mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
-        <header className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-cyan/15 ring-1 ring-cyan/30">
-                <span className="font-display text-sm font-semibold text-cyan">M</span>
-              </div>
-              <div className="min-w-0 leading-none">
-                <p className="truncate font-display text-lg font-semibold">Max<span className="text-cyan">Flix</span></p>
-                <p className="mt-1 text-[11px] tracking-wide text-mist">Gestão de clientes IPTV</p>
-              </div>
-            </div>
-            <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
-              <SheetTrigger asChild>
-                <button type="button"
-                  aria-label="Abrir menu de navegação MaxFlix"
-                  title="Menu MaxFlix"
-                  className="grid size-11 shrink-0 place-items-center rounded-xl bg-panel text-frost ring-1 ring-line transition-colors hover:bg-panel2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan">
-                  <Menu size={23} aria-hidden="true" />
-                </button>
-              </SheetTrigger>
-              <SheetContent side="right"
-                className="flex h-full w-[min(360px,92vw)] flex-col overflow-hidden border-line bg-panel2 p-0 text-frost sm:max-w-[360px]">
-                <SheetHeader className="shrink-0 border-b border-line px-5 py-5 pr-12 text-left">
-                  <SheetTitle className="font-display text-xl font-bold text-frost">Max<span className="text-cyan">Flix</span></SheetTitle>
-                  <SheetDescription className="text-xs text-mist">
-                    Acesse todas as ferramentas de gestão
-                  </SheetDescription>
-                </SheetHeader>
-                <nav aria-label="Menu principal MaxFlix" className="flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 py-4">
-                  <div className="space-y-1">
-                    <p className="px-3 pb-1 text-[11px] font-bold uppercase tracking-widest text-cyan/80">Gestão de clientes</p>
-                    <SheetClose asChild>
-                      <Link to="/" className="flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-frost hover:bg-frost/5">
-                        <Home size={18} className="shrink-0 text-cyan" aria-hidden="true" /> Visão geral
-                      </Link>
-                    </SheetClose>
-                    <SheetClose asChild>
-                      <Link to="/indicacoes" className="flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-frost hover:bg-frost/5">
-                        <Trophy size={18} className="shrink-0 text-cyan" aria-hidden="true" /> Indicações e Ranking
-                      </Link>
-                    </SheetClose>
-                    <button type="button" onClick={() => { setMenuOpen(false); setReferralClient(null); setReferralsOpen(true); }}
-                      className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-frost hover:bg-frost/5">
-                      <Gift size={18} className="shrink-0 text-cyan" aria-hidden="true" /> Pontos e prêmios
-                    </button>
-                    <SheetClose asChild>
-                      <Link to="/recuperacao" className="flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-frost hover:bg-frost/5">
-                        <RotateCcw size={18} className="shrink-0 text-cyan" aria-hidden="true" /> Recuperação de clientes
-                      </Link>
-                    </SheetClose>
-                    <button type="button" onClick={() => { setMenuOpen(false); setSettingsOpen(true); }}
-                      className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-frost hover:bg-frost/5">
-                      <MessageSquare size={18} className="shrink-0 text-cyan" aria-hidden="true" /> Mensagem de cobrança
-                    </button>
-                    <button type="button" onClick={() => { setMenuOpen(false); setImportOpen(true); }}
-                      className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-frost hover:bg-frost/5">
-                      <FileUp size={18} className="shrink-0 text-cyan" aria-hidden="true" /> Importar clientes
-                    </button>
-                  </div>
-                  <div className="space-y-1 border-t border-line pt-4">
-                    <p className="px-3 pb-1 text-[11px] font-bold uppercase tracking-widest text-cyan/80">Financeiro e servidores</p>
-                    <SheetClose asChild>
-                      <Link to="/creditos" className="flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-frost hover:bg-frost/5">
-                        <Coins size={18} className="shrink-0 text-cyan" aria-hidden="true" /> Créditos
-                      </Link>
-                    </SheetClose>
-                    <SheetClose asChild>
-                      <Link to="/revendedores" className="flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-frost hover:bg-frost/5">
-                        <Truck size={18} className="shrink-0 text-cyan" aria-hidden="true" /> Revendedores
-                      </Link>
-                    </SheetClose>
-                    <button type="button" onClick={() => { setMenuOpen(false); setForecastOpen(true); }}
-                      className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-frost hover:bg-frost/5">
-                      <BarChart3 size={18} className="shrink-0 text-cyan" aria-hidden="true" /> Previsão de lucro
-                    </button>
-                    <button type="button" onClick={() => { setMenuOpen(false); setServerReportOpen(true); }}
-                      className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-frost hover:bg-frost/5">
-                      <Server size={18} className="shrink-0 text-cyan" aria-hidden="true" /> Relatório de servidores
-                    </button>
-                  </div>
-                  <div className="space-y-1 border-t border-line pt-4">
-                    <p className="px-3 pb-1 text-[11px] font-bold uppercase tracking-widest text-cyan/80">Marketing e comunicação</p>
-                    <SheetClose asChild>
-                      <Link to="/marketing" className="flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-frost hover:bg-frost/5">
-                        <Sparkles size={18} className="shrink-0 text-cyan" aria-hidden="true" /> Marketing IA
-                      </Link>
-                    </SheetClose>
-                    <SheetClose asChild>
-                      <Link to="/comunicacao" className="flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-frost hover:bg-frost/5">
-                        <MessageCircle size={18} className="shrink-0 text-cyan" aria-hidden="true" /> Comunicação
-                      </Link>
-                    </SheetClose>
-                  </div>
-                </nav>
-                <div className="shrink-0 border-t border-line bg-panel px-4 py-3">
-                  <button type="button" onClick={() => { setMenuOpen(false); void signOut(); }}
-                    className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-mist hover:bg-danger/10 hover:text-danger">
-                    <LogOut size={18} aria-hidden="true" /> Sair da conta
-                  </button>
-                </div>
-              </SheetContent>
-            </Sheet>
-          </div>
-
+        <header>
           <div className="flex flex-wrap items-center gap-2 rounded-2xl bg-panel/40 p-2.5 ring-1 ring-line/60 sm:p-3">
             <button type="button"
               onClick={() => { setFormError(null); setEditing(null); setFormOpen(true); }}
