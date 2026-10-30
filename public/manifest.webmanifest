@@ -1,0 +1,19 @@
+{
+  "name": "MaxFlix — Gestão de Clientes",
+  "short_name": "MaxFlix",
+  "description": "Painel administrativo MaxFlix",
+  "lang": "pt-BR",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#050E1A",
+  "theme_color": "#050E1A",
+  "icons": [
+    {
+      "src": "/maxflix-logo.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
