@@ -63,9 +63,8 @@ export function MaxFlixAppShell({ children }: { children: ReactNode }) {
         <header className="sticky top-0 z-30 border-b border-line/60 bg-background/95 backdrop-blur-md">
           <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
             <Link to="/" className="flex min-w-0 items-center gap-3" aria-label="MaxFlix — ir ao painel principal">
-              <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-cyan/15 ring-1 ring-cyan/30">
-                <span className="font-display text-sm font-semibold text-cyan">M</span>
-              </div>
+              <img src="/maxflix-logo.png" alt="" width={44} height={44}
+                className="size-11 shrink-0 rounded-full object-cover drop-shadow-[0_0_6px_rgba(249,174,44,0.25)]" />
               <div className="min-w-0 leading-none">
                 <p className="truncate font-display text-lg font-semibold">
                   Max<span className="text-cyan">Flix</span>
@@ -85,12 +84,18 @@ export function MaxFlixAppShell({ children }: { children: ReactNode }) {
               <SheetContent side="right"
                 className="flex h-full w-[min(360px,92vw)] flex-col overflow-hidden border-line bg-panel2 p-0 text-frost sm:max-w-[360px]">
                 <SheetHeader className="shrink-0 border-b border-line px-5 py-5 pr-12 text-left">
-                  <SheetTitle className="font-display text-xl font-bold text-frost">
-                    Max<span className="text-cyan">Flix</span>
-                  </SheetTitle>
-                  <SheetDescription className="text-xs text-mist">
-                    Acesse todas as ferramentas de gestão
-                  </SheetDescription>
+                  <div className="flex items-center gap-3">
+                    <img src="/maxflix-logo.png" alt="Logo MaxFlix" width={60} height={60}
+                      className="size-[60px] shrink-0 rounded-full object-cover" />
+                    <div className="min-w-0">
+                      <SheetTitle className="font-display text-xl font-bold text-frost">
+                        Max<span className="text-cyan">Flix</span>
+                      </SheetTitle>
+                      <SheetDescription className="mt-1 text-xs text-mist">
+                        Ferramentas de gestão
+                      </SheetDescription>
+                    </div>
+                  </div>
                 </SheetHeader>
 
                 <nav aria-label="Menu principal MaxFlix" className="flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 py-4">
