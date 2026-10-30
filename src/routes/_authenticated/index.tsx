@@ -685,9 +685,12 @@ function Painel() {
               <Button asChild variant="outline" className="h-9 border-line bg-panel text-cyan hover:bg-panel2 hover:text-cyan">
                 <Link to="/recuperacao">♻ Recuperação</Link>
               </Button>
+              <Button asChild variant="outline" className="h-9 border-line bg-panel text-cyan hover:bg-panel2 hover:text-cyan">
+                <Link to="/indicacoes">🏆 Indicações e Ranking</Link>
+              </Button>
               <Button onClick={() => { setReferralClient(null); setReferralsOpen(true); }}
                 variant="outline" className="h-9 border-line bg-panel text-cyan hover:bg-panel2 hover:text-cyan">
-                🎁 Indicações
+                🎁 Pontos e prêmios
               </Button>
               <button onClick={() => setForecastOpen(true)} className="font-display rounded-xl bg-panel px-3 py-2 text-sm font-medium text-cyan ring-1 ring-cyan/30 hover:bg-cyan/10">
                 Previsão de lucro
