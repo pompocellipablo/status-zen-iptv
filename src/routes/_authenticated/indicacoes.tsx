@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ChevronDown, ChevronUp, Gift, Medal, RefreshCw, Search, Users, CheckCircle2, Clock3, Award } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -73,6 +73,19 @@ function ReferralRankingPage(){
   const [expanded,setExpanded]=useState<string|null>(null);
   const [notice,setNotice]=useState("");
   const [showAll,setShowAll]=useState(false);
+
+  useEffect(()=>{
+    // Same audited, idempotent expiration rule used by the existing Points panel.
+    // Referrals stay in the historic ranking even when earned points expire.
+    let cancelled=false;
+    void (async()=>{
+      const {error}=await supabase.rpc("referral_reset_expired");
+      if(cancelled)return;
+      if(error)setNotice("Não foi possível atualizar a expiração dos pontos. O ranking histórico permanece disponível.");
+      else await qc.invalidateQueries({queryKey:["referral-movements"]});
+    })();
+    return ()=>{cancelled=true;};
+  },[qc]);
 
   const ranked=useMemo(()=>buildReferralRanking(
     clientQuery.data??[],movementQuery.data??[],rewardQuery.data??[]
