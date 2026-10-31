@@ -126,7 +126,7 @@ function Dashboard() {
     const covered=today.filter(c=>{
       if(!c.financial_due_date)return false;
       const [y,m,d]=c.due_date.split("-").map(Number);
-      const next=new Date(y,(m??1),1);
+      const next=new Date(y ?? 1970,(m??1),1);
       const last=new Date(next.getFullYear(),next.getMonth()+1,0).getDate();
       const nextDue=[next.getFullYear(),String(next.getMonth()+1).padStart(2,"0"),String(Math.min(d??1,last)).padStart(2,"0")].join("-");
       return c.financial_due_date >= nextDue;
@@ -163,7 +163,7 @@ function Dashboard() {
   const shortage=stocks.filter(row=>row.lowStock);
   const monthLabel=(ym:string)=>{
     const [year,month]=ym.split("-").map(Number);
-    return new Date(year,month-1,1).toLocaleDateString("pt-BR",{month:"short",year:"numeric"});
+    return new Date(year ?? 1970,(month ?? 1)-1,1).toLocaleDateString("pt-BR",{month:"short",year:"numeric"});
   };
   const boxSales=boxSalesQuery.data??[];
   const boxesConfirmed=boxSales.reduce((sum,s)=>sum+(s.quantity??0),0);
