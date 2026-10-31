@@ -16,6 +16,8 @@ export type Database = {
     Tables: {
       clients: {
         Row: {
+          access_type: "padrao" | "pacote_pago" | "gratuidade" | "meu_acesso"
+          notes: string | null
           cost: number
           created_at: string
           due_date: string
@@ -33,6 +35,8 @@ export type Database = {
           whatsapp: string | null
         }
         Insert: {
+          access_type?: "padrao" | "pacote_pago" | "gratuidade" | "meu_acesso"
+          notes?: string | null
           cost?: number
           created_at?: string
           due_date: string
@@ -50,6 +54,8 @@ export type Database = {
           whatsapp?: string | null
         }
         Update: {
+          access_type?: "padrao" | "pacote_pago" | "gratuidade" | "meu_acesso"
+          notes?: string | null
           cost?: number
           created_at?: string
           due_date?: string
