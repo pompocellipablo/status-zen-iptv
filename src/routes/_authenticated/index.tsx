@@ -63,7 +63,7 @@ function Dashboard() {
     },
   });
   const paymentsQuery = useQuery({
-    queryKey: ["payments"],
+    queryKey: ["dashboard-payments"],
     queryFn: async () => {
       const all:Payment[]=[];
       for(let offset=0;offset<25000;offset+=1000){
@@ -168,7 +168,6 @@ function Dashboard() {
   const boxSales=boxSalesQuery.data??[];
   const boxesConfirmed=boxSales.reduce((sum,s)=>sum+(s.quantity??0),0);
   const dataError=clientsQuery.isError||paymentsQuery.isError;
-  const isLoading=clientsQuery.isLoading||paymentsQuery.isLoading;
 
   return <main className="relative min-h-screen bg-background text-frost">
     <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -262,7 +261,7 @@ function Dashboard() {
           <p className="mt-1 text-xs text-mist">Custo dos créditos dos ativos</p>
           <p className="mt-1 text-[11px] text-mist/75">Estimativa por ciclo, não gasto já pago</p>
         </Link>
-        <Link to="/renovacoes" search={{tab:"todos"}} className={tile}>
+        <Link to="/renovacoes" search={{tab:"todos",access:"gratuitos"}} className={tile}>
           <Gift size={18} className="text-cyan"/>
           <p className={number}>{clientsQuery.isLoading?"—":money(stats.freeCost)}</p>
           <p className="mt-1 text-xs text-mist">Família / amigos e meus testes</p>
