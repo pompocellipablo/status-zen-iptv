@@ -48,7 +48,7 @@ export const Route = createFileRoute("/_authenticated/renovacoes")({
   validateSearch: (search: Record<string, unknown>): { tab: Tab; access?: string } => {
     const allowed: Tab[] = ["todos", "vencidos", "hoje", "breve", "cobranca"];
     const tab = allowed.includes(search.tab as Tab) ? search.tab as Tab : "hoje";
-    const allowedAccess = ["padrao", "pacote_pago", "gratuidade", "meu_acesso"];
+    const allowedAccess = ["padrao", "pacote_pago", "gratuidade", "meu_acesso", "gratuitos"];
     return {tab, ...(allowedAccess.includes(search.access as string) ? {access:search.access as string} : {})};
   },
   head: () => ({
@@ -473,7 +473,9 @@ function Painel() {
         if (tab === "cobranca" && s.key !== "vencido" && s.key !== "hoje" && s.key !== "breve")
           return false;
         if (serverFilter !== "todos" && c.server !== serverFilter) return false;
-        if (accessFilter !== "todos" && (c.access_type ?? "padrao") !== accessFilter) return false;
+        if (accessFilter === "gratuitos") {
+          if (c.access_type !== "gratuidade" && c.access_type !== "meu_acesso") return false;
+        } else if (accessFilter !== "todos" && (c.access_type ?? "padrao") !== accessFilter) return false;
         if (term && !`${c.name} ${c.login}`.toLowerCase().includes(term)) return false;
         return true;
       }),
@@ -625,6 +627,7 @@ function Painel() {
               </SelectTrigger>
               <SelectContent className="border-line bg-panel2 text-frost shadow-lg">
                 <SelectItem value="todos">Todos os tipos</SelectItem>
+                <SelectItem value="gratuitos">Todos os gratuitos</SelectItem>
                 <SelectItem value="padrao">Padrão / a classificar</SelectItem>
                 <SelectItem value="pacote_pago">Pacote pré-pago</SelectItem>
                 <SelectItem value="gratuidade">Família / Amigos</SelectItem>
