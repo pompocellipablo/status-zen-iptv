@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, CalendarDays, CheckCircle2, ChevronDown, CircleAlert, Pencil, Plus, Search, Tv, X } from "lucide-react";
+import { ArrowLeft, CheckCircle2, CircleAlert, Pencil, Plus, Search, Tv, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { formatBRL, formatDate, getStatus, type Client } from "@/lib/iptv";
 import type { Database } from "@/integrations/supabase/types";
