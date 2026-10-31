@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   BarChart3, Coins, FileUp, Gift, Home, LogOut, Menu,
   MessageCircle, MessageSquare, RotateCcw, Server, Sparkles,
-  Trophy, Truck, Tv,
+  Trophy, Truck, Tv, RefreshCw, Users,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -14,8 +14,8 @@ import {
 
 /**
  * The authenticated app shell persists when moving between pages.
- * Home-only panels are opened from any page without copying their logic
- * into every section; their data remains controlled by the original home page.
+ * Renewal-only panels are opened from any page without copying their logic
+ * into every section; their data remains controlled by the renewals screen.
  */
 export type HomePanelAction = "pontos" | "mensagem" | "importar" | "previsao" | "servidores";
 
@@ -47,7 +47,7 @@ export function MaxFlixAppShell({ children }: { children: ReactNode }) {
   const runHomeAction = (action: HomePanelAction) => {
     setOpen(false);
     setPendingAction(action);
-    void navigate({ to: "/" });
+    void navigate({ to: "/renovacoes", search: { tab: "hoje" } });
   };
   const signOut = async () => {
     setOpen(false);
@@ -106,6 +106,16 @@ export function MaxFlixAppShell({ children }: { children: ReactNode }) {
                     <SheetClose asChild>
                       <Link to="/" className={itemClass}>
                         <Home size={18} className={iconClass} aria-hidden="true" /> Visão geral
+                      </Link>
+                    </SheetClose>
+                    <SheetClose asChild>
+                      <Link to="/renovacoes" search={{tab:"hoje"}} className={itemClass}>
+                        <RefreshCw size={18} className={iconClass} aria-hidden="true" /> Renovações de hoje
+                      </Link>
+                    </SheetClose>
+                    <SheetClose asChild>
+                      <Link to="/renovacoes" search={{tab:"todos"}} className={itemClass}>
+                        <Users size={18} className={iconClass} aria-hidden="true" /> Gerenciar clientes
                       </Link>
                     </SheetClose>
                     <SheetClose asChild>
