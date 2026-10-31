@@ -14,6 +14,75 @@ export type Database = {
   }
   public: {
     Tables: {
+      box_sales: {
+        Row: {
+          id: string
+          customer_name: string
+          sale_date: string | null
+          model: string | null
+          quantity: number | null
+          amount_received: number | null
+          device_cost: number | null
+          extra_cost: number
+          months_included: number
+          notes: string | null
+          historical_source: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          customer_name: string
+          sale_date?: string | null
+          model?: string | null
+          quantity?: number | null
+          amount_received?: number | null
+          device_cost?: number | null
+          extra_cost?: number
+          months_included?: number
+          notes?: string | null
+          historical_source?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          customer_name?: string
+          sale_date?: string | null
+          model?: string | null
+          quantity?: number | null
+          amount_received?: number | null
+          device_cost?: number | null
+          extra_cost?: number
+          months_included?: number
+          notes?: string | null
+          historical_source?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      box_sale_clients: {
+        Row: { sale_id: string; client_id: string }
+        Insert: { sale_id: string; client_id: string }
+        Update: { sale_id?: string; client_id?: string }
+        Relationships: [
+          {
+            foreignKeyName: "box_sale_clients_sale_id_fkey"
+            columns: ["sale_id"]
+            isOneToOne: false
+            referencedRelation: "box_sales"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "box_sale_clients_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       clients: {
         Row: {
           access_type: "padrao" | "pacote_pago" | "gratuidade" | "meu_acesso"
