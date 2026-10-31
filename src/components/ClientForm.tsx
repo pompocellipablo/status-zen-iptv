@@ -17,6 +17,8 @@ export type ClientDraft = {
   due_date: string;
   financial_due_date: string;
   whatsapp: string;
+  access_type: "padrao" | "pacote_pago" | "gratuidade" | "meu_acesso";
+  notes: string;
   referred_by_client_id: string;
   referral_first_payment_confirmed: boolean;
 };
@@ -32,6 +34,8 @@ function toDraft(client: Client | null): ClientDraft {
       due_date: "",
       financial_due_date: "",
       whatsapp: "",
+      access_type: "padrao",
+      notes: "",
       referred_by_client_id: "",
       referral_first_payment_confirmed: false,
     };
@@ -45,6 +49,8 @@ function toDraft(client: Client | null): ClientDraft {
     due_date: client.due_date,
     financial_due_date: client.financial_due_date ?? "",
     whatsapp: client.whatsapp ?? "",
+    access_type: client.access_type ?? "padrao",
+    notes: client.notes ?? "",
     referred_by_client_id: client.referred_by_client_id ?? "",
     referral_first_payment_confirmed: client.referral_first_payment_confirmed ?? false,
   };
@@ -216,6 +222,33 @@ export function ClientForm({
               value={draft.financial_due_date}
               onChange={(e) => set({ financial_due_date: e.target.value })}
             />
+          </label>
+          <label className="block sm:col-span-2">
+            <span className={labelClass}>Tipo de acesso</span>
+            <select className={fieldClass}
+              value={draft.access_type}
+              onChange={(e) => set({ access_type: e.target.value as ClientDraft["access_type"] })}>
+              <option value="padrao">Padrão / ainda não classificado</option>
+              <option value="pacote_pago">Pacote pré-pago</option>
+              <option value="gratuidade">Gratuidade — Família / Amigos</option>
+              <option value="meu_acesso">Meu Acesso / Testes</option>
+            </select>
+            <p className="mt-1.5 text-xs text-mist">
+              Esta classificação é administrativa. Não altera valores, datas, cobranças nem pagamentos.
+              O total de cortesias é calculado apenas para os dois tipos gratuitos.
+            </p>
+          </label>
+          <label className="block sm:col-span-2">
+            <span className={labelClass}>Observações do cliente (opcional)</span>
+            <textarea
+              className={fieldClass + " min-h-24 resize-y"}
+              value={draft.notes}
+              maxLength={3000}
+              rows={3}
+              onChange={(e) => set({ notes: e.target.value })}
+              placeholder="Ex.: pacote pago até janeiro; acesso liberado para familiar; mudança de servidor; particularidades do atendimento..."
+            />
+            <p className="mt-1 text-xs text-mist">Uso interno: as observações não são enviadas ao cliente.</p>
           </label>
           <div className="sm:col-span-2 rounded-xl bg-background/70 p-4 ring-1 ring-cyan/20">
             <p className="font-display text-sm font-semibold text-frost">🎁 Indicação de cliente</p>
