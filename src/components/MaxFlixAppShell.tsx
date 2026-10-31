@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   BarChart3, Coins, FileUp, Gift, Home, LogOut, Menu,
   MessageCircle, MessageSquare, RotateCcw, Server, Sparkles,
-  Trophy, Truck,
+  Trophy, Truck, Tv,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -141,6 +141,11 @@ export function MaxFlixAppShell({ children }: { children: ReactNode }) {
                     <SheetClose asChild>
                       <Link to="/revendedores" className={itemClass}>
                         <Truck size={18} className={iconClass} aria-hidden="true" /> Revendedores
+                      </Link>
+                    </SheetClose>
+                    <SheetClose asChild>
+                      <Link to="/aparelhos" className={itemClass}>
+                        <Tv size={18} className={iconClass} aria-hidden="true" /> Vendas de TV Box
                       </Link>
                     </SheetClose>
                     <button type="button" onClick={() => runHomeAction("previsao")} className={itemClass}>
