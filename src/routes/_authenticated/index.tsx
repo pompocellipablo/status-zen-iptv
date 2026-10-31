@@ -195,6 +195,42 @@ function Dashboard() {
         Não foi possível atualizar todos os indicadores. Confira a conexão e atualize a página.
       </p>}
 
+      <section aria-label="Prioridades de hoje" className="rounded-2xl bg-panel/70 p-4 ring-1 ring-cyan/20 sm:p-5">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="font-display text-base font-semibold">Prioridades de hoje</h2>
+            <p className="mt-1 text-xs text-mist">Comece pelas renovações; o restante fica no menu lateral.</p>
+          </div>
+          <CalendarClock size={22} className="shrink-0 text-cyan"/>
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <Link to="/renovacoes" search={{tab:"hoje"}}
+            className="rounded-xl bg-today/10 p-3 ring-1 ring-today/30 hover:bg-today/15">
+            <p className={label+" text-today"}>Vence hoje</p>
+            <p className={number+" text-today"}>{clientsQuery.isLoading?"—":stats.today}</p>
+            <p className="mt-1 text-xs text-mist">Abrir vencimentos</p>
+          </Link>
+          <Link to="/renovacoes" search={{tab:"vencidos"}}
+            className="rounded-xl bg-danger/10 p-3 ring-1 ring-danger/30 hover:bg-danger/15">
+            <p className={label+" text-danger"}>Vencidos</p>
+            <p className={number+" text-danger"}>{clientsQuery.isLoading?"—":stats.expired}</p>
+            <p className="mt-1 text-xs text-mist">Recuperar pagamentos</p>
+          </Link>
+          <Link to="/renovacoes" search={{tab:"breve"}}
+            className="col-span-2 rounded-xl bg-background/55 p-3 ring-1 ring-line hover:bg-frost/5 sm:col-span-1">
+            <p className={label}>Próximos 5 dias</p>
+            <p className={number+" text-warn"}>{clientsQuery.isLoading?"—":stats.nextFive}</p>
+            <p className="mt-1 text-xs text-mist">Preparar cobranças</p>
+          </Link>
+        </div>
+        <Link to="/renovacoes" search={{tab:"hoje"}}
+          className="mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-cyan px-3 py-3 text-center text-sm font-bold text-background shadow-[0_0_15px_rgba(0,197,212,0.15)] transition-colors hover:brightness-110">
+          <RefreshCw size={18}/> Ir para renovações de hoje <ArrowRight size={18}/>
+        </Link>
+        {!clientsQuery.isLoading&&stats.today>0&&stats.coveredToday>0&&
+          <p className="mt-2 text-xs text-mist">{stats.coveredToday} dos vencimentos de hoje estão cobertos até o próximo ciclo por pacote já pago. Confira cada renovação antes de cobrar.</p>}
+      </section>
+
       <section aria-label="Indicadores principais da MaxFlix" className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
@@ -246,42 +282,6 @@ function Dashboard() {
           Lucro total segue o cálculo original: soma do valor mensal cadastrado menos o custo do crédito de cada cliente ativo.
           É uma estimativa da carteira, não o faturamento recebido no mês; parcelas de pacotes antecipados podem estar zeradas.
         </p>
-      </section>
-
-      <section aria-label="Prioridades de hoje" className="rounded-2xl bg-panel/70 p-4 ring-1 ring-cyan/20 sm:p-5">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 className="font-display text-base font-semibold">Prioridades de hoje</h2>
-            <p className="mt-1 text-xs text-mist">Comece pelas renovações; o restante fica no menu lateral.</p>
-          </div>
-          <CalendarClock size={22} className="shrink-0 text-cyan"/>
-        </div>
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
-          <Link to="/renovacoes" search={{tab:"hoje"}}
-            className="rounded-xl bg-today/10 p-3 ring-1 ring-today/30 hover:bg-today/15">
-            <p className={label+" text-today"}>Vence hoje</p>
-            <p className={number+" text-today"}>{clientsQuery.isLoading?"—":stats.today}</p>
-            <p className="mt-1 text-xs text-mist">Abrir vencimentos</p>
-          </Link>
-          <Link to="/renovacoes" search={{tab:"vencidos"}}
-            className="rounded-xl bg-danger/10 p-3 ring-1 ring-danger/30 hover:bg-danger/15">
-            <p className={label+" text-danger"}>Vencidos</p>
-            <p className={number+" text-danger"}>{clientsQuery.isLoading?"—":stats.expired}</p>
-            <p className="mt-1 text-xs text-mist">Recuperar pagamentos</p>
-          </Link>
-          <Link to="/renovacoes" search={{tab:"breve"}}
-            className="col-span-2 rounded-xl bg-background/55 p-3 ring-1 ring-line hover:bg-frost/5 sm:col-span-1">
-            <p className={label}>Próximos 5 dias</p>
-            <p className={number+" text-warn"}>{clientsQuery.isLoading?"—":stats.nextFive}</p>
-            <p className="mt-1 text-xs text-mist">Preparar cobranças</p>
-          </Link>
-        </div>
-        <Link to="/renovacoes" search={{tab:"hoje"}}
-          className="mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-cyan px-3 py-3 text-center text-sm font-bold text-background shadow-[0_0_15px_rgba(0,197,212,0.15)] transition-colors hover:brightness-110">
-          <RefreshCw size={18}/> Ir para renovações de hoje <ArrowRight size={18}/>
-        </Link>
-        {!clientsQuery.isLoading&&stats.today>0&&stats.coveredToday>0&&
-          <p className="mt-2 text-xs text-mist">{stats.coveredToday} dos vencimentos de hoje estão cobertos até o próximo ciclo por pacote já pago. Confira cada renovação antes de cobrar.</p>}
       </section>
 
       <div className="flex items-center justify-between gap-2">
