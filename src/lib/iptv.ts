@@ -13,6 +13,8 @@ export type Client = {
   referral_first_payment_confirmed?: boolean;
   prev_cost: number;
   prev_paid: number;
+  access_type?: "padrao" | "pacote_pago" | "gratuidade" | "meu_acesso";
+  notes?: string | null;
   created_at?: string;
 };
 
