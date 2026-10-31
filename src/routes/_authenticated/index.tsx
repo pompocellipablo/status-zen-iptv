@@ -186,6 +186,15 @@ function Painel() {
     onError: (error: Error) => setNotice(`Falha na importação: ${error.message}`),
   });
 
+  const boxLinkedClientsQuery = useQuery({
+    queryKey: ["box-linked-client-ids"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("box_sale_clients").select("client_id");
+      if (error) throw error;
+      return new Set((data ?? []).map(item => item.client_id));
+    },
+  });
+
   const clientsQuery = useQuery({
     queryKey: ["clients"],
     queryFn: async () => {
@@ -943,6 +952,13 @@ function Painel() {
                           <p className="mt-1 text-[11px] font-medium text-cyan">
                             {c.access_type==="gratuidade"?"🎁 Família / Amigos":c.access_type==="meu_acesso"?"🧪 Meu Acesso / Testes":"💳 Pacote pré-pago"}
                           </p>
+                        )}
+                        {boxLinkedClientsQuery.data?.has(c.id) && (
+                          <Link to="/aparelhos"
+                            className="mt-1 inline-block text-[11px] font-semibold text-cyan hover:underline"
+                            title="Venda de TV Box vinculada a esta assinatura; renovações continuam normalmente">
+                            📺 TV Box + acesso · ver venda
+                          </Link>
                         )}
                         {c.notes && (
                           <p className="mt-1 max-w-[320px] truncate text-[11px] text-warn"
