@@ -1,5 +1,3 @@
-import { creditStockOverview, prioritizeCreditStocks } from "@/lib/credit-stock-overview";
-import type { CreditMovement } from "@/lib/server-credits";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -76,15 +74,6 @@ export const Route = createFileRoute("/_authenticated/renovacoes")({
 });
 
 type Tab = "todos" | "vencidos" | "hoje" | "breve" | "cobranca";
-
-type Payment = {
-  id: string;
-  client_name: string;
-  server: string;
-  amount: number;
-  cost: number;
-  paid_at: string;
-};
 
 type ForecastPeriod = 0 | 5 | 10;
 
@@ -239,63 +228,9 @@ function Painel() {
     },
   });
 
-  const paymentsQuery = useQuery({
-    queryKey: ["payments"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("payments")
-        .select("*")
-        .order("paid_at", { ascending: false });
-      if (error) throw error;
-      return (data ?? []).map((p) => ({
-        ...p,
-        amount: Number(p.amount),
-        cost: Number(p.cost),
-      })) as Payment[];
-    },
-  });
-
-  // Read-only dashboard snapshot: never insert, update or correct stock while loading it.
-  const stockMovementsQuery = useQuery({
-    queryKey: ["credit-stock-dashboard-movements"],
-    queryFn: async () => {
-      const entries: CreditMovement[] = [];
-      const pageSize = 500;
-      for (let offset = 0; ; offset += pageSize) {
-        const { data, error } = await supabase
-          .from("server_credit_movements")
-          .select("id,server,kind,quantity,created_at")
-          .order("created_at", { ascending: false })
-          .order("id", { ascending: false })
-          .range(offset, offset + pageSize - 1);
-        if (error) throw error;
-        entries.push(...(data ?? []));
-        if (!data || data.length < pageSize) return entries;
-      }
-    },
-  });
-  const stockAlertsQuery = useQuery({
-    queryKey: ["credit-stock-dashboard-alerts"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("server_credit_alerts")
-        .select("server,minimum_balance");
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
-
   const template = settingsQuery.data?.regular ?? DEFAULT_TEMPLATE;
   const overdueTemplate = settingsQuery.data?.overdue ?? DEFAULT_OVERDUE_TEMPLATE;
   const clients = useMemo(() => clientsQuery.data ?? [], [clientsQuery.data]);
-  const payments = useMemo(() => paymentsQuery.data ?? [], [paymentsQuery.data]);
-  const stockOverview = useMemo(
-    () => prioritizeCreditStocks(creditStockOverview(stockMovementsQuery.data ?? [], stockAlertsQuery.data ?? [], clients)),
-    [stockMovementsQuery.data, stockAlertsQuery.data, clients],
-  );
-  const stockLoading = stockMovementsQuery.isLoading || stockAlertsQuery.isLoading || clientsQuery.isLoading;
-  const stockError = stockMovementsQuery.isError || stockAlertsQuery.isError || clientsQuery.isError;
-
   const invalidate = () => qc.invalidateQueries({ queryKey: ["clients"] });
 
   const saveMutation = useMutation({
@@ -526,41 +461,6 @@ function Painel() {
     );
   };
 
-  const summary = useMemo(() => {
-    let ativos = 0;
-    let vencidos = 0;
-    let hoje = 0;
-    let proximos = 0;
-    let lucro = 0;
-    for (const c of clients) {
-      const s = getStatus(c);
-      if (s.key === "vencido") vencidos += 1;
-      else {
-        lucro += c.paid - c.cost;
-        ativos += 1;
-        if (s.key === "hoje") hoje += 1;
-        else if (s.key === "breve") proximos += 1;
-      }
-    }
-    return { total: clients.length, ativos, vencidos, hoje, proximos, lucro };
-  }, [clients]);
-
-  const freeAccessOverview = useMemo(() => {
-    const included = clients.filter(c => getStatus(c).key !== "vencido");
-    const family = included.filter(c => c.access_type === "gratuidade");
-    const tests = included.filter(c => c.access_type === "meu_acesso");
-    const unclassifiedZero = included.filter(c =>
-      (c.access_type ?? "padrao") === "padrao" && c.paid === 0
-      && (!c.financial_due_date || c.financial_due_date <= c.due_date));
-    return {
-      familyCount: family.length,
-      testCount: tests.length,
-      familyCost: family.reduce((s,c)=>s+c.cost,0),
-      testCost: tests.reduce((s,c)=>s+c.cost,0),
-      reviewCount: unclassifiedZero.length,
-    };
-  },[clients]);
-
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     return sortClients(
@@ -593,22 +493,6 @@ function Painel() {
     document.getElementById("maxflix-client-results")?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
-
-  const monthlyBilling = useMemo(() => {
-    const map = new Map<string, { faturado: number; custo: number; count: number }>();
-    for (const p of payments) {
-      const key = p.paid_at.slice(0, 7); // YYYY-MM
-      const entry = map.get(key) ?? { faturado: 0, custo: 0, count: 0 };
-      entry.faturado += p.amount;
-      entry.custo += p.cost;
-      entry.count += 1;
-      map.set(key, entry);
-    }
-    return [...map.entries()]
-      .sort((a, b) => b[0].localeCompare(a[0]))
-      .slice(0, 6)
-      .map(([month, v]) => ({ month, ...v, lucro: v.faturado - v.custo }));
-  }, [payments]);
 
   const forecastEntries = useMemo<ForecastEntry[]>(
     () =>
@@ -671,14 +555,6 @@ function Painel() {
     { key: "cobranca", label: "Fila de cobrança" },
   ];
 
-  const monthLabel = (ym: string) => {
-    const [y, m] = ym.split("-").map(Number);
-    return new Date(y ?? 1970, (m ?? 1) - 1, 1).toLocaleDateString("pt-BR", {
-      month: "long",
-      year: "numeric",
-    });
-  };
-
   const tabBtn = (active: boolean) =>
     `font-display text-sm font-medium px-3 py-1.5 rounded-lg ${
       active ? "bg-cyan/15 text-cyan ring-1 ring-cyan/30" : "text-mist hover:bg-frost/5"
@@ -729,118 +605,6 @@ function Painel() {
             </label>
           </div>
         </header>
-
-        <section className="mt-6 grid grid-cols-2 gap-3 sm:mt-8 sm:grid-cols-3 lg:grid-cols-6">
-          <MetricCard label="Clientes" value={String(summary.total)} hint="total cadastrado" />
-          <MetricCard
-            label="Ativos"
-            value={String(summary.ativos)}
-            hint="todos não vencidos"
-            valueClass="text-ok"
-          />
-          <MetricCard
-            label="Vencidos"
-            value={String(summary.vencidos)}
-            hint="exigem ação"
-            valueClass="text-danger"
-            cardClass="bg-danger/10 ring-danger/40"
-            labelClass="text-danger/80"
-            hintClass="text-danger/70"
-          />
-          <MetricCard
-            label="Vence hoje"
-            value={String(summary.hoje)}
-            hint="renovar agora"
-            valueClass="text-today"
-            cardClass="bg-today/10 ring-today/40"
-            labelClass="text-today/90"
-            hintClass="text-today/70"
-          />
-          <MetricCard
-            label="Próx. 5 dias"
-            value={String(summary.proximos)}
-            hint="janela de cobrança"
-            valueClass="text-warn"
-          />
-          <MetricCard
-            label="Lucro total"
-            value={money(summary.lucro)}
-            hint="clientes não vencidos"
-            valueClass="text-cyan text-[clamp(0.75rem,12cqi,1.5rem)]"
-            cardClass="bg-cyan/10 ring-cyan/40"
-            labelClass="text-cyan/80"
-            hintClass="text-cyan/70"
-          />
-        </section>
-
-        <section className="mt-4 rounded-2xl bg-panel/60 p-4 ring-1 ring-line sm:mt-5" aria-label="Custo de acessos gratuitos">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h2 className="font-display text-sm font-semibold text-frost">Acessos gratuitos · Custo mensal</h2>
-              <p className="mt-1 text-xs text-mist">
-                Somente contas marcadas como Família/Amigos ou Meu Acesso/Testes. Não inclui pacotes pagos.
-              </p>
-            </div>
-            <p className="font-display text-lg font-semibold text-cyan">
-              {money(freeAccessOverview.familyCost + freeAccessOverview.testCost)}
-              <span className="ml-1 text-xs font-normal text-mist">/ mês</span>
-            </p>
-          </div>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => { setTab("todos"); setAccessFilter("gratuidade"); document.getElementById("maxflix-client-results")?.scrollIntoView({behavior:"smooth"}); }}
-              className="rounded-xl bg-background/70 p-3 text-left ring-1 ring-line hover:ring-cyan/40">
-              <p className="text-xs text-mist">Família / Amigos · {freeAccessOverview.familyCount} acessos</p>
-              <p className="mt-1 font-display text-base font-semibold text-frost">{money(freeAccessOverview.familyCost)}</p>
-            </button>
-            <button type="button" onClick={() => { setTab("todos"); setAccessFilter("meu_acesso"); document.getElementById("maxflix-client-results")?.scrollIntoView({behavior:"smooth"}); }}
-              className="rounded-xl bg-background/70 p-3 text-left ring-1 ring-line hover:ring-cyan/40">
-              <p className="text-xs text-mist">Meu Acesso / Testes · {freeAccessOverview.testCount} acessos</p>
-              <p className="mt-1 font-display text-base font-semibold text-frost">{money(freeAccessOverview.testCost)}</p>
-            </button>
-          </div>
-          <p className="mt-3 text-xs text-mist">
-            Projeção anual, mantendo os mesmos acessos: {money((freeAccessOverview.familyCost+freeAccessOverview.testCost)*12)}.
-            {freeAccessOverview.reviewCount>0 ? ` Há ${freeAccessOverview.reviewCount} cadastros ativos zerados sem classificação; confira antes de marcar como gratuidade.` : ""}
-          </p>
-        </section>
-
-        <section className="mt-4 rounded-2xl bg-panel/60 p-3 ring-1 ring-line sm:mt-5" aria-label="Resumo de créditos dos servidores">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="font-display text-sm font-semibold text-frost">Estoque de créditos</h2>
-            <Link to="/creditos" className="text-xs font-semibold text-cyan hover:underline">Ver detalhes →</Link>
-          </div>
-          {stockLoading ? (
-            <p className="py-2 text-xs text-mist">Consultando saldos dos servidores…</p>
-          ) : stockError ? (
-            <p role="alert" className="py-2 text-xs text-warn">Não foi possível carregar os saldos. Abra Créditos para conferir.</p>
-          ) : (
-            <div className="grid grid-cols-2 gap-2 min-[360px]:grid-cols-3 md:grid-cols-5 xl:grid-cols-9" aria-label="Saldos resumidos por servidor">
-              {stockOverview.map((row) => (
-                <Link
-                  key={row.name}
-                  to="/creditos"
-                  search={{ servidor: row.name }}
-                  aria-label={`${row.label}: ${row.configured ? `${row.balance} créditos` : "saldo não informado"}, ${row.totalClients} ${row.totalClients === 1 ? "cliente" : "clientes"}`}
-                  className={`flex min-h-[92px] min-w-0 flex-col gap-1 rounded-xl px-2.5 py-2.5 ring-1 transition-colors hover:bg-frost/5 sm:px-3 ${row.lowStock ? "bg-warn/5 ring-warn/40" : "bg-background/70 ring-line"}`}
-                >
-                  <span className="truncate text-[11px] font-medium text-mist" title={row.label}>{row.name === "Uniplay" ? "Uni / P2P" : row.label}</span>
-                  <span className={`font-display text-lg font-semibold leading-tight sm:text-xl ${!row.configured ? "text-mist" : row.lowStock ? "text-warn" : "text-cyan"}`}>
-                    {row.configured ? row.balance : "—"}
-                    <span className="ml-1 text-[10px] font-normal text-mist">créd.</span>
-                  </span>
-                  <span className={`text-[10px] leading-tight ${row.shortageFive > 0 ? "font-semibold text-warn" : "text-mist"}`}>
-                    {!row.configured ? "Informar saldo" : row.shortageFive > 0 ? `Faltam ${row.shortageFive} em 5 dias` : `${row.totalClients} ${row.totalClients === 1 ? "cliente" : "clientes"}`}
-                  </span>
-                </Link>
-              ))}
-            </div>
-          )}
-          {!stockLoading && !stockError && stockOverview.some((row) => row.shortageFive > 0) && (
-            <p className="mt-1 text-[11px] text-mist">
-              Previsão baseada nos vencimentos dos próximos 5 dias; créditos só são descontados nas renovações.
-            </p>
-          )}
-        </section>
 
         <section className="mt-6 flex flex-wrap items-center gap-2 sm:mt-8">
           <nav className="flex flex-wrap items-center gap-1 rounded-xl bg-panel p-1 ring-1 ring-line">
@@ -1100,33 +864,6 @@ function Painel() {
           </>
         )}
 
-        {monthlyBilling.length > 0 && (
-          <section className="mt-8 rounded-2xl bg-panel/60 p-5 ring-1 ring-line backdrop-blur-sm">
-            <h2 className="font-display text-base font-semibold">Faturamento por mês</h2>
-            <p className="mt-1 text-xs text-mist">Renovações registradas no painel.</p>
-            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-              {monthlyBilling.map((m) => (
-                <Link key={m.month} to="/faturamento/$month" params={{month:m.month}}
-                  aria-label={`Ver pagamentos e detalhes de ${monthLabel(m.month)}`}
-                  className="block rounded-xl bg-panel p-4 ring-1 ring-line transition-colors hover:bg-panel2 hover:ring-cyan/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan">
-                  <p className="text-[11px] tracking-wide text-mist uppercase">
-                    {monthLabel(m.month)}
-                  </p>
-                  <p className="font-display mt-2 text-lg leading-none font-semibold text-cyan">
-                    {money(m.faturado)}
-                  </p>
-                  <p className="mt-2 text-xs text-mist">
-                    {m.count} renovações · lucro{" "}
-                    <span className={m.lucro >= 0 ? "text-ok" : "text-danger"}>
-                      {money(m.lucro)}
-                    </span>
-                  </p>
-                  <p className="mt-2 text-xs font-medium text-cyan">Ver detalhes →</p>
-                </Link>
-              ))}
-            </div>
-          </section>
-        )}
       </div>
 
       {referralsOpen && (
