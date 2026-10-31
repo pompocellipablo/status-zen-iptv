@@ -102,6 +102,7 @@ function Painel() {
   const [range, setRange] = useState(1);
   const [search, setSearch] = useState("");
   const [serverFilter, setServerFilter] = useState("todos");
+  const [accessFilter, setAccessFilter] = useState("todos");
   const [sortMode, setSortMode] = useState<ClientSortMode>("vencimento-asc");
   const [page, setPage] = useState(1);
   const [formOpen, setFormOpen] = useState(false);
@@ -291,10 +292,13 @@ function Painel() {
         due_date: draft.due_date,
         financial_due_date: draft.financial_due_date || null,
         whatsapp: draft.whatsapp.trim() || null,
+        access_type: draft.access_type,
+        notes: draft.notes.trim() || null,
         referred_by_client_id: draft.referred_by_client_id || null,
         referral_first_payment_confirmed: draft.referral_first_payment_confirmed,
-        prev_cost: cost,
-        prev_paid: paid,
+        // Editing a prepaid/free month must not erase the previous paid package amount.
+        prev_cost: cost > 0 ? cost : (id ? (clients.find(c => c.id === id)?.prev_cost ?? cost) : cost),
+        prev_paid: paid > 0 ? paid : (id ? (clients.find(c => c.id === id)?.prev_paid ?? 0) : 0),
       };
       if (id) {
         const { error } = await supabase.from("clients").update(payload).eq("id", id);
@@ -522,6 +526,22 @@ function Painel() {
     return { total: clients.length, ativos, vencidos, hoje, proximos, lucro };
   }, [clients]);
 
+  const freeAccessOverview = useMemo(() => {
+    const included = clients.filter(c => getStatus(c).key !== "vencido");
+    const family = included.filter(c => c.access_type === "gratuidade");
+    const tests = included.filter(c => c.access_type === "meu_acesso");
+    const unclassifiedZero = included.filter(c =>
+      (c.access_type ?? "padrao") === "padrao" && c.paid === 0
+      && (!c.financial_due_date || c.financial_due_date <= c.due_date));
+    return {
+      familyCount: family.length,
+      testCount: tests.length,
+      familyCost: family.reduce((s,c)=>s+c.cost,0),
+      testCost: tests.reduce((s,c)=>s+c.cost,0),
+      reviewCount: unclassifiedZero.length,
+    };
+  },[clients]);
+
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     return sortClients(
@@ -534,18 +554,19 @@ function Painel() {
         if (tab === "cobranca" && s.key !== "vencido" && s.key !== "hoje" && s.key !== "breve")
           return false;
         if (serverFilter !== "todos" && c.server !== serverFilter) return false;
+        if (accessFilter !== "todos" && (c.access_type ?? "padrao") !== accessFilter) return false;
         if (term && !`${c.name} ${c.login}`.toLowerCase().includes(term)) return false;
         return true;
       }),
       sortMode,
     );
-  }, [clients, tab, range, search, serverFilter, sortMode]);
+  }, [clients, tab, range, search, serverFilter, sortMode, accessFilter]);
   
   // Apply search, status, server, and sort to the entire list BEFORE paging.
   // Reset page when those controls change; preserve overall summary and CSV export.
   useEffect(() => {
     setPage(1);
-  }, [tab, range, search, serverFilter, sortMode]);
+  }, [tab, range, search, serverFilter, sortMode, accessFilter]);
 
   const paginated = useMemo(() => paginateClients(filtered, page), [filtered, page]);
   const changePage = (nextPage: number) => {
@@ -723,6 +744,37 @@ function Painel() {
           />
         </section>
 
+        <section className="mt-4 rounded-2xl bg-panel/60 p-4 ring-1 ring-line sm:mt-5" aria-label="Custo de acessos gratuitos">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="font-display text-sm font-semibold text-frost">Acessos gratuitos · Custo mensal</h2>
+              <p className="mt-1 text-xs text-mist">
+                Somente contas marcadas como Família/Amigos ou Meu Acesso/Testes. Não inclui pacotes pagos.
+              </p>
+            </div>
+            <p className="font-display text-lg font-semibold text-cyan">
+              {money(freeAccessOverview.familyCost + freeAccessOverview.testCost)}
+              <span className="ml-1 text-xs font-normal text-mist">/ mês</span>
+            </p>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => { setTab("todos"); setAccessFilter("gratuidade"); document.getElementById("maxflix-client-results")?.scrollIntoView({behavior:"smooth"}); }}
+              className="rounded-xl bg-background/70 p-3 text-left ring-1 ring-line hover:ring-cyan/40">
+              <p className="text-xs text-mist">Família / Amigos · {freeAccessOverview.familyCount} acessos</p>
+              <p className="mt-1 font-display text-base font-semibold text-frost">{money(freeAccessOverview.familyCost)}</p>
+            </button>
+            <button type="button" onClick={() => { setTab("todos"); setAccessFilter("meu_acesso"); document.getElementById("maxflix-client-results")?.scrollIntoView({behavior:"smooth"}); }}
+              className="rounded-xl bg-background/70 p-3 text-left ring-1 ring-line hover:ring-cyan/40">
+              <p className="text-xs text-mist">Meu Acesso / Testes · {freeAccessOverview.testCount} acessos</p>
+              <p className="mt-1 font-display text-base font-semibold text-frost">{money(freeAccessOverview.testCost)}</p>
+            </button>
+          </div>
+          <p className="mt-3 text-xs text-mist">
+            Projeção anual, mantendo os mesmos acessos: {money((freeAccessOverview.familyCost+freeAccessOverview.testCost)*12)}.
+            {freeAccessOverview.reviewCount>0 ? ` Há ${freeAccessOverview.reviewCount} cadastros ativos zerados sem classificação; confira antes de marcar como gratuidade.` : ""}
+          </p>
+        </section>
+
         <section className="mt-4 rounded-2xl bg-panel/60 p-3 ring-1 ring-line sm:mt-5" aria-label="Resumo de créditos dos servidores">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <h2 className="font-display text-sm font-semibold text-frost">Estoque de créditos</h2>
@@ -770,6 +822,19 @@ function Painel() {
             ))}
           </nav>
           <div className="flex min-w-0 flex-wrap items-center gap-2 sm:ml-auto">
+            <Select value={accessFilter} onValueChange={setAccessFilter}>
+              <SelectTrigger aria-label="Filtrar por tipo de acesso"
+                className="h-10 w-[180px] max-w-full rounded-xl border-0 bg-panel px-3 text-sm font-medium text-mist ring-1 ring-line">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="border-line bg-panel2 text-frost shadow-lg">
+                <SelectItem value="todos">Todos os tipos</SelectItem>
+                <SelectItem value="padrao">Padrão / a classificar</SelectItem>
+                <SelectItem value="pacote_pago">Pacote pré-pago</SelectItem>
+                <SelectItem value="gratuidade">Família / Amigos</SelectItem>
+                <SelectItem value="meu_acesso">Meu Acesso / Testes</SelectItem>
+              </SelectContent>
+            </Select>
             <Select value={serverFilter} onValueChange={setServerFilter}>
               <SelectTrigger
                 aria-label="Filtrar clientes por servidor"
@@ -874,6 +939,15 @@ function Painel() {
                         <p className="truncate text-xs text-mist">
                           {c.login} · {c.server}
                         </p>
+                        {c.access_type && c.access_type!=="padrao" && (
+                          <p className="mt-1 text-[11px] font-medium text-cyan">
+                            {c.access_type==="gratuidade"?"🎁 Família / Amigos":c.access_type==="meu_acesso"?"🧪 Meu Acesso / Testes":"💳 Pacote pré-pago"}
+                          </p>
+                        )}
+                        {c.notes && (
+                          <p className="mt-1 max-w-[320px] truncate text-[11px] text-warn"
+                            title={c.notes}>📝 {c.notes}</p>
+                        )}
                       </div>
                       <StatusBadge status={status} />
                     </div>
@@ -993,7 +1067,9 @@ function Painel() {
             <p className="mt-1 text-xs text-mist">Renovações registradas no painel.</p>
             <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
               {monthlyBilling.map((m) => (
-                <div key={m.month} className="rounded-xl bg-panel p-4 ring-1 ring-line">
+                <Link key={m.month} to="/faturamento/$month" params={{month:m.month}}
+                  aria-label={`Ver pagamentos e detalhes de ${monthLabel(m.month)}`}
+                  className="block rounded-xl bg-panel p-4 ring-1 ring-line transition-colors hover:bg-panel2 hover:ring-cyan/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan">
                   <p className="text-[11px] tracking-wide text-mist uppercase">
                     {monthLabel(m.month)}
                   </p>
@@ -1006,7 +1082,8 @@ function Painel() {
                       {money(m.lucro)}
                     </span>
                   </p>
-                </div>
+                  <p className="mt-2 text-xs font-medium text-cyan">Ver detalhes →</p>
+                </Link>
               ))}
             </div>
           </section>
