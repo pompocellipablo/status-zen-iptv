@@ -47,9 +47,11 @@ import {
 } from "@/lib/iptv";
 
 export const Route = createFileRoute("/_authenticated/renovacoes")({
-  validateSearch: (search: Record<string, unknown>): { tab: Tab } => {
+  validateSearch: (search: Record<string, unknown>): { tab: Tab; access?: string } => {
     const allowed: Tab[] = ["todos", "vencidos", "hoje", "breve", "cobranca"];
-    return { tab: allowed.includes(search.tab as Tab) ? search.tab as Tab : "hoje" };
+    const tab = allowed.includes(search.tab as Tab) ? search.tab as Tab : "hoje";
+    const allowedAccess = ["padrao", "pacote_pago", "gratuidade", "meu_acesso"];
+    return {tab, ...(allowedAccess.includes(search.access as string) ? {access:search.access as string} : {})};
   },
   head: () => ({
     meta: [
@@ -102,14 +104,15 @@ const num = (value: string) => Number(String(value).replace(",", ".")) || 0;
 function Painel() {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const selectedTab = Route.useSearch().tab;
+  const {tab: selectedTab,access: selectedAccess} = Route.useSearch();
   const { pendingAction, clearPendingAction } = useMaxFlixNavigationAction();
   const [tab, setTab] = useState<Tab>(selectedTab);
   useEffect(() => { setTab(selectedTab); }, [selectedTab]);
-  const [range, setRange] = useState(1);
+  const [range, setRange] = useState(0);
   const [search, setSearch] = useState("");
   const [serverFilter, setServerFilter] = useState("todos");
-  const [accessFilter, setAccessFilter] = useState("todos");
+  const [accessFilter, setAccessFilter] = useState(selectedAccess ?? "todos");
+  useEffect(() => setAccessFilter(selectedAccess ?? "todos"),[selectedAccess]);
   const [sortMode, setSortMode] = useState<ClientSortMode>("vencimento-asc");
   const [page, setPage] = useState(1);
   const [formOpen, setFormOpen] = useState(false);
@@ -566,7 +569,7 @@ function Painel() {
         if (tab === "todos" && s.key === "vencido") return false;
         if (tab === "vencidos" && s.key !== "vencido") return false;
         if (tab === "hoje" && s.key !== "hoje") return false;
-        if (tab === "breve" && s.days !== range) return false;
+        if (tab === "breve" && (s.days < 1 || s.days > 5 || (range > 0 && s.days !== range))) return false;
         if (tab === "cobranca" && s.key !== "vencido" && s.key !== "hoje" && s.key !== "breve")
           return false;
         if (serverFilter !== "todos" && c.server !== serverFilter) return false;
@@ -844,7 +847,7 @@ function Painel() {
             {tabs.map((t) => (
               <button key={t.key} onClick={() => {
                 setTab(t.key);
-                void navigate({ to: "/renovacoes", search: { tab: t.key }, replace: true });
+                void navigate({ to: "/renovacoes", search: { tab: t.key, ...(selectedAccess ? {access:selectedAccess}: {}) }, replace: true });
               }} className={tabBtn(tab === t.key)}>
                 {t.label}
               </button>
@@ -880,7 +883,7 @@ function Painel() {
               <>
                 <span className="hidden text-xs text-mist sm:inline">Vence em</span>
                 <div className="flex items-center gap-1 rounded-xl bg-panel p-1 ring-1 ring-line">
-                  {[1, 2, 3, 4, 5].map((d) => (
+                  {[0, 1, 2, 3, 4, 5].map((d) => (
                     <button
                       key={d}
                       onClick={() => setRange(d)}
@@ -890,7 +893,7 @@ function Painel() {
                           : "text-mist hover:bg-frost/5"
                       }`}
                     >
-                      {d}
+                      {d === 0 ? "5 dias" : d}
                     </button>
                   ))}
                 </div>
