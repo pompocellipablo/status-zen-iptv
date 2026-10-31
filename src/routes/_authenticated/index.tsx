@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowRight, CalendarClock, CircleAlert, Coins, Gift, LayoutDashboard,
-  RefreshCw, Tv, Users, Wallet, Eye, EyeOff,
+  RefreshCw, Tv, Wallet, Eye, EyeOff,
 } from "lucide-react";
 import { creditStockOverview, prioritizeCreditStocks } from "@/lib/credit-stock-overview";
 import type { CreditMovement } from "@/lib/server-credits";
@@ -136,6 +136,7 @@ function Dashboard() {
       &&(!c.financial_due_date||c.financial_due_date<=c.due_date));
     return {
       total:clients.length,active:active.length,expired:clients.length-active.length,
+      profit:active.reduce((sum,c)=>sum+c.paid-c.cost,0),
       today:today.length,coveredToday:covered.length,nextFive:nextFive.length,
       cost:active.reduce((sum,c)=>sum+c.cost,0),
       freeCost:free.reduce((sum,c)=>sum+c.cost,0),
@@ -194,6 +195,59 @@ function Dashboard() {
         Não foi possível atualizar todos os indicadores. Confira a conexão e atualize a página.
       </p>}
 
+      <section aria-label="Indicadores principais da MaxFlix" className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="font-display text-base font-semibold">Visão geral dos clientes</h2>
+            <p className="mt-1 text-xs text-mist">Os mesmos números essenciais do painel anterior, com acesso direto às listas.</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+          <Link to="/renovacoes" search={{tab:"cadastrados"}}
+            aria-label="Ver todos os clientes cadastrados" className={tile+" min-h-[140px] sm:min-h-[162px]"}>
+            <p className={label}>Clientes</p>
+            <p className={number}>{clientsQuery.isLoading?"—":stats.total}</p>
+            <p className="mt-2 text-xs text-mist">Total cadastrado</p>
+          </Link>
+          <Link to="/renovacoes" search={{tab:"todos"}}
+            aria-label="Ver clientes ativos" className={tile+" min-h-[140px] sm:min-h-[162px]"}>
+            <p className={label}>Ativos</p>
+            <p className={number+" text-ok"}>{clientsQuery.isLoading?"—":stats.active}</p>
+            <p className="mt-2 text-xs text-mist">Todos não vencidos</p>
+          </Link>
+          <Link to="/renovacoes" search={{tab:"vencidos"}}
+            aria-label="Ver clientes vencidos" className={tile+" min-h-[140px] bg-danger/10 ring-danger/40 sm:min-h-[162px]"}>
+            <p className={label+" text-danger/80"}>Vencidos</p>
+            <p className={number+" text-danger"}>{clientsQuery.isLoading?"—":stats.expired}</p>
+            <p className="mt-2 text-xs text-danger/70">Exigem ação</p>
+          </Link>
+          <Link to="/renovacoes" search={{tab:"hoje"}}
+            aria-label="Ver clientes que vencem hoje" className={tile+" min-h-[140px] bg-today/10 ring-today/40 sm:min-h-[162px]"}>
+            <p className={label+" text-today/80"}>Vence hoje</p>
+            <p className={number+" text-today"}>{clientsQuery.isLoading?"—":stats.today}</p>
+            <p className="mt-2 text-xs text-today/75">Renovar agora</p>
+          </Link>
+          <Link to="/renovacoes" search={{tab:"breve"}}
+            aria-label="Ver clientes que vencem nos próximos cinco dias" className={tile+" min-h-[140px] sm:min-h-[162px]"}>
+            <p className={label}>Próx. 5 dias</p>
+            <p className={number+" text-warn"}>{clientsQuery.isLoading?"—":stats.nextFive}</p>
+            <p className="mt-2 text-xs text-mist">Janela de cobrança</p>
+          </Link>
+          <Link to="/renovacoes" search={{tab:"todos"}}
+            aria-label="Ver assinaturas ativas que compõem o lucro total" className={tile+" min-h-[140px] bg-cyan/10 ring-cyan/40 sm:min-h-[162px]"}>
+            <p className={label+" text-cyan/80"}>Lucro total</p>
+            <p className="mt-3 break-words font-display text-[clamp(1.05rem,4.2vw,2rem)] font-semibold leading-tight tabular-nums text-cyan">
+              {clientsQuery.isLoading?"—":money(stats.profit)}
+            </p>
+            <p className="mt-2 text-xs text-cyan/75">Clientes não vencidos</p>
+          </Link>
+        </div>
+        <p className="text-[11px] text-mist">
+          Lucro total segue o cálculo original: soma do valor mensal cadastrado menos o custo do crédito de cada cliente ativo.
+          É uma estimativa da carteira, não o faturamento recebido no mês; parcelas de pacotes antecipados podem estar zeradas.
+        </p>
+      </section>
+
       <section aria-label="Prioridades de hoje" className="rounded-2xl bg-panel/70 p-4 ring-1 ring-cyan/20 sm:p-5">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -235,12 +289,6 @@ function Dashboard() {
         <Link to="/renovacoes" search={{tab:"todos"}} className="text-xs font-semibold text-cyan hover:underline">Gerenciar clientes →</Link>
       </div>
       <section aria-label="Indicadores operacionais" className="grid grid-cols-2 gap-3 md:grid-cols-3">
-        <Link to="/renovacoes" search={{tab:"todos"}} className={tile}>
-          <Users size={18} className="text-cyan"/>
-          <p className={number}>{clientsQuery.isLoading?"—":stats.active}</p>
-          <p className="mt-1 text-xs text-mist">Clientes ativos</p>
-          <p className="mt-1 text-[11px] text-mist/75">{stats.total} cadastrados</p>
-        </Link>
         <Link to="/faturamento/$month" params={{month:currentMonth.key}} className={tile}>
           <Wallet size={18} className="text-cyan"/>
           <p className={number+" text-cyan"}>{paymentsQuery.isLoading?"—":money(currentMonth.amount)}</p>
