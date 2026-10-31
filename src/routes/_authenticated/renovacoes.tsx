@@ -46,7 +46,7 @@ import {
 
 export const Route = createFileRoute("/_authenticated/renovacoes")({
   validateSearch: (search: Record<string, unknown>): { tab: Tab; access?: string } => {
-    const allowed: Tab[] = ["todos", "vencidos", "hoje", "breve", "cobranca"];
+    const allowed: Tab[] = ["todos", "cadastrados", "vencidos", "hoje", "breve", "cobranca"];
     const tab = allowed.includes(search.tab as Tab) ? search.tab as Tab : "hoje";
     const allowedAccess = ["padrao", "pacote_pago", "gratuidade", "meu_acesso", "gratuitos"];
     return {tab, ...(allowedAccess.includes(search.access as string) ? {access:search.access as string} : {})};
@@ -73,7 +73,7 @@ export const Route = createFileRoute("/_authenticated/renovacoes")({
   component: Painel,
 });
 
-type Tab = "todos" | "vencidos" | "hoje" | "breve" | "cobranca";
+type Tab = "todos" | "cadastrados" | "vencidos" | "hoje" | "breve" | "cobranca";
 
 type ForecastPeriod = 0 | 5 | 10;
 
@@ -550,7 +550,8 @@ function Painel() {
   };
 
   const tabs: { key: Tab; label: string }[] = [
-    { key: "todos", label: "Todos" },
+    { key: "todos", label: "Ativos" },
+    { key: "cadastrados", label: "Todos os cadastros" },
     { key: "vencidos", label: "Vencidos" },
     { key: "hoje", label: "Vence hoje" },
     { key: "breve", label: "Vencendo em breve" },
