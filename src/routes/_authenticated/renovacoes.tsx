@@ -624,7 +624,7 @@ function Painel() {
             {tabs.map((t) => (
               <button key={t.key} onClick={() => {
                 setTab(t.key);
-                void navigate({ to: "/renovacoes", search: { tab: t.key, ...(selectedAccess ? {access:selectedAccess}: {}), ...(selectedServer ? {server:selectedServer} : {}) }, replace: true });
+                void navigate({ to: "/renovacoes", search: { tab: t.key, ...(selectedAccess ? {access:selectedAccess}: {}), ...(serverFilter !== "todos" ? {server:serverFilter} : {}) }, replace: true });
               }} className={tabBtn(tab === t.key)}>
                 {t.label}
               </button>
