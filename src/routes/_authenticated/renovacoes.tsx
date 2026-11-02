@@ -461,28 +461,37 @@ function Painel() {
     );
   };
 
+  // Counts reflect the selected period and access category, independent of
+  // the server chip or text search. This keeps the shortcuts useful while filtering.
+  const periodClients = useMemo(() => clients.filter(c => {
+    const s = getStatus(c);
+    if (tab === "todos" && s.key === "vencido") return false;
+    if (tab === "vencidos" && s.key !== "vencido") return false;
+    if (tab === "hoje" && s.key !== "hoje") return false;
+    if (tab === "breve" && (s.days < 1 || s.days > 5 || (range > 0 && s.days !== range))) return false;
+    if (tab === "cobranca" && s.key !== "vencido" && s.key !== "hoje" && s.key !== "breve") return false;
+    if (accessFilter === "gratuitos") {
+      if (c.access_type !== "gratuidade" && c.access_type !== "meu_acesso") return false;
+    } else if (accessFilter !== "todos" && (c.access_type ?? "padrao") !== accessFilter) return false;
+    return true;
+  }), [clients, tab, range, accessFilter]);
+
+  const serverCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const client of periodClients) counts.set(client.server, (counts.get(client.server) ?? 0) + 1);
+    const names = [...new Set([...SERVERS, ...counts.keys()])];
+    return names.filter(name => (counts.get(name) ?? 0) > 0 || name === serverFilter)
+      .map(name => ({name, count:counts.get(name) ?? 0}))
+      .sort((a,b)=>b.count-a.count || a.name.localeCompare(b.name,"pt-BR"));
+  }, [periodClients, serverFilter]);
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return sortClients(
-      clients.filter((c) => {
-        const s = getStatus(c);
-        if (tab === "todos" && s.key === "vencido") return false;
-        if (tab === "vencidos" && s.key !== "vencido") return false;
-        if (tab === "hoje" && s.key !== "hoje") return false;
-        if (tab === "breve" && (s.days < 1 || s.days > 5 || (range > 0 && s.days !== range))) return false;
-        if (tab === "cobranca" && s.key !== "vencido" && s.key !== "hoje" && s.key !== "breve")
-          return false;
-        if (serverFilter !== "todos" && c.server !== serverFilter) return false;
-        if (accessFilter === "gratuitos") {
-          if (c.access_type !== "gratuidade" && c.access_type !== "meu_acesso") return false;
-        } else if (accessFilter !== "todos" && (c.access_type ?? "padrao") !== accessFilter) return false;
-        if (term && !`${c.name} ${c.login}`.toLowerCase().includes(term)) return false;
-        return true;
-      }),
-      sortMode,
-    );
-  }, [clients, tab, range, search, serverFilter, sortMode, accessFilter]);
-  
+    return sortClients(periodClients.filter(c =>
+      (serverFilter === "todos" || c.server === serverFilter)
+      && (!term || `${c.name} ${c.login}`.toLowerCase().includes(term))
+    ), sortMode);
+  }, [periodClients, search, serverFilter, sortMode]);
+
   // Apply search, status, server, and sort to the entire list BEFORE paging.
   // Reset page when those controls change; preserve overall summary and CSV export.
   useEffect(() => {
@@ -635,18 +644,6 @@ function Painel() {
                 <SelectItem value="meu_acesso">Meu Acesso / Testes</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={serverFilter} onValueChange={setServerFilter}>
-              <SelectTrigger
-                aria-label="Filtrar clientes por servidor"
-                className="h-10 w-[175px] max-w-full rounded-xl border-0 bg-panel px-3 text-sm font-medium text-mist ring-1 ring-line hover:bg-panel2"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="border-line bg-panel2 text-frost shadow-lg">
-                <SelectItem value="todos">Todos os servidores</SelectItem>
-                {SERVERS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-              </SelectContent>
-            </Select>
             {tab === "breve" && (
               <>
                 <span className="hidden text-xs text-mist sm:inline">Vence em</span>
@@ -690,6 +687,38 @@ function Painel() {
             >
               Exportar CSV
             </button>
+          </div>
+        </section>
+
+        <section aria-label="Renovações por servidor" className="mt-4 rounded-2xl bg-panel/70 p-3 ring-1 ring-line sm:p-4">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <h2 className="font-display text-sm font-semibold text-frost">
+                {tab === "cadastrados" || tab === "todos" ? "Clientes por servidor" : "Renovações por servidor"}
+              </h2>
+              <p className="mt-1 text-xs text-mist">
+                Toque no servidor para ver somente seus clientes. Os números acompanham o período selecionado.
+              </p>
+            </div>
+            <Link to="/servidores" className="shrink-0 text-xs font-semibold text-cyan hover:underline">Ver servidores →</Link>
+          </div>
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-2" role="group" aria-label="Filtrar lista por servidor">
+            <button type="button" onClick={() => setServerFilter("todos")}
+              aria-pressed={serverFilter === "todos"}
+              className={`min-h-11 shrink-0 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-semibold ring-1 transition-colors ${serverFilter === "todos"
+                ? "bg-cyan text-background ring-cyan"
+                : "bg-panel2 text-frost ring-line hover:ring-cyan/40"}`}>
+              Todos · {periodClients.length}
+            </button>
+            {serverCounts.map(({name,count}) => (
+              <button key={name} type="button" onClick={() => setServerFilter(name)}
+                aria-pressed={serverFilter === name}
+                className={`min-h-11 shrink-0 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-semibold ring-1 transition-colors ${serverFilter === name
+                  ? "bg-cyan text-background ring-cyan"
+                  : "bg-panel2 text-frost ring-line hover:ring-cyan/40"}`}>
+                {name === "UniP2P" ? "UniP2P" : name} · {count}
+              </button>
+            ))}
           </div>
         </section>
 
