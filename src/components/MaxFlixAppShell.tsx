@@ -144,6 +144,11 @@ export function MaxFlixAppShell({ children }: { children: ReactNode }) {
                       Financeiro e servidores
                     </p>
                     <SheetClose asChild>
+                      <Link to="/servidores" className={itemClass}>
+                        <Server size={18} className={iconClass} aria-hidden="true" /> Servidores
+                      </Link>
+                    </SheetClose>
+                    <SheetClose asChild>
                       <Link to="/creditos" className={itemClass}>
                         <Coins size={18} className={iconClass} aria-hidden="true" /> Créditos
                       </Link>
