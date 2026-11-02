@@ -45,11 +45,11 @@ import {
 } from "@/lib/iptv";
 
 export const Route = createFileRoute("/_authenticated/renovacoes")({
-  validateSearch: (search: Record<string, unknown>): { tab: Tab; access?: string } => {
+  validateSearch: (search: Record<string, unknown>): { tab: Tab; access?: string; server?: string } => {
     const allowed: Tab[] = ["todos", "cadastrados", "vencidos", "hoje", "breve", "cobranca"];
     const tab = allowed.includes(search.tab as Tab) ? search.tab as Tab : "hoje";
     const allowedAccess = ["padrao", "pacote_pago", "gratuidade", "meu_acesso", "gratuitos"];
-    return {tab, ...(allowedAccess.includes(search.access as string) ? {access:search.access as string} : {})};
+    return {tab, ...(allowedAccess.includes(search.access as string) ? {access:search.access as string} : {}), ...(typeof search.server === "string" && search.server.length <= 100 ? {server:search.server} : {})};
   },
   head: () => ({
     meta: [
@@ -93,13 +93,14 @@ const num = (value: string) => Number(String(value).replace(",", ".")) || 0;
 function Painel() {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const {tab: selectedTab,access: selectedAccess} = Route.useSearch();
+  const {tab: selectedTab,access: selectedAccess,server: selectedServer} = Route.useSearch();
   const { pendingAction, clearPendingAction } = useMaxFlixNavigationAction();
   const [tab, setTab] = useState<Tab>(selectedTab);
   useEffect(() => { setTab(selectedTab); }, [selectedTab]);
   const [range, setRange] = useState(0);
   const [search, setSearch] = useState("");
-  const [serverFilter, setServerFilter] = useState("todos");
+  const [serverFilter, setServerFilter] = useState(selectedServer ?? "todos");
+  useEffect(() => setServerFilter(selectedServer ?? "todos"), [selectedServer]);
   const [accessFilter, setAccessFilter] = useState(selectedAccess ?? "todos");
   useEffect(() => setAccessFilter(selectedAccess ?? "todos"),[selectedAccess]);
   const [sortMode, setSortMode] = useState<ClientSortMode>("vencimento-asc");
@@ -623,7 +624,7 @@ function Painel() {
             {tabs.map((t) => (
               <button key={t.key} onClick={() => {
                 setTab(t.key);
-                void navigate({ to: "/renovacoes", search: { tab: t.key, ...(selectedAccess ? {access:selectedAccess}: {}) }, replace: true });
+                void navigate({ to: "/renovacoes", search: { tab: t.key, ...(selectedAccess ? {access:selectedAccess}: {}), ...(selectedServer ? {server:selectedServer} : {}) }, replace: true });
               }} className={tabBtn(tab === t.key)}>
                 {t.label}
               </button>
