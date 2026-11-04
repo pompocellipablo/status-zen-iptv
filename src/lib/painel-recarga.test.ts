@@ -7,7 +7,8 @@ describe("Painel Recarga integration guardrails",()=>{
     assert.equal(panelRouteForClient("Five")?.path,"/renovar/iptv/five");
     assert.equal(panelRouteForClient("GF")?.path,"/renovar/iptv/gf");
     assert.equal(panelRouteForClient("Club")?.path,"/renovar/iptv/club");
-    assert.equal(panelRouteForClient("UniP2P"),null);
+    assert.deepEqual(panelRouteForClient("UniP2P"),{kind:"p2p",panel:"uniplay",path:"/renovar/p2p/uniplay"});
+    assert.deepEqual(panelRouteForClient("Uniplay"),{kind:"iptv",panel:"uniplay",path:"/renovar/iptv/uniplay"});
     assert.equal(panelRouteForClient("Elite"),null);
   });
   it("always sends exactly one server cycle regardless of customer prepaid plan",()=>{
