@@ -34,8 +34,14 @@ Rotas IPTV (POST):
 - Now /renovar/iptv/now
 - Uniplay /renovar/iptv/uniplay
 
-Rotas P2P existem para Blade/Five/GF/Uniplay, mas mapeamento individual
-ainda não está validado. UniP2P, Elite e demais servidores permanecem manuais.
+Rotas P2P existem para Blade/Five/GF/Uniplay. O proprietário confirmou:
+- UniP2P na MaxFlix = Uniplay P2P: /renovar/p2p/uniplay
+- Uniplay na MaxFlix = Uniplay IPTV: /renovar/iptv/uniplay
+
+Esse mapeamento foi implementado no adaptador com testes para evitar
+confundir as duas modalidades. Elite e demais servidores sem mapeamento
+continuam manuais. Mesmo com a rota mapeada, simulações e homologação
+do resultado do painel são obrigatórias antes de qualquer renovação real.
 
 Corpo de um alvo: usuario (login exato), ciclos:1. Para consulta inclua simular:true.
 A API aceita ciclos 1, 3, 6, 12. Importante: UM CICLO É UMA REPETIÇÃO
