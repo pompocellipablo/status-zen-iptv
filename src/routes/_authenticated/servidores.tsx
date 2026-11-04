@@ -221,9 +221,7 @@ function ServersPage() {
             O modo envia simular: true e não registra renovação, pagamento ou consumo de créditos na MaxFlix.
             Se a simulação não estiver habilitada no servidor, o teste será bloqueado.
           </p>
-          {simulation&&<p role="status" className={"mt-3 rounded-lg p-3 text-xs ring-1 "+(simulation.ok?"bg-ok/10 text-ok ring-ok/20":"bg-warn/10 text-warn ring-warn/20")}>
-            {simulation.ok?"Simulação validada: ":"Simulação não validada: "}{simulation.message}
-          </p>}
+          <p className="mt-2 text-xs text-mist">O resultado aparecerá junto ao cliente selecionado, sem alterar sua assinatura.</p>
         </div>}
         <p className="mt-3 text-xs text-mist">{filtered.length} cliente(s) nesta visualização.</p>
         <div className="mt-2 space-y-2">
@@ -246,6 +244,10 @@ function ServersPage() {
                   className="mt-1 min-h-9 rounded-lg bg-cyan/15 px-3 text-xs font-semibold text-cyan ring-1 ring-cyan/30 disabled:opacity-50">
                   {simulatingId===c.id?"Simulando…":"Simular no painel"}
                 </button>}
+                {simulation?.clientId===c.id&&<p role="status" aria-live="polite"
+                  className={"mt-2 max-w-sm rounded-lg px-3 py-2 text-left text-xs ring-1 "+(simulation.ok?"bg-ok/10 text-ok ring-ok/20":"bg-warn/10 text-warn ring-warn/20")}>
+                  {simulation.ok?"Simulação validada: ":"Simulação não validada: "}{simulation.message}
+                </p>}
               </div>
             </div>;
           })}
