@@ -13,7 +13,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   buildPanelRecargaBody, panelRouteForClient, parsePanelRecargaResponse,
   RECARGA_BASE_URL, type ExternalOutcome,
-} from "../../../src/lib/painel-recarga.ts";
+} from "../_shared/painel-recarga.ts";
 
 const ownerId="c70b3e1f-e5d2-4caf-ae09-019964dbf30e";
 const headers={
