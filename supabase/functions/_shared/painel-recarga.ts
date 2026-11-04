@@ -10,8 +10,13 @@ const IPTV_PANELS: Record<string,string> = {
   "Five":"five", "GF":"gf", "Now":"now", "Uniplay":"uniplay",
 };
 
-/** UniP2P cannot be assumed to be the Uniplay P2P panel without manual mapping. */
+/**
+ * "UniP2P" is the Uniplay P2P panel (confirmed by the MaxFlix owner).
+ * It must not go through the distinct Uniplay IPTV endpoint.
+ */
 export function panelRouteForClient(server: string):PanelRoute|null {
+  if(server==="UniP2P")
+    return {kind:"p2p",panel:"uniplay",path:"/renovar/p2p/uniplay"};
   const name=IPTV_PANELS[server];
   if(!name)return null;
   return {kind:"iptv",panel:name,path:"/renovar/iptv/"+name};
