@@ -89,3 +89,15 @@ export function parsePanelRecargaResponse(
 export function isExternalSyncSafe(response:ExternalOutcome):boolean {
   return response.status==="confirmed";
 }
+
+/** Provider dates in the PDF are dd/MM/yyyy HH:mm:ss; no timezone assumption. */
+export function panelDateToISO(value:string | undefined):string|null{
+  if(!value)return null;
+  const br=value.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s|$)/);
+  const iso=value.trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:T|\s|$)/);
+  if(!br&&!iso)return null;
+  const y=br?br[3]!:iso![1]!,m=br?br[2]!:iso![2]!,d=br?br[1]!:iso![3]!;
+  const check=new Date(Date.UTC(Number(y),Number(m)-1,Number(d)));
+  if(check.getUTCFullYear()!==Number(y)||check.getUTCMonth()+1!==Number(m)||check.getUTCDate()!==Number(d))return null;
+  return y+"-"+m+"-"+d;
+}
