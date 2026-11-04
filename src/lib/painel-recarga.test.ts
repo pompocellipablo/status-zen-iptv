@@ -1,6 +1,6 @@
 import {describe,it} from "node:test";
 import assert from "node:assert/strict";
-import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe} from "./painel-recarga";
+import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO} from "./painel-recarga";
 
 describe("Painel Recarga integration guardrails",()=>{
   it("maps only documented IPTV panels",()=>{
@@ -30,5 +30,14 @@ describe("Painel Recarga integration guardrails",()=>{
   it("never treats a bad request as successful",()=>{
     assert.equal(parsePanelRecargaResponse(401,{ok:false,erro:"Token inválido"},"one").status,"failed");
     assert.equal(parsePanelRecargaResponse(422,{ok:false,erro:"Chave reutilizada"},"one").status,"failed");
+  });
+});
+
+describe("Provider dates",()=>{
+  it("parses dd/MM/yyyy and ISO, and rejects invalid dates",()=>{
+    assert.equal(panelDateToISO("04/11/2026 17:12:51"),"2026-11-04");
+    assert.equal(panelDateToISO("2026-11-04T17:12:51"),"2026-11-04");
+    assert.equal(panelDateToISO("31/02/2026 10:00:00"),null);
+    assert.equal(panelDateToISO(undefined),null);
   });
 });
