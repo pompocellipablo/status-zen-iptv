@@ -11,7 +11,7 @@
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
-  buildPanelRecargaBody, panelRouteForClient, parsePanelRecargaResponse,
+  buildPanelRecargaBody, panelDateToISO, panelRouteForClient, parsePanelRecargaResponse,
   RECARGA_BASE_URL, type ExternalOutcome,
 } from "../_shared/painel-recarga.ts";
 
@@ -221,6 +221,17 @@ Deno.serve(async(request)=>{
   };
   if(outcome.status==="confirmed"){
     await updateJob({...common,state:"external_confirmed"});
+    job={...job,state:"external_confirmed",external_order_id:outcome.orderId??job.external_order_id};
+    // One provider cycle is ONE repetition of that user's plan, not necessarily
+    // one month. Never silently align discrepant dates in the local accounting.
+    const providerDue=panelDateToISO(outcome.nextDue);
+    if(!providerDue || providerDue!==job.new_due_date){
+      await updateJob({state:"needs_review",
+        external_message:`Servidor confirmou até ${outcome.nextDue??"data desconhecida"}; MaxFlix esperava ${job.new_due_date}. Conciliação necessária.`});
+      return reply(409,{ok:false,externalConfirmed:true,needsReview:true,
+        orderId:outcome.orderId,expectedDue:job.new_due_date,providerDue,
+        message:"Servidor renovou, mas a nova data não coincide com a MaxFlix. Não renove novamente; confira manualmente."});
+    }
     return await syncLocal();
   }
   const state=outcome.status==="waiting"?"waiting":outcome.status==="failed"?"failed":"uncertain";
