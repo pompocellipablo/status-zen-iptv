@@ -1,0 +1,34 @@
+import {describe,it} from "node:test";
+import assert from "node:assert/strict";
+import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe} from "./painel-recarga";
+
+describe("Painel Recarga integration guardrails",()=>{
+  it("maps only documented IPTV panels",()=>{
+    assert.equal(panelRouteForClient("Five")?.path,"/renovar/iptv/five");
+    assert.equal(panelRouteForClient("GF")?.path,"/renovar/iptv/gf");
+    assert.equal(panelRouteForClient("Club")?.path,"/renovar/iptv/club");
+    assert.equal(panelRouteForClient("UniP2P"),null);
+    assert.equal(panelRouteForClient("Elite"),null);
+  });
+  it("always sends exactly one server cycle regardless of customer prepaid plan",()=>{
+    assert.deepEqual(buildPanelRecargaBody("cliente_01",false),{usuario:"cliente_01",ciclos:1});
+    assert.deepEqual(buildPanelRecargaBody("cliente_01",true),{usuario:"cliente_01",ciclos:1,simular:true});
+  });
+  it("accepts only an exact confirmed result, never a similar login",()=>{
+    const success={ok:true,resultados:[{usuario:"cliente_01",ok:true,pedido_id:"QX7ABC",vencimento_novo:"01/12/2026 15:00:00"}]};
+    assert.equal(parsePanelRecargaResponse(200,success,"cliente_01").status,"confirmed");
+    assert.equal(parsePanelRecargaResponse(200,success,"cliente_02").status,"uncertain");
+    assert.equal(isExternalSyncSafe(parsePanelRecargaResponse(200,success,"cliente_01",true)),false);
+  });
+  it("blocks sync on waiting session, partial batch, unknown and uncertain result",()=>{
+    assert.equal(parsePanelRecargaResponse(202,{ok:false,precisa_login:true},"one").status,"waiting");
+    assert.equal(parsePanelRecargaResponse(207,{ok:true,resultados:[{usuario:"one",ok:true}]},"one").status,"uncertain");
+    assert.equal(parsePanelRecargaResponse(200,{ok:true,resultados:[{usuario:"one",ok:true,incerto:true}]},"one").status,"uncertain");
+    assert.equal(parsePanelRecargaResponse(200,{},"one").status,"uncertain");
+    assert.equal(parsePanelRecargaResponse(503,{},"one").status,"uncertain");
+  });
+  it("never treats a bad request as successful",()=>{
+    assert.equal(parsePanelRecargaResponse(401,{ok:false,erro:"Token inválido"},"one").status,"failed");
+    assert.equal(parsePanelRecargaResponse(422,{ok:false,erro:"Chave reutilizada"},"one").status,"failed");
+  });
+});
