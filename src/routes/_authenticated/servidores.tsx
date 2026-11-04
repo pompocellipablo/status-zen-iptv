@@ -5,6 +5,7 @@ import { ArrowLeft, CalendarClock, CheckCircle2, CircleAlert, FileSearch, Search
 import { supabase } from "@/integrations/supabase/client";
 import { SERVERS, formatDate, getStatus, type Client } from "@/lib/iptv";
 import { auditServerAccounts, parsePanelExport, type ParsedPanelExport, type PanelAuditRow } from "@/lib/server-panel-audit";
+import {panelRouteForClient} from "@/lib/painel-recarga";
 
 export const Route = createFileRoute("/_authenticated/servidores")({
   validateSearch: (query: Record<string, unknown>) => ({
@@ -53,6 +54,8 @@ function ServersPage() {
   const [importedFile,setImportedFile]=useState<string|null>(null);
   const [importError,setImportError]=useState<string|null>(null);
   const [fullExport,setFullExport]=useState(false);
+  const [simulatingId,setSimulatingId]=useState<string|null>(null);
+  const [simulation,setSimulation]=useState<{clientId:string;ok:boolean;message:string}|null>(null);
 
   const clientsQuery=useQuery({queryKey:["clients"],queryFn:fetchClients});
   const clients=useMemo(()=>clientsQuery.data??[],[clientsQuery.data]);
@@ -88,9 +91,31 @@ function ServersPage() {
     }).sort((a,b)=>a.due_date.localeCompare(b.due_date)||a.name.localeCompare(b.name,"pt-BR"));
   },[serverClients,mode,search]);
   const audit=useMemo(()=>exported?auditServerAccounts(serverClients,exported.accounts):null,[serverClients,exported]);
+  const runSimulation=async(client:Client)=>{
+    if(simulatingId)return;
+    if(!panelRouteForClient(client.server))return;
+    setSimulatingId(client.id);
+    setSimulation(null);
+    try{
+      const {data,error}=await supabase.functions.invoke("painel-recarga-renovar",{
+        body:{mode:"simulate",clientId:client.id,expectedDueDate:client.due_date},
+      });
+      let response=data as {simulated?:boolean;outcome?:{status?:string;message?:string};message?:string}|null;
+      if(error){
+        const http=(error as {context?:unknown}).context;
+        if(http instanceof Response){try{response=await http.json();}catch{response=null;}}
+        throw Error(response?.message ?? error.message);
+      }
+      const status=response?.outcome?.status;
+      setSimulation({clientId:client.id,ok:response?.simulated===true&&status==="simulated",
+        message:response?.outcome?.message??response?.message??"O painel não retornou um resultado reconhecido."});
+    }catch(err){
+      setSimulation({clientId:client.id,ok:false,message:err instanceof Error?err.message:"Não foi possível consultar o painel. Confira o deploy da função."});
+    }finally{setSimulatingId(null);}
+  };
   const choose=(name:string)=>{
     setLocalSelection(name);setMode("todos");setSearch("");setExpanded(false);
-    setExported(null);setImportedFile(null);setImportError(null);setFullExport(false);
+    setExported(null);setImportedFile(null);setImportError(null);setFullExport(false);setSimulation(null);
   };
   const handleFile=async (file:File|undefined)=>{
     setImportedFile(null);setExported(null);setImportError(null);setFullExport(false);
@@ -189,6 +214,17 @@ function ServersPage() {
             Abrir na gestão de clientes →
           </Link>
         </div>
+        {panelRouteForClient(selected)&&<div className="mt-4 rounded-xl bg-cyan/5 p-3 ring-1 ring-cyan/20">
+          <p className="text-sm font-semibold text-cyan">Teste da integração — somente simulação</p>
+          <p className="mt-1 text-xs text-mist">
+            Para verificar a API, clique em "Simular" ao lado de um cliente.
+            O modo envia simular: true e não registra renovação, pagamento ou consumo de créditos na MaxFlix.
+            Se a simulação não estiver habilitada no servidor, o teste será bloqueado.
+          </p>
+          {simulation&&<p role="status" className={"mt-3 rounded-lg p-3 text-xs ring-1 "+(simulation.ok?"bg-ok/10 text-ok ring-ok/20":"bg-warn/10 text-warn ring-warn/20")}>
+            {simulation.ok?"Simulação validada: ":"Simulação não validada: "}{simulation.message}
+          </p>}
+        </div>}
         <p className="mt-3 text-xs text-mist">{filtered.length} cliente(s) nesta visualização.</p>
         <div className="mt-2 space-y-2">
           {(expanded?filtered:filtered.slice(0,50)).map(c=>{
@@ -200,11 +236,16 @@ function ServersPage() {
                 {c.financial_due_date&&c.financial_due_date!==c.due_date&&
                   <p className="mt-1 text-xs text-mist">Cobertura financeira até {formatDate(c.financial_due_date)}</p>}
               </div>
-              <div className="text-right">
+              <div className="flex flex-col items-end gap-1 text-right">
                 <p className={"text-xs font-semibold "+(st.key==="vencido"?"text-danger":st.key==="hoje"?"text-today":"text-ok")}>
                   {st.key==="vencido"?"Vencido":st.key==="hoje"?"Vence hoje":"Ativo"}
                 </p>
-                <p className="mt-1 text-xs text-mist">Vence {formatDate(c.due_date)}</p>
+                <p className="text-xs text-mist">Vence {formatDate(c.due_date)}</p>
+                {panelRouteForClient(c.server)&&<button type="button"
+                  disabled={simulatingId!==null} onClick={()=>void runSimulation(c)}
+                  className="mt-1 min-h-9 rounded-lg bg-cyan/15 px-3 text-xs font-semibold text-cyan ring-1 ring-cyan/30 disabled:opacity-50">
+                  {simulatingId===c.id?"Simulando…":"Simular no painel"}
+                </button>}
               </div>
             </div>;
           })}
