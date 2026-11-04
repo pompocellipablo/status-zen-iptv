@@ -26,7 +26,7 @@ export function buildPanelRecargaBody(login:string,simulate:boolean):{
     : {usuario:login,ciclos:1};
 }
 
-export type ExternalRenewalState="confirmed"|"waiting"|"uncertain"|"failed";
+export type ExternalRenewalState="confirmed"|"simulated"|"waiting"|"uncertain"|"failed";
 export type ExternalOutcome={
   status:ExternalRenewalState;
   message:string;
@@ -57,8 +57,11 @@ export function parsePanelRecargaResponse(
     return {...base,status:"waiting",message:"Pedido aguardando sessão ou confirmação no painel; não atualizar a MaxFlix."};
   if(row?.incerto===true||root.incerto===true)
     return {...base,status:"uncertain",message:"Painel não confirmou o resultado. Verifique antes de tentar novamente."};
-  if(simulated)
-    return {...base,status:"failed",message:"Simulação apenas; nenhuma renovação foi efetivada."};
+  if(simulated) {
+    if(httpStatus===200 && root.ok===true && row?.ok===true && row.usuario===expectedLogin)
+      return {...base,status:"simulated",message:"Usuário localizado na simulação; nenhum crédito foi consumido."};
+    return {...base,status:"failed",message:typeof root.erro==="string"?root.erro:"A simulação não confirmou o login exato."};
+  }
   if(httpStatus===207)
     return {...base,status:"uncertain",message:"Resposta parcial (207); verifique cada item antes de atualizar a MaxFlix."};
   if(httpStatus>=500||httpStatus===408||httpStatus===429)
