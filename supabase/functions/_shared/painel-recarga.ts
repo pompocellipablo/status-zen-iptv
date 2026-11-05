@@ -52,41 +52,41 @@ export function parsePanelRecargaResponse(
   if(typeof data!=="object"||data===null||Array.isArray(data))
     return {status:"uncertain",message:"Resposta não reconhecida; confira o pedido no painel."};
   const root=data as Record<string,unknown>;
-  const orderId=typeof root.pedido_id==="string"?root.pedido_id:undefined;
-  const results=Array.isArray(root.resultados)?root.resultados:[];
+  const orderId=typeof root["pedido_id"]==="string"?root["pedido_id"]:undefined;
+  const results=Array.isArray(root["resultados"])?root["resultados"]:[];
   const row=results.length===1&&typeof results[0]==="object"&&results[0]!==null
     ? results[0] as Record<string,unknown> : null;
-  const id=(row&&typeof row.pedido_id==="string"?row.pedido_id:orderId);
+  const id=(row&&typeof row["pedido_id"]==="string"?row["pedido_id"]:orderId);
   const base={...(id?{orderId:id}:{})};
-  if(httpStatus===202||root.precisa_login===true||root.aguardando_sessao)
+  if(httpStatus===202||root["precisa_login"]===true||root["aguardando_sessao"])
     return {...base,status:"waiting",message:"Pedido aguardando sessão ou confirmação no painel; não atualizar a MaxFlix."};
-  if(row?.incerto===true||root.incerto===true)
+  if(row?.["incerto"]===true||root["incerto"]===true)
     return {...base,status:"uncertain",message:"Painel não confirmou o resultado. Verifique antes de tentar novamente."};
   if(simulated) {
-    if(httpStatus===200 && root.ok===true && row?.ok===true && row.usuario===expectedLogin)
+    if(httpStatus===200 && root["ok"]===true && row?.["ok"]===true && row["usuario"]===expectedLogin)
       return {...base,status:"simulated",message:"Usuário localizado na simulação; nenhum crédito foi consumido."};
-    return {...base,status:"failed",message:typeof root.erro==="string"?root.erro:"A simulação não confirmou o login exato."};
+    return {...base,status:"failed",message:typeof root["erro"]==="string"?root["erro"]:"A simulação não confirmou o login exato."};
   }
   if(httpStatus===207)
     return {...base,status:"uncertain",message:"Resposta parcial (207); verifique cada item antes de atualizar a MaxFlix."};
   if(httpStatus>=500||httpStatus===408||httpStatus===429)
     return {...base,status:"uncertain",message:"Falha ou indisponibilidade do servidor; consulte o mesmo pedido."};
   if(httpStatus!==200){
-    const err=typeof root.erro==="string"?root.erro:"Pedido não confirmado pelo painel.";
-    const candidates=Array.isArray(row?.candidatos)?(row.candidatos as unknown[]).filter((c):c is string=>typeof c==="string").slice(0,8):undefined;
+    const err=typeof root["erro"]==="string"?root["erro"]:"Pedido não confirmado pelo painel.";
+    const candidates=Array.isArray(row?.["candidatos"])?(row["candidatos"] as unknown[]).filter((c):c is string=>typeof c==="string").slice(0,8):undefined;
     return {...base,status:"failed",message:err,...(candidates?{candidates}:{})};
   }
-  const loginExact=row?.usuario===expectedLogin;
-  if(root.ok===true && row?.ok===true && loginExact && row?.incerto!==true
-    && (typeof row.ciclos_feitos!=="number"||row.ciclos_feitos>=1)){
+  const loginExact=row?.["usuario"]===expectedLogin;
+  if(root["ok"]===true && row?.["ok"]===true && loginExact && row?.["incerto"]!==true
+    && (typeof row["ciclos_feitos"]!=="number"||row["ciclos_feitos"]>=1)){
     return {
       ...base,status:"confirmed",message:"Renovação confirmada pelo painel externo.",
-      ...(typeof row.vencimento_antes==="string"?{previousDue:row.vencimento_antes}:{}),
-      ...(typeof row.vencimento_novo==="string"?{nextDue:row.vencimento_novo}:{}),
+      ...(typeof row["vencimento_antes"]==="string"?{previousDue:row["vencimento_antes"]}:{}),
+      ...(typeof row["vencimento_novo"]==="string"?{nextDue:row["vencimento_novo"]}:{}),
     };
   }
-  if(root.ok===false && row?.incerto!==true){
-    return {...base,status:"failed",message:typeof root.erro==="string"?root.erro:typeof row?.erro==="string"?row.erro:"Renovação recusada pelo painel."};
+  if(root["ok"]===false && row?.["incerto"]!==true){
+    return {...base,status:"failed",message:typeof root["erro"]==="string"?root["erro"]:typeof row?.["erro"]==="string"?row["erro"]:"Renovação recusada pelo painel."};
   }
   return {...base,status:"uncertain",message:"Resposta não confirma o login exato e o sucesso da renovação."};
 }
