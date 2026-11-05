@@ -404,8 +404,12 @@ describe("Jardel pilot UI: one client, no accidental manual renewal",()=>{
   const publicEnv=readFileSync(new URL("../../.env",import.meta.url),"utf8");
   it("only reveals pilot actions to the preselected client and expected due date",()=>{
     assert.match(publicEnv,/^VITE_MAXFLIX_PANEL_PILOT=true$/m);
-    assert.match(screen,/const FIRST_PILOT_CLIENT_ID = /);
-    assert.match(screen,/const FIRST_PILOT_EXPECTED_DUE = "2026-11-19"/);
+    assert.match(screen,/VITE_MAXFLIX_PILOT_CLIENT_ID/);
+    assert.match(screen,/VITE_MAXFLIX_PILOT_EXPECTED_DUE_DATE/);
+    assert.match(screen,/VITE_MAXFLIX_PILOT_SERVER/);
+    assert.match(publicEnv,/VITE_MAXFLIX_PILOT_CLIENT_ID="cd9031d7-82de-4018-b221-33e01e48bd32"/);
+    assert.match(publicEnv,/VITE_MAXFLIX_PILOT_EXPECTED_DUE_DATE="2026-11-08"/);
+    assert.match(publicEnv,/VITE_MAXFLIX_PILOT_SERVER="Five"/);
     assert.match(screen,/const isFirstPilotClient = /);
     assert.match(screen,/isFirstPilotClient\(c\)&&panelRouteForClient/);
     assert.match(screen,/isFirstPilotClient\(renewing\) && panelRouteForClient/);
@@ -414,8 +418,9 @@ describe("Jardel pilot UI: one client, no accidental manual renewal",()=>{
   it("keeps ordinary manual renewals on other customers, but hides manual confirm during the Jardel pilot",()=>{
     assert.match(screen,/\{!onConfirmPilot && <Button/);
     assert.match(screen,/onConfirmPilot&&<div/);
-    assert.match(screen,/Piloto inicial restrito a um mês, R\$ 30 recebidos/);
-    assert.match(screen,/opts\.months!==1\|\|opts\.paid!==30\|\|opts\.monthlyCost!==6/);
+    assert.match(screen,/Piloto mensal restrito a um ciclo e aos valores do cadastro/);
+    assert.match(screen,/opts\.months!==1\|\|opts\.paid!==Number\(client\.paid\)/);
+    assert.match(screen,/opts\.monthlyCost!==Number\(client\.cost\)/);
   });
   it("continues to require preflight and final user confirmation for the actual pilot",()=>{
     const pilot=screen.slice(screen.indexOf("const confirmPanelPilot=async"),screen.indexOf("const confirmRenew = async"));
