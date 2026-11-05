@@ -16,6 +16,7 @@ export const Route = createFileRoute("/_authenticated/servidores")({
 });
 
 type ViewMode="todos"|"ativos"|"vencidos";
+type DirectCheck={server:string;login:string;panelDue:string|null;status:"same"|"different"|"unavailable"|"failed";message:string};
 const tile="rounded-2xl bg-panel/80 p-3.5 text-left ring-1 ring-line transition-all hover:bg-panel2 hover:ring-cyan/40";
 const filterClass=(active:boolean)=>"min-h-10 shrink-0 rounded-xl px-3 py-2 text-xs font-semibold ring-1 transition-colors "+(active?"bg-cyan text-background ring-cyan":"bg-panel2 text-frost ring-line hover:ring-cyan/40");
 
@@ -59,6 +60,8 @@ function ServersPage() {
   const [correctionNotice,setCorrectionNotice]=useState<string|null>(null);
   const [simulatingId,setSimulatingId]=useState<string|null>(null);
   const [simulation,setSimulation]=useState<{clientId:string;ok:boolean;message:string}|null>(null);
+  const [directChecks,setDirectChecks]=useState<Record<string,DirectCheck>>({});
+  const [lastCheckedId,setLastCheckedId]=useState<string|null>(null);
 
   const queryClient=useQueryClient();
   const clientsQuery=useQuery({queryKey:["clients"],queryFn:fetchClients});
@@ -95,6 +98,9 @@ function ServersPage() {
     }).sort((a,b)=>a.due_date.localeCompare(b.due_date)||a.name.localeCompare(b.name,"pt-BR"));
   },[serverClients,mode,search]);
   const audit=useMemo(()=>exported?auditServerAccounts(serverClients,exported.accounts):null,[serverClients,exported]);
+  const directCandidate=serverClients.find(c=>c.login.trim()&&getStatus(c).key!=="vencido")??serverClients.find(c=>c.login.trim())??null;
+  const lastChecked=lastCheckedId?directChecks[lastCheckedId]:undefined;
+  const lastClient=lastCheckedId?serverClients.find(c=>c.id===lastCheckedId):undefined;
   const runSimulation=async(client:Client)=>{
     if(simulatingId)return;
     if(!panelRouteForClient(client.server))return;
@@ -104,23 +110,35 @@ function ServersPage() {
       const {data,error}=await supabase.functions.invoke("painel-recarga-renovar",{
         body:{mode:"simulate",clientId:client.id,expectedDueDate:client.due_date},
       });
-      let response=data as {simulated?:boolean;outcome?:{status?:string;message?:string};message?:string}|null;
+      let response=data as {simulated?:boolean;panelDueDate?:string|null;outcome?:{status?:string;message?:string};message?:string}|null;
       if(error){
         const http=(error as {context?:unknown}).context;
         if(http instanceof Response){try{response=await http.json();}catch{response=null;}}
         throw Error(response?.message ?? error.message);
       }
       const status=response?.outcome?.status;
-      setSimulation({clientId:client.id,ok:response?.simulated===true&&status==="simulated",
-        message:response?.outcome?.message??response?.message??"O painel não retornou um resultado reconhecido."});
+      const confirmed=response?.simulated===true&&status==="simulated";
+      const panelDue=confirmed&&/^\d{4}-\d{2}-\d{2}$/.test(response?.panelDueDate??"")
+        ?response!.panelDueDate!:null;
+      const message=response?.outcome?.message??response?.message??"O painel não retornou um resultado reconhecido.";
+      setSimulation({clientId:client.id,ok:confirmed,message});
+      setDirectChecks(s=>({...s,[client.id]:{
+        server:client.server,login:client.login,panelDue,
+        status:confirmed?(panelDue?(panelDue===client.due_date?"same":"different"):"unavailable"):"failed",
+        message:confirmed&&!panelDue?"O login foi localizado, mas o Painel Recarga não informou o vencimento atual nessa simulação.":message,
+      }}));
+      setLastCheckedId(client.id);
     }catch(err){
-      setSimulation({clientId:client.id,ok:false,message:err instanceof Error?err.message:"Não foi possível consultar o painel. Confira o deploy da função."});
+      const message=err instanceof Error?err.message:"Não foi possível consultar o painel. Confira o deploy da função.";
+      setSimulation({clientId:client.id,ok:false,message});
+      setDirectChecks(s=>({...s,[client.id]:{server:client.server,login:client.login,panelDue:null,status:"failed",message}}));
+      setLastCheckedId(client.id);
     }finally{setSimulatingId(null);}
   };
   const choose=(name:string)=>{
     setLocalSelection(name);setMode("todos");setSearch("");setExpanded(false);
     setExported(null);setImportedFile(null);setImportError(null);setFullExport(false);setSimulation(null);
-    setShowDateChecks(false);setCorrectionNotice(null);
+    setShowDateChecks(false);setCorrectionNotice(null);setLastCheckedId(null);setDirectChecks({});
   };
   const handleFile=async (file:File|undefined)=>{
     setImportedFile(null);setExported(null);setImportError(null);setFullExport(false);
@@ -140,13 +158,20 @@ function ServersPage() {
     }
   };
 
-  const approveDateCorrection=async(row:PanelAuditRow)=>{
+  const approveDateCorrection=async(row:PanelAuditRow,source:"arquivo"|"simulacao"="arquivo")=>{
     const client=row.client,account=row.account;
     if(!client||!account?.expires||correctingId)return;
     setCorrectionNotice(null);
     if(client.server!==selected||account.login!==client.login){
       setCorrectionNotice("Login ou servidor diferente: confira manualmente; nenhuma data foi alterada.");
       return;
+    }
+    if(source==="simulacao"){
+      const direct=directChecks[client.id];
+      if(!direct||direct.server!==client.server||direct.login!==client.login||direct.status!=="different"||direct.panelDue!==account.expires){
+        setCorrectionNotice("A consulta direta não está confirmada para este cliente. Refaça a conferência.");
+        return;
+      }
     }
     const plan=planPanelDateCorrection(client,account.expires);
     if(plan.blockedReason){
@@ -159,7 +184,9 @@ function ServersPage() {
       "Acesso MaxFlix: "+formatDate(client.due_date)+" → "+formatDate(plan.dueDate),
       "Financeiro: "+formatDate(client.financial_due_date)+" → "+formatDate(plan.financialDueDate),
       plan.preservedFinancial?"A cobertura financeira já paga será preservada.":"As datas eram iguais e continuarão iguais.",
-      "Fonte: lista exportada manualmente. Confira a validade no painel antes de continuar.",
+      source==="simulacao"
+        ?"Fonte: simulação autenticada do Painel Recarga. Confirme a validade antes de prosseguir."
+        :"Fonte: lista exportada manualmente. Confira a validade no painel antes de continuar.",
       "NÃO registra pagamento, renovação no servidor nem movimentação de créditos. Confirmar?",
     ].join("\n");
     if(!window.confirm(message))return;
@@ -175,6 +202,7 @@ function ServersPage() {
       if(error)throw error;
       if(!data)throw Error("O cadastro foi modificado desde a exportação. Recarregue e confira novamente.");
       await queryClient.invalidateQueries({queryKey:["clients"]});
+      setDirectChecks(s=>{const next={...s};delete next[client.id];return next;});
       setCorrectionNotice(client.name+": vencimento conferido e corrigido. Os dados financeiros seguem a regra de cobertura, sem lançar pagamento.");
     }catch(error){
       setCorrectionNotice("Correção não realizada: "+(error instanceof Error?error.message:"erro desconhecido")+".");
@@ -264,13 +292,34 @@ function ServersPage() {
           </Link>
         </div>
         {panelRouteForClient(selected)&&<div className="mt-4 rounded-xl bg-cyan/5 p-3 ring-1 ring-cyan/20">
-          <p className="text-sm font-semibold text-cyan">Teste da integração — somente simulação</p>
+          <p className="text-sm font-semibold text-cyan">Conferência direta de login e vencimento — sem arquivo</p>
           <p className="mt-1 text-xs text-mist">
-            Para verificar a API, clique em "Simular" ao lado de um cliente.
-            O modo envia simular: true e não registra renovação, pagamento ou consumo de créditos na MaxFlix.
-            Se a simulação não estiver habilitada no servidor, o teste será bloqueado.
+            A MaxFlix consulta o Painel Recarga em modo simulação (simular: true), confirma o login exato e
+            compara a data do acesso quando o fornecedor a informar. Não renova, cobra ou consome crédito.
+            A primeira consulta verifica se o servidor disponibiliza a data atual.
           </p>
-          <p className="mt-2 text-xs text-mist">O resultado aparecerá junto ao cliente selecionado, sem alterar sua assinatura.</p>
+          <button type="button" disabled={!directCandidate||simulatingId!==null}
+            onClick={()=>{if(directCandidate)void runSimulation(directCandidate);}}
+            className="mt-3 min-h-10 rounded-xl bg-cyan px-3 py-2 text-xs font-bold text-background disabled:opacity-40">
+            {simulatingId?"Consultando o servidor…":"Conferir vencimento diretamente (1 cliente)"}
+          </button>
+          {lastChecked&&lastClient&&lastChecked.server===selected&&<div role="status" aria-live="polite"
+            className="mt-3 rounded-lg bg-panel p-3 text-xs ring-1 ring-line">
+            <p className="font-semibold">{lastClient.name} · {lastChecked.login}</p>
+            <p className="mt-1">MaxFlix: {formatDate(lastClient.due_date)} · Financeiro: {formatDate(lastClient.financial_due_date)}</p>
+            {lastChecked.panelDue&&<p className="mt-1">Painel Recarga: <strong>{formatDate(lastChecked.panelDue)}</strong></p>}
+            <p className={"mt-2 "+(lastChecked.status==="same"?"text-ok":lastChecked.status==="different"?"text-warn":"text-mist")}>
+              {lastChecked.status==="same"?"Datas de acesso iguais.":lastChecked.status==="different"?"Datas de acesso divergentes.":lastChecked.message}
+            </p>
+            {lastChecked.status==="different"&&lastChecked.panelDue&&<button type="button"
+              disabled={correctingId!==null}
+              onClick={()=>void approveDateCorrection({login:lastClient.login,client:lastClient,
+                account:{login:lastChecked.login,status:"unknown",expires:lastChecked.panelDue}},"simulacao")}
+              className="mt-3 min-h-10 rounded-lg bg-warn/10 px-3 font-semibold text-warn ring-1 ring-warn/30 disabled:opacity-40">
+              Revisar e aprovar correção
+            </button>}
+          </div>}
+          {correctionNotice&&<p role="status" className="mt-2 text-xs text-mist">{correctionNotice}</p>}
         </div>}
         <p className="mt-3 text-xs text-mist">{filtered.length} cliente(s) nesta visualização.</p>
         <div className="mt-2 space-y-2">
@@ -291,11 +340,18 @@ function ServersPage() {
                 {panelRouteForClient(c.server)&&<button type="button"
                   disabled={simulatingId!==null} onClick={()=>void runSimulation(c)}
                   className="mt-1 min-h-9 rounded-lg bg-cyan/15 px-3 text-xs font-semibold text-cyan ring-1 ring-cyan/30 disabled:opacity-50">
-                  {simulatingId===c.id?"Simulando…":"Simular no painel"}
+                  {simulatingId===c.id?"Conferindo…":"Conferir no painel"}
                 </button>}
                 {simulation?.clientId===c.id&&<p role="status" aria-live="polite"
                   className={"mt-2 max-w-sm rounded-lg px-3 py-2 text-left text-xs ring-1 "+(simulation.ok?"bg-ok/10 text-ok ring-ok/20":"bg-warn/10 text-warn ring-warn/20")}>
-                  {simulation.ok?"Simulação validada: ":"Simulação não validada: "}{simulation.message}
+                  {simulation.ok?"Login validado: ":"Consulta não validada: "}{simulation.message}
+                </p>}
+                {directChecks[c.id]?.server===selected&&directChecks[c.id]?.panelDue&&
+                  <p className={"mt-1 text-xs "+(directChecks[c.id]?.status==="same"?"text-ok":"text-warn")}>
+                    Painel: {formatDate(directChecks[c.id]!.panelDue)} · {directChecks[c.id]?.status==="same"?"Datas iguais":"Datas diferentes"}
+                  </p>}
+                {directChecks[c.id]?.status==="unavailable"&&<p className="mt-1 text-xs text-warn">
+                  Data não disponibilizada pela simulação.
                 </p>}
               </div>
             </div>;
@@ -313,7 +369,7 @@ function ServersPage() {
           <h2 className="font-display text-base font-semibold">Auditoria · {selected}</h2>
         </div>
         <p className="mt-2 text-xs text-mist">
-          Exporte uma lista CSV ou TXT do painel do servidor com a coluna de login. Se houver colunas
+          Alternativa opcional à conferência direta: exporte uma lista CSV ou TXT do painel com a coluna de login. Se houver colunas
           status e vencimento, podemos apontar também situações e datas divergentes. A comparação ocorre no navegador. Só uma correção de data individual, confirmada por você, pode atualizar
           o cadastro; nunca registra renovação, pagamento ou consumo de créditos.
         </p>
