@@ -300,6 +300,23 @@ Deno.serve(async(request)=>{
     return reply(409,{ok:false,needsReview:true,message:"Pedido anterior falhou. Confira antes de abrir um novo pedido."});
   if(customer.login!==job.login||customer.server!==job.server)
     return reply(409,{ok:false,needsReview:true,message:"Login ou servidor mudou desde o pedido. Confira manualmente."});
+
+  // Manual renewals can happen through the existing MaxFlix button.
+  // Before the FIRST provider send, re-read the current local state; a manual
+  // operation might have completed between initial SELECT and job creation.
+  // Never initiate a new remote cycle for an already changed due date.
+  if(job.state==="created"){
+    const {data:latestClient,error:latestError}=await userDb.from("clients")
+      .select("due_date,login,server").eq("id",customer.id).maybeSingle();
+    if(latestError||!latestClient)
+      return reply(503,{ok:false,needsReview:true,message:"Não foi possível verificar o cliente antes do envio externo."});
+    if(latestClient.due_date!==expected||latestClient.login!==job.login||latestClient.server!==job.server){
+      await updateJob({state:"needs_review",
+        external_message:"Cadastro mudou antes do envio; nenhum novo pedido deve ser feito."});
+      return reply(409,{ok:false,needsReview:true,
+        message:"Cliente ou vencimento alterado antes da solicitação. Confira o histórico antes de tentar renovar."});
+    }
+  }
   const route=panelRouteForClient(job.server);
   if(!route)return reply(422,{ok:false,message:"Servidor não suportado para este pedido."});
 
