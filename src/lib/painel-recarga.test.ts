@@ -204,3 +204,20 @@ describe("Atomic settlement of confirmed external renewal (contract guards)",()=
     assert.match(sql,/v_job\.new_due_date <= v_client\.due_date/);
   });
 });
+
+describe("Manual versus external renewal concurrency guard",()=>{
+  const sql=readFileSync(new URL("../../supabase/migrations/20261105153000_guard_manual_renewal_during_external_job.sql",import.meta.url),"utf8");
+  const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
+  it("keeps existing manual RPC API and rejects open external jobs before payment",()=>{
+    assert.match(sql,/CREATE OR REPLACE FUNCTION public\.renew_client_with_credit/);
+    assert.match(sql,/IF EXISTS \([\s\S]*?FROM public\.external_renewal_jobs/);
+    assert.match(sql,/state IN \('created','waiting','uncertain','external_confirmed','needs_review'\)/);
+    assert.ok(sql.indexOf("state IN ('created'")<sql.indexOf("UPDATE public.clients"));
+  });
+  it("revalidates current login and expiry before the first external send",()=>{
+    const part=edge.slice(edge.indexOf('if(job.state==="created"){'),edge.indexOf('const route=panelRouteForClient(job.server)'));
+    assert.match(part,/select\("due_date,login,server"\)/);
+    assert.match(part,/latestClient\.due_date!==expected/);
+    assert.match(part,/state:"needs_review"/);
+  });
+});
