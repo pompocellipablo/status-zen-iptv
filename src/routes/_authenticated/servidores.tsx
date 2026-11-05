@@ -16,7 +16,7 @@ export const Route = createFileRoute("/_authenticated/servidores")({
 });
 
 type ViewMode="todos"|"ativos"|"vencidos";
-type DirectCheck={server:string;login:string;panelDue:string|null;status:"same"|"different"|"unavailable"|"failed";message:string};
+type DirectCheck={server:string;login:string;panelDue:string|null;status:"same"|"different"|"unavailable"|"failed"|"pending";message:string};
 const tile="rounded-2xl bg-panel/80 p-3.5 text-left ring-1 ring-line transition-all hover:bg-panel2 hover:ring-cyan/40";
 const filterClass=(active:boolean)=>"min-h-10 shrink-0 rounded-xl px-3 py-2 text-xs font-semibold ring-1 transition-colors "+(active?"bg-cyan text-background ring-cyan":"bg-panel2 text-frost ring-line hover:ring-cyan/40");
 
@@ -46,7 +46,16 @@ async function inspectClientOnPanel(client:Client):Promise<DirectCheck> {
       if(http instanceof Response){try{response=await http.json();}catch{response=null;}}
       throw Error(response?.message??error.message);
     }
-    const confirmed=response?.simulated===true&&response?.outcome?.status==="simulated";
+    const remoteStatus=response?.outcome?.status;
+    // A queued simulation will run after the provider session reconnects.
+    // Do not treat waiting/uncertain results as failures that should be retried.
+    if(response?.simulated===true&&(remoteStatus==="waiting"||remoteStatus==="uncertain")){
+      return {server:client.server,login:client.login,panelDue:null,status:"pending",
+        message:remoteStatus==="waiting"
+          ?"Aguardando sessão do painel. O Painel Recarga pode executar esta simulação automaticamente ao reconectar. Consulte a fila antes de tentar novamente."
+          :"O resultado da solicitação é incerto. Confira a fila do Painel Recarga antes de reenviar."};
+    }
+    const confirmed=response?.simulated===true&&remoteStatus==="simulated";
     const panelDue=confirmed&&/^\d{4}-\d{2}-\d{2}$/.test(response?.panelDueDate??"")
       ?response!.panelDueDate!:null;
     const message=response?.outcome?.message??response?.message??"O painel não retornou um resultado reconhecido.";
@@ -141,7 +150,7 @@ function ServersPage() {
   const batchEligibleClients=serverClients.filter(c=>c.login.trim()&&isPanelAuditEligible(c));
   const expiredExcluded=serverClients.filter(c=>!isPanelAuditEligible(c)).length;
   const missingLoginExcluded=serverClients.filter(c=>isPanelAuditEligible(c)&&!c.login.trim()).length;
-  const directCandidate=batchEligibleClients[0]??null;
+  const directCandidate=batchEligibleClients.find(c=>directChecks[c.id]?.status!=="pending")??null;
   const lastChecked=lastCheckedId?directChecks[lastCheckedId]:undefined;
   const lastClient=lastCheckedId?serverClients.find(c=>c.id===lastCheckedId):undefined;
   const reviewedClients=batchEligibleClients.filter(c=>{
@@ -155,10 +164,12 @@ function ServersPage() {
   const changedClients=reviewedClients.filter(c=>directChecks[c.id]?.status==="different");
   const sameCount=reviewedClients.filter(c=>directChecks[c.id]?.status==="same").length;
   const unavailableCount=reviewedClients.filter(c=>directChecks[c.id]?.status==="unavailable").length;
+  const pendingClients=reviewedClients.filter(c=>directChecks[c.id]?.status==="pending");
   const failedClients=reviewedClients.filter(c=>directChecks[c.id]?.status==="failed");
   const failedCount=failedClients.length;
   const runSimulation=async(client:Client)=>{
-    if(simulatingId||batchBusyRef.current||!panelRouteForClient(client.server))return;
+    if(simulatingId||batchBusyRef.current||!panelRouteForClient(client.server)
+      ||directChecks[client.id]?.status==="pending")return;
     setSimulatingId(client.id);
     setSimulation(null);
     try{
@@ -184,6 +195,10 @@ function ServersPage() {
         if(batchStopRef.current)break;
         setDirectChecks(previous=>({...previous,[client.id]:result}));
         setBatchProgress(progress=>({...progress,done:progress.done+1}));
+        if(result.status==="pending"){
+          setBatchNotice("Consulta interrompida: existe pedido aguardando sessão ou confirmação no Painel Recarga. Confira a fila antes de reenviar.");
+          break;
+        }
         if(result.status==="failed"&&/sess[aã]o|login expirado|aguardando/i.test(result.message)){
           setBatchNotice("Consulta interrompida: a sessão do servidor precisa ser reconectada.");
           break;
@@ -378,6 +393,7 @@ function ServersPage() {
               <span className="text-warn">Datas diferentes: {changedClients.length}</span>
               <span className="text-mist">Sem data: {unavailableCount}</span>
               <span className="text-danger">Falhas: {failedCount}</span>
+              <span className="text-warn">Pendentes: {pendingClients.length}</span>
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
               <button type="button" onClick={()=>void inspectNextBatch()}
@@ -391,6 +407,16 @@ function ServersPage() {
               </button>}
             </div>
             {batchNotice&&<p role="status" className="mt-2 text-xs text-warn">{batchNotice}</p>}
+            {pendingClients.length>0&&<section className="mt-3 space-y-2" aria-label="Consultas aguardando sessão">
+              <h3 className="text-xs font-semibold text-warn">Aguardando no Painel Recarga · {pendingClients.length}</h3>
+              <p className="text-xs text-mist">O pedido pode ser executado ao reconectar o servidor. Não envie outra simulação até conferir o resultado na fila do Painel Recarga. Este bloqueio é temporário na tela atual.</p>
+              <div className="max-h-72 space-y-2 overflow-y-auto">
+                {pendingClients.map(client=><div key={client.id} className="rounded-lg bg-background/80 p-3 text-xs ring-1 ring-line">
+                  <p className="break-words font-semibold">{client.name} · {client.login}</p>
+                  <p className="mt-1 text-warn">{directChecks[client.id]?.message}</p>
+                </div>)}
+              </div>
+            </section>}
             {failedClients.length>0&&<section className="mt-3 space-y-2" aria-label="Falhas de consulta">
               <h3 className="text-xs font-semibold text-danger">Falhas de consulta · {failedClients.length}</h3>
               <p className="text-xs text-mist">Falha não significa que o cliente foi excluído do painel. Confira a mensagem antes de agir.</p>
@@ -460,13 +486,13 @@ function ServersPage() {
                 </p>
                 <p className="text-xs text-mist">Vence {formatDate(c.due_date)}</p>
                 {panelRouteForClient(c.server)&&<button type="button"
-                  disabled={simulatingId!==null||batchBusy} onClick={()=>void runSimulation(c)}
+                  disabled={simulatingId!==null||batchBusy||directChecks[c.id]?.status==="pending"} onClick={()=>void runSimulation(c)}
                   className="mt-1 min-h-9 rounded-lg bg-cyan/15 px-3 text-xs font-semibold text-cyan ring-1 ring-cyan/30 disabled:opacity-50">
-                  {simulatingId===c.id?"Conferindo…":"Conferir no painel"}
+                  {simulatingId===c.id?"Conferindo…":directChecks[c.id]?.status==="pending"?"Aguardando sessão":"Conferir no painel"}
                 </button>}
                 {simulation?.clientId===c.id&&<p role="status" aria-live="polite"
                   className={"mt-2 max-w-sm rounded-lg px-3 py-2 text-left text-xs ring-1 "+(simulation.ok?"bg-ok/10 text-ok ring-ok/20":"bg-warn/10 text-warn ring-warn/20")}>
-                  {simulation.ok?"Login validado: ":"Consulta não validada: "}{simulation.message}
+                  {directChecks[c.id]?.status==="pending"?"Aguardando sessão: ":simulation.ok?"Login validado: ":"Consulta não validada: "}{simulation.message}
                 </p>}
                 {directChecks[c.id]?.server===selected&&directChecks[c.id]?.panelDue&&
                   <p className={"mt-1 text-xs "+(directChecks[c.id]?.status==="same"?"text-ok":"text-warn")}>
