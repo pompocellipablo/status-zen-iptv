@@ -245,7 +245,7 @@ describe("Manual versus external renewal concurrency guard",()=>{
 describe("Supervised pilot UI safety",()=>{
   const screen=readFileSync(new URL("../routes/_authenticated/renovacoes.tsx",import.meta.url),"utf8");
   it("uses an opt-in frontend gate, with existing manual renewal preserved",()=>{
-    assert.match(screen,/VITE_MAXFLIX_PANEL_PILOT === "true"/);
+    assert.match(screen,/const PANEL_PILOT_UI_ENABLED = import\.meta\.env(?:\["VITE_MAXFLIX_PANEL_PILOT"\]|\.VITE_MAXFLIX_PANEL_PILOT) === "true";/);
     assert.match(screen,/PANEL_PILOT_UI_ENABLED&&panelRouteForClient/);
     assert.match(screen,/supabase\.rpc\("renew_client_with_credit"/);
   });
