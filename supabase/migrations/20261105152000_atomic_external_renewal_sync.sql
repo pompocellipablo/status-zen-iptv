@@ -59,7 +59,7 @@ BEGIN
     RAISE EXCEPTION 'Cobertura financeira inconsistente; revise antes de sincronizar';
   END IF;
   IF v_job.new_due_date <= v_client.due_date OR
-     v_job.new_due_date <= pg_catalog.current_date OR
+     v_job.new_due_date <= CURRENT_DATE OR
      v_job.financial_due_date < v_job.new_due_date THEN
     RAISE EXCEPTION 'Vencimento confirmado inválido para lançamento';
   END IF;
@@ -110,13 +110,13 @@ BEGIN
   IF v_payment_amount > 0 THEN
     INSERT INTO public.payments(client_id,client_name,server,amount,cost,paid_at)
     VALUES (v_client.id,v_client.name,v_client.server,
-      v_payment_amount,v_payment_cost,pg_catalog.current_date);
+      v_payment_amount,v_payment_cost,CURRENT_DATE);
   END IF;
 
   INSERT INTO public.server_credit_movements
     (server,kind,quantity,occurred_on,client_id,note)
   VALUES
-    (v_client.server,'renewal',-1,pg_catalog.current_date,
+    (v_client.server,'renewal',-1,CURRENT_DATE,
       v_client.id,'Painel Recarga: '||v_client.name||
       COALESCE(' • pedido '||v_job.external_order_id,''));
 
