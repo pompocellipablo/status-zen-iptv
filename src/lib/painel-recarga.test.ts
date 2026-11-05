@@ -1,7 +1,7 @@
 import {describe,it} from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
-import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO,financialTransitionError,confirmedRenewalDatesFromPanel} from "./painel-recarga";
+import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO,financialTransitionError,confirmedRenewalDatesFromPanel,validatePanelRenewalDraft} from "./painel-recarga";
 
 describe("Painel Recarga integration guardrails",()=>{
   it("maps only documented IPTV panels",()=>{
@@ -262,5 +262,75 @@ describe("Supervised pilot UI safety",()=>{
     assert.match(check,/mode:"check"/);
     assert.doesNotMatch(check,/confirm:true/);
     assert.match(screen,/enabled:PANEL_PILOT_UI_ENABLED/);
+  });
+});
+
+describe("Read-only provider renewal preflight (no remote requests)",()=>{
+  const base={due_date:"2026-11-10",financial_due_date:"2026-11-10",access_type:"padrao"};
+  const monthly={months:1,dueDate:"2026-12-10",financialDueDate:"2026-12-10",
+    paymentAmount:35,monthlyPaid:35,paymentCost:6};
+  const validate=(client:typeof base,opts:typeof monthly)=>validatePanelRenewalDraft(client,opts,"2026-11-05");
+  it("accepts a monthly renewal with matching technical and financial due dates",()=>{
+    assert.equal(validate(base,monthly),null);
+  });
+  it("accepts a paid six-month package without sending six provider cycles",()=>{
+    assert.equal(validate(base,{...monthly,months:6,financialDueDate:"2027-05-10",
+      paymentAmount:175,monthlyPaid:0,paymentCost:36}),null);
+  });
+  it("accepts a paid twelve-month package",()=>{
+    assert.equal(validate(base,{...monthly,months:12,financialDueDate:"2027-11-10",
+      paymentAmount:310,monthlyPaid:0,paymentCost:72}),null);
+  });
+  it("accepts a fully prepaid month without another payment or financial shift",()=>{
+    const prepaid={...base,financial_due_date:"2027-03-10",access_type:"pacote_pago"};
+    assert.equal(validate(prepaid,{...monthly,financialDueDate:"2027-03-10",
+      paymentAmount:0,monthlyPaid:0,paymentCost:0}),null);
+  });
+  it("blocks a partially covered prepaid cycle and accidental double payment",()=>{
+    const prepaid={...base,financial_due_date:"2026-11-20"};
+    assert.match(validate(prepaid,{...monthly,financialDueDate:"2026-11-20",
+      paymentAmount:0,monthlyPaid:0,paymentCost:0})??"",/não cobre/);
+    const full={...base,financial_due_date:"2027-03-10"};
+    assert.match(validate(full,{...monthly,financialDueDate:"2027-03-10",
+      paymentAmount:35,monthlyPaid:0,paymentCost:0})??"",/Pacote já pago/);
+  });
+  it("rejects zero payment, free accounts, invalid dates, and payment before service",()=>{
+    assert.match(validate(base,{...monthly,paymentAmount:0})??"",/pagamento positivo/);
+    assert.match(validate({...base,access_type:"gratuidade"},monthly)??"",/gratuito/);
+    assert.match(validate({...base,access_type:"meu_acesso"},monthly)??"",/gratuito/);
+    assert.match(validate(base,{...monthly,dueDate:"2026-02-30"})??"",/Datas/);
+    assert.match(validate(base,{...monthly,dueDate:"2026-12-10",financialDueDate:"2026-11-30"})??"",/não cobre/);
+  });
+  it("allows an overdue renewal starting on the actual payment date",()=>{
+    const expired={...base,due_date:"2026-06-10",financial_due_date:"2026-06-10"};
+    assert.equal(validate(expired,{...monthly,dueDate:"2026-12-05",financialDueDate:"2026-12-05"}),null);
+  });
+  it("rejects a suspiciously distant one-cycle projection",()=>{
+    assert.match(validate(base,{...monthly,dueDate:"2027-11-10",financialDueDate:"2027-11-10"})??"",/distante/);
+  });
+  it("the Edge preview does not post to provider, create jobs or update the ledger",()=>{
+    const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
+    const start=edge.indexOf('if(mode==="preflight"){');
+    const end=edge.indexOf('// SIMULATIONS ONLY:',start);
+    assert.ok(start>0&&end>start);
+    const preview=edge.slice(start,end);
+    assert.doesNotMatch(preview,/\bfetch\(/);
+    assert.doesNotMatch(preview,/\.insert\(/);
+    assert.doesNotMatch(preview,/\.update\(/);
+    assert.doesNotMatch(preview,/\.rpc\(/);
+    assert.match(preview,/providerRequestSent:false/);
+    assert.match(preview,/validatePanelRenewalDraft/);
+    assert.ok(edge.indexOf('if(mode==="preflight"){')<edge.indexOf('PAINEL_RECARGA_LIVE_ENABLED'));
+  });
+  it("the pilot UI requests preflight before offering confirmation or real renewal",()=>{
+    const screen=readFileSync(new URL("../routes/_authenticated/renovacoes.tsx",import.meta.url),"utf8");
+    const begin=screen.indexOf("const confirmPanelPilot=async");
+    const end=screen.indexOf("const confirmRenew = async",begin);
+    assert.ok(begin>0&&end>begin);
+    const pilot=screen.slice(begin,end);
+    assert.ok(pilot.indexOf('mode:"preflight"')<pilot.indexOf("window.confirm(summary)"));
+    assert.ok(pilot.indexOf("window.confirm(summary)")<pilot.indexOf('mode:"renew"'));
+    assert.match(pilot,/preflight\.previewOnly!==true/);
+    assert.match(pilot,/preflight\.providerRequestSent!==false/);
   });
 });
