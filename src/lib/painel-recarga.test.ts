@@ -199,7 +199,7 @@ describe("Atomic settlement of confirmed external renewal (contract guards)",()=
   it("refuses anonymous call, unconfirmed provider job and prepaid double payment",()=>{
     assert.match(sql,/REVOKE EXECUTE ON FUNCTION public\.sync_external_renewal_job\(uuid\) FROM PUBLIC, anon, authenticated/);
     assert.match(sql,/auth\.uid\(\)/);
-    assert.match(sql,/IF v_payment_amount <> 0/);
+    assert.match(sql,/OR v_payment_amount <> 0/);
     assert.match(sql,/v_job\.financial_due_date <> v_client\.financial_due_date/);
     assert.match(sql,/v_job\.new_due_date <= v_client\.due_date/);
   });
