@@ -155,7 +155,8 @@ function ServersPage() {
   const changedClients=reviewedClients.filter(c=>directChecks[c.id]?.status==="different");
   const sameCount=reviewedClients.filter(c=>directChecks[c.id]?.status==="same").length;
   const unavailableCount=reviewedClients.filter(c=>directChecks[c.id]?.status==="unavailable").length;
-  const failedCount=reviewedClients.filter(c=>directChecks[c.id]?.status==="failed").length;
+  const failedClients=reviewedClients.filter(c=>directChecks[c.id]?.status==="failed");
+  const failedCount=failedClients.length;
   const runSimulation=async(client:Client)=>{
     if(simulatingId||batchBusyRef.current||!panelRouteForClient(client.server))return;
     setSimulatingId(client.id);
@@ -390,6 +391,24 @@ function ServersPage() {
               </button>}
             </div>
             {batchNotice&&<p role="status" className="mt-2 text-xs text-warn">{batchNotice}</p>}
+            {failedClients.length>0&&<section className="mt-3 space-y-2" aria-label="Falhas de consulta">
+              <h3 className="text-xs font-semibold text-danger">Falhas de consulta · {failedClients.length}</h3>
+              <p className="text-xs text-mist">Falha não significa que o cliente foi excluído do painel. Confira a mensagem antes de agir.</p>
+              <div className="max-h-80 space-y-2 overflow-y-auto">
+                {failedClients.map(client=>{
+                  const check=directChecks[client.id]!;
+                  return <div key={client.id} className="rounded-lg bg-background/80 p-3 text-xs ring-1 ring-line">
+                    <p className="break-words font-semibold">{client.name} · {client.login}</p>
+                    <p className="mt-1 break-words text-warn">{check.message}</p>
+                    <button type="button" disabled={batchBusy||simulatingId!==null}
+                      onClick={()=>void runSimulation(client)}
+                      className="mt-2 min-h-9 rounded-lg bg-panel2 px-3 font-semibold text-cyan ring-1 ring-line disabled:opacity-40">
+                      {simulatingId===client.id?"Reconsultando…":"Tentar novamente somente este cliente"}
+                    </button>
+                  </div>;
+                })}
+              </div>
+            </section>}
             {changedClients.length>0&&<div className="mt-3 max-h-96 space-y-2 overflow-y-auto">
               <p className="text-xs font-semibold text-warn">Divergências encontradas — nenhuma será corrigida automaticamente</p>
               {changedClients.map(client=>{
