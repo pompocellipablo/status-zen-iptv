@@ -14,8 +14,16 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as EsqueciSenhaRouteImport } from './routes/esqueci-senha'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
+import { Route as AuthenticatedAparelhosRouteImport } from './routes/_authenticated/aparelhos'
+import { Route as AuthenticatedComunicacaoRouteImport } from './routes/_authenticated/comunicacao'
 import { Route as AuthenticatedCreditosRouteImport } from './routes/_authenticated/creditos'
+import { Route as AuthenticatedIndicacoesRouteImport } from './routes/_authenticated/indicacoes'
+import { Route as AuthenticatedMarketingRouteImport } from './routes/_authenticated/marketing'
+import { Route as AuthenticatedRecuperacaoRouteImport } from './routes/_authenticated/recuperacao'
+import { Route as AuthenticatedRenovacoesRouteImport } from './routes/_authenticated/renovacoes'
 import { Route as AuthenticatedRevendedoresRouteImport } from './routes/_authenticated/revendedores'
+import { Route as AuthenticatedServidoresRouteImport } from './routes/_authenticated/servidores'
+import { Route as AuthenticatedFaturamentoMonthRouteImport } from './routes/_authenticated/faturamento/$month'
 
 const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
@@ -41,9 +49,41 @@ const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedAparelhosRoute = AuthenticatedAparelhosRouteImport.update({
+  id: '/aparelhos',
+  path: '/aparelhos',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedComunicacaoRoute =
+  AuthenticatedComunicacaoRouteImport.update({
+    id: '/comunicacao',
+    path: '/comunicacao',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedCreditosRoute = AuthenticatedCreditosRouteImport.update({
   id: '/creditos',
   path: '/creditos',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedIndicacoesRoute = AuthenticatedIndicacoesRouteImport.update({
+  id: '/indicacoes',
+  path: '/indicacoes',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedMarketingRoute = AuthenticatedMarketingRouteImport.update({
+  id: '/marketing',
+  path: '/marketing',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedRecuperacaoRoute =
+  AuthenticatedRecuperacaoRouteImport.update({
+    id: '/recuperacao',
+    path: '/recuperacao',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedRenovacoesRoute = AuthenticatedRenovacoesRouteImport.update({
+  id: '/renovacoes',
+  path: '/renovacoes',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedRevendedoresRoute =
@@ -52,22 +92,49 @@ const AuthenticatedRevendedoresRoute =
     path: '/revendedores',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedServidoresRoute = AuthenticatedServidoresRouteImport.update({
+  id: '/servidores',
+  path: '/servidores',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedFaturamentoMonthRoute =
+  AuthenticatedFaturamentoMonthRouteImport.update({
+    id: '/faturamento/$month',
+    path: '/faturamento/$month',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
   '/auth': typeof AuthRoute
   '/esqueci-senha': typeof EsqueciSenhaRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/aparelhos': typeof AuthenticatedAparelhosRoute
+  '/comunicacao': typeof AuthenticatedComunicacaoRoute
   '/creditos': typeof AuthenticatedCreditosRoute
+  '/indicacoes': typeof AuthenticatedIndicacoesRoute
+  '/marketing': typeof AuthenticatedMarketingRoute
+  '/recuperacao': typeof AuthenticatedRecuperacaoRoute
+  '/renovacoes': typeof AuthenticatedRenovacoesRoute
   '/revendedores': typeof AuthenticatedRevendedoresRoute
+  '/servidores': typeof AuthenticatedServidoresRoute
+  '/faturamento/$month': typeof AuthenticatedFaturamentoMonthRoute
 }
 export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/esqueci-senha': typeof EsqueciSenhaRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/aparelhos': typeof AuthenticatedAparelhosRoute
+  '/comunicacao': typeof AuthenticatedComunicacaoRoute
   '/creditos': typeof AuthenticatedCreditosRoute
+  '/indicacoes': typeof AuthenticatedIndicacoesRoute
+  '/marketing': typeof AuthenticatedMarketingRoute
+  '/recuperacao': typeof AuthenticatedRecuperacaoRoute
+  '/renovacoes': typeof AuthenticatedRenovacoesRoute
   '/revendedores': typeof AuthenticatedRevendedoresRoute
+  '/servidores': typeof AuthenticatedServidoresRoute
   '/': typeof AuthenticatedIndexRoute
+  '/faturamento/$month': typeof AuthenticatedFaturamentoMonthRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -75,9 +142,17 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/esqueci-senha': typeof EsqueciSenhaRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/_authenticated/aparelhos': typeof AuthenticatedAparelhosRoute
+  '/_authenticated/comunicacao': typeof AuthenticatedComunicacaoRoute
   '/_authenticated/creditos': typeof AuthenticatedCreditosRoute
+  '/_authenticated/indicacoes': typeof AuthenticatedIndicacoesRoute
+  '/_authenticated/marketing': typeof AuthenticatedMarketingRoute
+  '/_authenticated/recuperacao': typeof AuthenticatedRecuperacaoRoute
+  '/_authenticated/renovacoes': typeof AuthenticatedRenovacoesRoute
   '/_authenticated/revendedores': typeof AuthenticatedRevendedoresRoute
+  '/_authenticated/servidores': typeof AuthenticatedServidoresRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
+  '/_authenticated/faturamento/$month': typeof AuthenticatedFaturamentoMonthRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -86,25 +161,49 @@ export interface FileRouteTypes {
     | '/auth'
     | '/esqueci-senha'
     | '/reset-password'
+    | '/aparelhos'
+    | '/comunicacao'
     | '/creditos'
+    | '/indicacoes'
+    | '/marketing'
+    | '/recuperacao'
+    | '/renovacoes'
     | '/revendedores'
+    | '/servidores'
+    | '/faturamento/$month'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/auth'
     | '/esqueci-senha'
     | '/reset-password'
+    | '/aparelhos'
+    | '/comunicacao'
     | '/creditos'
+    | '/indicacoes'
+    | '/marketing'
+    | '/recuperacao'
+    | '/renovacoes'
     | '/revendedores'
+    | '/servidores'
     | '/'
+    | '/faturamento/$month'
   id:
     | '__root__'
     | '/_authenticated'
     | '/auth'
     | '/esqueci-senha'
     | '/reset-password'
+    | '/_authenticated/aparelhos'
+    | '/_authenticated/comunicacao'
     | '/_authenticated/creditos'
+    | '/_authenticated/indicacoes'
+    | '/_authenticated/marketing'
+    | '/_authenticated/recuperacao'
+    | '/_authenticated/renovacoes'
     | '/_authenticated/revendedores'
+    | '/_authenticated/servidores'
     | '/_authenticated/'
+    | '/_authenticated/faturamento/$month'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -151,11 +250,53 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/aparelhos': {
+      id: '/_authenticated/aparelhos'
+      path: '/aparelhos'
+      fullPath: '/aparelhos'
+      preLoaderRoute: typeof AuthenticatedAparelhosRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/comunicacao': {
+      id: '/_authenticated/comunicacao'
+      path: '/comunicacao'
+      fullPath: '/comunicacao'
+      preLoaderRoute: typeof AuthenticatedComunicacaoRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/creditos': {
       id: '/_authenticated/creditos'
       path: '/creditos'
       fullPath: '/creditos'
       preLoaderRoute: typeof AuthenticatedCreditosRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/indicacoes': {
+      id: '/_authenticated/indicacoes'
+      path: '/indicacoes'
+      fullPath: '/indicacoes'
+      preLoaderRoute: typeof AuthenticatedIndicacoesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/marketing': {
+      id: '/_authenticated/marketing'
+      path: '/marketing'
+      fullPath: '/marketing'
+      preLoaderRoute: typeof AuthenticatedMarketingRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/recuperacao': {
+      id: '/_authenticated/recuperacao'
+      path: '/recuperacao'
+      fullPath: '/recuperacao'
+      preLoaderRoute: typeof AuthenticatedRecuperacaoRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/renovacoes': {
+      id: '/_authenticated/renovacoes'
+      path: '/renovacoes'
+      fullPath: '/renovacoes'
+      preLoaderRoute: typeof AuthenticatedRenovacoesRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/revendedores': {
@@ -165,19 +306,49 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedRevendedoresRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/servidores': {
+      id: '/_authenticated/servidores'
+      path: '/servidores'
+      fullPath: '/servidores'
+      preLoaderRoute: typeof AuthenticatedServidoresRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/faturamento/$month': {
+      id: '/_authenticated/faturamento/$month'
+      path: '/faturamento/$month'
+      fullPath: '/faturamento/$month'
+      preLoaderRoute: typeof AuthenticatedFaturamentoMonthRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
   }
 }
 
 interface AuthenticatedRouteRouteChildren {
+  AuthenticatedAparelhosRoute: typeof AuthenticatedAparelhosRoute
+  AuthenticatedComunicacaoRoute: typeof AuthenticatedComunicacaoRoute
   AuthenticatedCreditosRoute: typeof AuthenticatedCreditosRoute
+  AuthenticatedIndicacoesRoute: typeof AuthenticatedIndicacoesRoute
+  AuthenticatedMarketingRoute: typeof AuthenticatedMarketingRoute
+  AuthenticatedRecuperacaoRoute: typeof AuthenticatedRecuperacaoRoute
+  AuthenticatedRenovacoesRoute: typeof AuthenticatedRenovacoesRoute
   AuthenticatedRevendedoresRoute: typeof AuthenticatedRevendedoresRoute
+  AuthenticatedServidoresRoute: typeof AuthenticatedServidoresRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
+  AuthenticatedFaturamentoMonthRoute: typeof AuthenticatedFaturamentoMonthRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedAparelhosRoute: AuthenticatedAparelhosRoute,
+  AuthenticatedComunicacaoRoute: AuthenticatedComunicacaoRoute,
   AuthenticatedCreditosRoute: AuthenticatedCreditosRoute,
+  AuthenticatedIndicacoesRoute: AuthenticatedIndicacoesRoute,
+  AuthenticatedMarketingRoute: AuthenticatedMarketingRoute,
+  AuthenticatedRecuperacaoRoute: AuthenticatedRecuperacaoRoute,
+  AuthenticatedRenovacoesRoute: AuthenticatedRenovacoesRoute,
   AuthenticatedRevendedoresRoute: AuthenticatedRevendedoresRoute,
+  AuthenticatedServidoresRoute: AuthenticatedServidoresRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
+  AuthenticatedFaturamentoMonthRoute: AuthenticatedFaturamentoMonthRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =

@@ -120,19 +120,24 @@ export function auditServerAccounts(clients: readonly Client[], exported: readon
   }
   const res:PanelAuditResult={panelOnly:[],maxflixOnly:[],statusDifferences:[],dateDifferences:[],matching:0,duplicatePanel:[],duplicateMaxflix:[]};
   for(const [key,accs] of panel){
-    if(accs.length>1){res.duplicatePanel.push(accs[0]!.login);continue;}
+    const a=accs[0];
+    if(!a)continue;
+    if(accs.length>1){res.duplicatePanel.push(a.login);continue;}
     const client=apps.get(key);
-    if(!client){res.panelOnly.push({login:accs[0]!.login,account:accs[0]});continue;}
+    if(!client){res.panelOnly.push({login:a.login,account:a});continue;}
     if(client.length>1)continue;
-    const a=accs[0]!,c=client[0]!;
+    const c=client[0];
+    if(!c)continue;
     const active=getStatus(c).key!=="vencido";
     if((a.status==="active"&&!active)||(a.status==="inactive"&&active)) res.statusDifferences.push({login:c.login,client:c,account:a});
     else if(a.expires && a.expires!==c.due_date) res.dateDifferences.push({login:c.login,client:c,account:a});
     else res.matching++;
   }
   for(const [key,records] of apps){
-    if(records.length>1){res.duplicateMaxflix.push(records[0]!.login);continue;}
-    if(!panel.has(key))res.maxflixOnly.push({login:records[0]!.login,client:records[0]});
+    const c=records[0];
+    if(!c)continue;
+    if(records.length>1){res.duplicateMaxflix.push(c.login);continue;}
+    if(!panel.has(key))res.maxflixOnly.push({login:c.login,client:c});
   }
   return res;
 }

@@ -6,7 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { formatBRL } from "@/lib/iptv";
 
 export const Route = createFileRoute("/_authenticated/faturamento/$month")({
-  head: () => ({ meta: [{title:"Faturamento detalhado — MaxFlix"}] }),
+  head: () => ({ meta: [{"title": "Faturamento detalhado — MaxFlix"}, {"name": "description", "content": "Confira os pagamentos e o faturamento mensal da MaxFlix."}, {"property": "og:title", "content": "Faturamento detalhado — MaxFlix"}, {"property": "og:description", "content": "Confira os pagamentos e o faturamento mensal da MaxFlix."}, {"property": "og:type", "content": "website"}, {"name": "twitter:card", "content": "summary"}] }),
   component: MonthlyPaymentsPage,
 });
 
@@ -18,7 +18,7 @@ type ClientLookup = {id:string;login:string;name:string};
 
 function parseMonth(value:string) {
   if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(value))return null;
-  const [y,m]=value.split("-").map(Number);
+  const y=Number(value.slice(0,4)),m=Number(value.slice(5,7));
   const monthEnd=new Date(Date.UTC(y,m,1)).toISOString().slice(0,10);
   return {
     start:value+"-01",end:monthEnd,

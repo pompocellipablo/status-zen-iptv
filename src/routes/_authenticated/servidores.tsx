@@ -8,10 +8,10 @@ import { auditServerAccounts, parsePanelExport, type ParsedPanelExport, type Pan
 import {panelRouteForClient} from "@/lib/painel-recarga";
 
 export const Route = createFileRoute("/_authenticated/servidores")({
-  validateSearch: (query: Record<string, unknown>) => ({
-    servidor: typeof query.servidor === "string" && query.servidor.length <= 100 ? query.servidor : undefined,
+  validateSearch: (query: Record<string, unknown>): { servidor?: string | undefined } => ({
+    servidor: typeof query["servidor"] === "string" && query["servidor"].length <= 100 ? query["servidor"] : undefined,
   }),
-  head: () => ({meta:[{title:"Servidores e auditoria — MaxFlix"}]}),
+  head: () => ({ meta: [{"title": "Servidores e auditoria — MaxFlix"}, {"name": "description", "content": "Confira clientes e auditorias dos servidores MaxFlix."}, {"property": "og:title", "content": "Servidores e auditoria — MaxFlix"}, {"property": "og:description", "content": "Confira clientes e auditorias dos servidores MaxFlix."}, {"property": "og:type", "content": "website"}, {"name": "twitter:card", "content": "summary"}] }),
   component: ServersPage,
 });
 

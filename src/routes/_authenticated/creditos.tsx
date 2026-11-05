@@ -32,8 +32,8 @@ async function loadMovements(server?: string): Promise<Movement[]> {
 }
 
 export const Route = createFileRoute("/_authenticated/creditos")({
-  validateSearch: (search: Record<string, unknown>) => ({
-    servidor: typeof search.servidor === "string" ? search.servidor : undefined,
+  validateSearch: (search: Record<string, unknown>): { servidor?: string | undefined } => ({
+    servidor: typeof search["servidor"] === "string" ? search["servidor"] : undefined,
   }),
   head: () => ({ meta: [
     { title: "Créditos dos servidores — MaxFlix" },
