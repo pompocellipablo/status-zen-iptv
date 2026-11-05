@@ -320,7 +320,7 @@ describe("Read-only provider renewal preflight (no remote requests)",()=>{
     assert.doesNotMatch(preview,/\.rpc\(/);
     assert.match(preview,/providerRequestSent:false/);
     assert.match(preview,/validatePanelRenewalDraft/);
-    assert.ok(edge.indexOf('if(mode==="preflight"){')<edge.indexOf('PAINEL_RECARGA_LIVE_ENABLED'));
+    assert.ok(edge.indexOf('if(mode==="preflight"){')<edge.indexOf('if(Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")'));
   });
   it("the pilot UI requests preflight before offering confirmation or real renewal",()=>{
     const screen=readFileSync(new URL("../routes/_authenticated/renovacoes.tsx",import.meta.url),"utf8");
