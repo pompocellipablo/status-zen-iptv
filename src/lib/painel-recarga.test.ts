@@ -169,6 +169,26 @@ describe("Provider-authoritative renewal dates (no actual payments)",()=>{
   it("blocks a mismatch between confirmed previous expiry and local state",()=>{
     assert.match(check(client,monthly,"10/12/2026 09:00:00","09/11/2026 09:00:00").blockedReason??"",/difere/);
   });
+  it("rejects a provider one-cycle reply that would advance access by a year",()=>{
+    const result=check(client,monthly,"10/11/2027 09:00:00");
+    assert.equal(result.dueDate,null);
+    assert.match(result.blockedReason??"",/muito distante/);
+  });
+  it("allows up to a normal 30-day cycle from today when the original access is long expired",()=>{
+    const expired={due_date:"2026-06-14",financial_due_date:"2026-06-14"};
+    const values={...monthly,dueDate:"2026-12-05",financialDueDate:"2026-12-05"};
+    const result=confirmedRenewalDatesFromPanel(expired,values,"05/12/2026 10:00:00",
+      "14/06/2026 10:00:00","2026-11-05");
+    assert.deepEqual(result,{dueDate:"2026-12-05",financialDueDate:"2026-12-05",blockedReason:null});
+  });
+  it("keeps early renewals anchored to the current technical due date",()=>{
+    const early={due_date:"2026-12-15",financial_due_date:"2026-12-15"};
+    const value={...monthly,dueDate:"2027-01-15",financialDueDate:"2027-01-15"};
+    const result=confirmedRenewalDatesFromPanel(early,value,"15/01/2027 09:00:00",
+      "15/12/2026 09:00:00","2026-11-05");
+    assert.equal(result.blockedReason,null);
+    assert.equal(result.financialDueDate,"2027-01-15");
+  });
   it("blocks invalid/missing provider expiry and technical date that did not advance",()=>{
     assert.ok(check(client,monthly,"not-a-date").blockedReason);
     assert.ok(check(client,monthly,"10/11/2026 12:00:00").blockedReason);
@@ -234,6 +254,8 @@ describe("Supervised pilot UI safety",()=>{
     assert.match(handler,/window\.confirm\(summary\)/);
     assert.match(handler,/mode:"renew",confirm:true,clientId:client\.id/);
     assert.match(handler,/Ciclos no servidor: 1/);
+    assert.match(handler,/hasPrepaidCoverage&&!covered/);
+    assert.match(handler,/Concilie o saldo do pacote antes de renovar no painel/);
   });
   it("tracks external status with the same job, not another confirm call",()=>{
     const check=screen.slice(screen.indexOf("const verifyExternalPilotJob=async"),screen.indexOf("const confirmPanelPilot=async"));
