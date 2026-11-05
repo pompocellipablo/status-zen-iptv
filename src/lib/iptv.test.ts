@@ -42,10 +42,17 @@ describe("datas da renovação", () => {
 
 describe("conciliação manual de vencimentos", () => {
   const base=new Date(2026,10,4);
-  test("datas iguais acompanham a correção aprovada",()=>{
-    assert.deepEqual(planPanelDateCorrection({due_date:"2026-11-10",financial_due_date:"2026-11-10"},"2026-11-12",base),{
-      dueDate:"2026-11-12",financialDueDate:"2026-11-12",preservedFinancial:false,blockedReason:null,
-    });
+  test("datas iguais NÃO acompanham painel adiantado sem novo pagamento comprovado",()=>{
+    const result=planPanelDateCorrection({due_date:"2026-11-08",financial_due_date:"2026-11-08"},"2026-12-08",base);
+    assert.equal(result.dueDate,"2026-12-08");
+    assert.equal(result.financialDueDate,"2026-11-08");
+    assert.equal(result.preservedFinancial,false);
+    assert.match(result.blockedReason??"",/não comprova novo pagamento/);
+  });
+  test("data de painel menor também não reduz cobertura financeira de cliente mensal",()=>{
+    const result=planPanelDateCorrection({due_date:"2026-11-20",financial_due_date:"2026-11-20"},"2026-11-10",base);
+    assert.equal(result.financialDueDate,"2026-11-20");
+    assert.ok(result.blockedReason);
   });
   test("pacote pago mantém a data financeira sem nova cobrança",()=>{
     assert.deepEqual(planPanelDateCorrection({due_date:"2026-11-10",financial_due_date:"2027-03-10"},"2026-11-12",base),{
