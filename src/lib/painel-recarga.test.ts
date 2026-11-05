@@ -363,3 +363,30 @@ describe("Per-client preview button (safe by default)",()=>{
     assert.match(body,/paymentCost:prepaid\?0:/);
   });
 });
+
+describe("First real panel pilot is restricted to one backend-approved customer",()=>{
+  const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
+  it("never starts a real renewal when the feature flag is disabled",()=>{
+    assert.match(edge,/PAINEL_RECARGA_LIVE_ENABLED/);
+    assert.match(edge,/if\(Deno\.env\.get\("PAINEL_RECARGA_LIVE_ENABLED"\)!=="true"\)/);
+  });
+  it("requires an exact client UUID allowlist before reading or creating real jobs",()=>{
+    const gate=edge.indexOf('if(mode==="renew"){\n    const allowedPilotId=');
+    const jobs=edge.indexOf('// For live operations, persist a stable idempotency key');
+    assert.ok(gate>0&&jobs>gate);
+    const guard=edge.slice(gate,jobs);
+    assert.match(guard,/PAINEL_RECARGA_PILOT_CLIENT_ID/);
+    assert.match(guard,/allowedPilotId!==customer\.id/);
+    assert.match(guard,/return reply\(403,/);
+  });
+  it("continues to permit status checking of older authorized jobs",()=>{
+    const gate=edge.slice(edge.indexOf('// SINGLE-CLIENT LIVE PILOT'),edge.indexOf('// For live operations, persist a stable idempotency key'));
+    assert.match(gate,/if\(mode==="renew"\)/);
+    assert.doesNotMatch(gate,/if\(mode==="check"\)/);
+  });
+  it("the read-only preview remains accessible without a pilot client configured",()=>{
+    const preview=edge.indexOf('if(mode==="preflight"){');
+    const pilot=edge.indexOf('PAINEL_RECARGA_PILOT_CLIENT_ID');
+    assert.ok(preview>0&&pilot>preview);
+  });
+});
