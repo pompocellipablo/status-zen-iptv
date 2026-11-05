@@ -11,7 +11,7 @@
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
-  buildPanelRecargaBody, confirmedRenewalDatesFromPanel, financialTransitionError, panelRouteForClient, parsePanelRecargaResponse,
+  buildPanelRecargaBody, confirmedRenewalDatesFromPanel, financialTransitionError, panelRouteForClient, parsePanelRecargaResponse, validatePanelRenewalDraft,
   RECARGA_BASE_URL, type ExternalOutcome,
 } from "../_shared/painel-recarga.ts";
 
@@ -24,8 +24,8 @@ const headers={
 };
 const reply=(status:number,payload:Record<string,unknown>)=>
   new Response(JSON.stringify(payload),{status,headers});
-type Mode="simulate"|"check_simulation"|"renew"|"check";
-type ClientRow={id:string;name:string;login:string;server:string;due_date:string;financial_due_date:string|null};
+type Mode="simulate"|"check_simulation"|"preflight"|"renew"|"check";
+type ClientRow={id:string;name:string;login:string;server:string;due_date:string;financial_due_date:string|null;access_type:string|null};
 type Options={months:number;dueDate:string;financialDueDate:string;cost:number;monthlyPaid:number;prevPaid:number;paymentAmount:number;paymentCost:number};
 type Job={
   id:string;client_id:string|null;login:string;server:string;expected_due_date:string;
@@ -81,12 +81,12 @@ Deno.serve(async(request)=>{
     return reply(400,{ok:false,message:"Corpo JSON inválido."});
   }
   const mode=input.mode as Mode;
-  if(!["simulate","check_simulation","renew","check"].includes(mode))
+  if(!["simulate","check_simulation","preflight","renew","check"].includes(mode))
     return reply(400,{ok:false,message:"Modo inválido."});
   if(typeof input.clientId!=="string"||!isDate(input.expectedDueDate))
     return reply(400,{ok:false,message:"Cliente e vencimento esperado obrigatórios."});
   const {data:client,error:clientError}=await userDb.from("clients")
-    .select("id,name,login,server,due_date,financial_due_date")
+    .select("id,name,login,server,due_date,financial_due_date,access_type")
     .eq("id",input.clientId).maybeSingle();
   if(clientError||!client)return reply(404,{ok:false,message:"Cliente não encontrado ou sem autorização."});
   const customer=client as ClientRow;
@@ -95,6 +95,38 @@ Deno.serve(async(request)=>{
   const base=RECARGA_BASE_URL;
   const expected=input.expectedDueDate as string;
 
+
+  // READ-ONLY PREVIEW. Never calls the provider, never reserves a job,
+  // and never creates payments, credits or date changes.
+  if(mode==="preflight"){
+    if(customer.due_date!==expected)
+      return reply(409,{ok:false,previewOnly:true,message:"Vencimento do cadastro alterado; atualize a página."});
+    if(!panelRouteForClient(customer.server))
+      return reply(422,{ok:false,previewOnly:true,message:"Servidor não homologado para esta integração."});
+    const values=parseLocalOptions(input.options);
+    if(!values)
+      return reply(400,{ok:false,previewOnly:true,message:"Plano, valores ou vencimentos inválidos."});
+    const issue=validatePanelRenewalDraft(customer,values,
+      new Date().toLocaleDateString("sv-SE",{timeZone:"America/Sao_Paulo"}));
+    if(issue)
+      return reply(409,{ok:false,previewOnly:true,message:issue});
+    const {data:existing,error:existingError}=await userDb.from("external_renewal_jobs")
+      .select("id,state").eq("client_id",customer.id)
+      .eq("expected_due_date",expected).maybeSingle();
+    if(existingError)
+      return reply(503,{ok:false,previewOnly:true,
+        message:"Histórico externo indisponível. Não é seguro iniciar uma renovação."});
+    if(existing)
+      return reply(409,{ok:false,previewOnly:true,existingJob:true,jobState:existing.state,
+        message:"Já existe pedido externo para este cliente e ciclo. Confira o pedido existente."});
+    return reply(200,{ok:true,previewOnly:true,providerRequestSent:false,
+      clientName:customer.name,server:customer.server,
+      cycles:1,months:values.months,
+      estimatedDueDate:values.dueDate,
+      estimatedFinancialDueDate:values.financialDueDate,
+      paymentAmount:values.paymentAmount,
+      note:"Pré-visualização local aprovada. O vencimento técnico definitivo virá do painel após uma renovação real autorizada."});
+  }
 
   // SIMULATIONS ONLY: the provider can queue an operation when the session is
   // offline. Persist the UUID BEFORE sending; reconnect/recheck MUST reuse it.
@@ -221,6 +253,9 @@ Deno.serve(async(request)=>{
     const values=parseLocalOptions(input.options);
     if(!values||values.dueDate<=expected||values.financialDueDate<values.dueDate)
       return reply(400,{ok:false,message:"Datas, valores ou período da renovação inválidos."});
+    const draftIssue=validatePanelRenewalDraft(customer,values,
+      new Date().toLocaleDateString("sv-SE",{timeZone:"America/Sao_Paulo"}));
+    if(draftIssue)return reply(409,{ok:false,message:draftIssue});
     const financeError=financialTransitionError(customer,values);
     if(financeError)return reply(409,{ok:false,message:financeError});
     // The API cycles are not the same as months paid to MaxFlix.
