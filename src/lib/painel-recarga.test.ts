@@ -22,6 +22,8 @@ describe("Painel Recarga integration guardrails",()=>{
     assert.equal(parsePanelRecargaResponse(200,success,"cliente_01").status,"confirmed");
     assert.equal(parsePanelRecargaResponse(200,success,"cliente_02").status,"uncertain");
     assert.equal(isExternalSyncSafe(parsePanelRecargaResponse(200,success,"cliente_01",true)),false);
+    const accidentalTwo={ok:true,resultados:[{usuario:"cliente_01",ok:true,ciclos_feitos:2,vencimento_novo:"01/12/2026 15:00:00"}]};
+    assert.equal(parsePanelRecargaResponse(200,accidentalTwo,"cliente_01").status,"uncertain");
   });
   it("blocks sync on waiting session, partial batch, unknown and uncertain result",()=>{
     assert.equal(parsePanelRecargaResponse(202,{ok:false,precisa_login:true},"one").status,"waiting");
