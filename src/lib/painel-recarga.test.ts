@@ -398,3 +398,29 @@ describe("First real panel pilot is restricted to one backend-approved customer"
     assert.ok(preview>0&&pilot>preview);
   });
 });
+
+describe("Jardel pilot UI: one client, no accidental manual renewal",()=>{
+  const screen=readFileSync(new URL("../routes/_authenticated/renovacoes.tsx",import.meta.url),"utf8");
+  const publicEnv=readFileSync(new URL("../../.env",import.meta.url),"utf8");
+  it("only reveals pilot actions to the preselected client and expected due date",()=>{
+    assert.match(publicEnv,/^VITE_MAXFLIX_PANEL_PILOT=true$/m);
+    assert.match(screen,/const FIRST_PILOT_CLIENT_ID = /);
+    assert.match(screen,/const FIRST_PILOT_EXPECTED_DUE = "2026-11-19"/);
+    assert.match(screen,/const isFirstPilotClient = /);
+    assert.match(screen,/isFirstPilotClient\(c\)&&panelRouteForClient/);
+    assert.match(screen,/isFirstPilotClient\(renewing\) && panelRouteForClient/);
+    assert.match(screen,/if\(!isFirstPilotClient\(client\)/);
+  });
+  it("keeps ordinary manual renewals on other customers, but hides manual confirm during the Jardel pilot",()=>{
+    assert.match(screen,/\{!onConfirmPilot && <Button/);
+    assert.match(screen,/onConfirmPilot&&<div/);
+    assert.match(screen,/Piloto inicial restrito a um mês, R\$ 30 recebidos/);
+    assert.match(screen,/opts\.months!==1\|\|opts\.paid!==30\|\|opts\.monthlyCost!==6/);
+  });
+  it("continues to require preflight and final user confirmation for the actual pilot",()=>{
+    const pilot=screen.slice(screen.indexOf("const confirmPanelPilot=async"),screen.indexOf("const confirmRenew = async"));
+    assert.ok(pilot.indexOf('mode:"preflight"')>=0);
+    assert.ok(pilot.indexOf('window.confirm(summary)')>pilot.indexOf('mode:"preflight"'));
+    assert.ok(pilot.indexOf('mode:"renew"')>pilot.indexOf('window.confirm(summary)'));
+  });
+});
