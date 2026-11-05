@@ -1512,7 +1512,14 @@ function PreflightDialog({client,onClose}:{client:Client;onClose:()=>void}) {
   const [paid,setPaid]=useState(String(client.paid||client.prev_paid||0).replace(".",","));
   const [cost,setCost]=useState(String(client.cost||client.prev_cost||SERVER_COSTS[client.server]||0).replace(".",","));
   const [busy,setBusy]=useState(false);
-  const [outcome,setOutcome]=useState<{ok:boolean;message:string}|null>(null);
+  const [outcome,setOutcome]=useState<{
+    ok:boolean;message:string;
+    pilotDiagnostic?:{
+      clientId:"ok"|"missing"|"different";
+      expectedDueDate:"ok"|"missing"|"different";
+      liveEnabled:boolean;
+    };
+  }|null>(null);
   const period=prepaid?1:months;
   const validMonths=Number.isInteger(period)&&period>=1&&period<=120;
   const dates=renewalDates(client.due_date,validMonths?period:1);
@@ -1541,6 +1548,11 @@ function PreflightDialog({client,onClose}:{client:Client;onClose:()=>void}) {
       let response=data as {
         ok?:boolean;previewOnly?:boolean;providerRequestSent?:boolean;message?:string;
         estimatedDueDate?:string;estimatedFinancialDueDate?:string;paymentAmount?:number;
+        pilotDiagnostic?:{
+          clientId:"ok"|"missing"|"different";
+          expectedDueDate:"ok"|"missing"|"different";
+          liveEnabled:boolean;
+        };
       }|null;
       if(error){
         const context=(error as {context?:unknown}).context;
@@ -1555,7 +1567,8 @@ function PreflightDialog({client,onClose}:{client:Client;onClose:()=>void}) {
         &&response.paymentAmount===charged;
       setOutcome({ok:approved,message:approved
         ?"Pré-validação aprovada. Nenhuma renovação, cobrança ou consumo de crédito foi realizado."
-        :(response?.message??error?.message??"Pré-validação segura indisponível.")});
+        :(response?.message??error?.message??"Pré-validação segura indisponível."),
+        pilotDiagnostic:response?.pilotDiagnostic});
     }catch(error){
       setOutcome({ok:false,message:error instanceof Error?error.message:"Pré-validação indisponível."});
     }finally{setBusy(false);}
@@ -1623,6 +1636,22 @@ function PreflightDialog({client,onClose}:{client:Client;onClose:()=>void}) {
           :"mt-3 rounded-lg bg-warn/10 px-3 py-2 text-sm text-warn"}>
           {outcome.ok?"Aprovado: ":"Revisão necessária: "}{outcome.message}
         </p>}
+        {outcome?.pilotDiagnostic&&isFirstPilotClient(client)&&
+          <div role="status" className="mt-3 rounded-lg bg-panel px-3 py-3 text-xs ring-1 ring-line">
+            <p className="font-semibold">Diagnóstico seguro do piloto</p>
+            <p className="mt-1 text-mist">Somente resultado das comparações. Nenhum valor secreto foi exibido.</p>
+            <p className="mt-2">Identificação do cliente: <strong>{
+              outcome.pilotDiagnostic.clientId==="ok"?"Correta":
+              outcome.pilotDiagnostic.clientId==="missing"?"Secret não encontrado":"Valor diferente do esperado"
+            }</strong></p>
+            <p className="mt-1">Vencimento autorizado: <strong>{
+              outcome.pilotDiagnostic.expectedDueDate==="ok"?"Correto":
+              outcome.pilotDiagnostic.expectedDueDate==="missing"?"Secret não encontrado":"Valor diferente do esperado"
+            }</strong></p>
+            <p className="mt-1">Renovações reais: <strong>{
+              outcome.pilotDiagnostic.liveEnabled?"Habilitadas — não renove durante o diagnóstico":"Desativadas (seguro)"
+            }</strong></p>
+          </div>}
         <div className="mt-5 flex flex-wrap gap-2">
           <Button type="button" disabled={busy||!validMonths}
             onClick={()=>void inspect()}
