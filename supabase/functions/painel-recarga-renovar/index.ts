@@ -119,7 +119,23 @@ Deno.serve(async(request)=>{
     if(existing)
       return reply(409,{ok:false,previewOnly:true,existingJob:true,jobState:existing.state,
         message:"Já existe pedido externo para este cliente e ciclo. Confira o pedido existente."});
+    // Owner-only, read-only diagnostic for the preselected pilot customer.
+    // Report only match/missing/mismatch, NEVER secret values or token data.
+    // Works while live renewals are disabled and makes NO provider requests.
+    const pilotSecretStatus=(name:string,expectedValue:string):
+      "ok"|"missing"|"different"=>{
+      const stored=Deno.env.get(name)?.trim();
+      return !stored?"missing":stored===expectedValue?"ok":"different";
+    };
+    const pilotDiagnostic=customer.id==="c0b6e1f2-3c65-4041-aa56-448122108cec"
+      &&expected==="2026-11-19"
+      ?{
+        clientId:pilotSecretStatus("PAINEL_RECARGA_PILOT_CLIENT_ID",customer.id),
+        expectedDueDate:pilotSecretStatus("PAINEL_RECARGA_PILOT_EXPECTED_DUE_DATE",expected),
+        liveEnabled:Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")==="true",
+      }:undefined;
     return reply(200,{ok:true,previewOnly:true,providerRequestSent:false,
+      pilotDiagnostic,
       clientName:customer.name,server:customer.server,
       cycles:1,months:values.months,
       estimatedDueDate:values.dueDate,
