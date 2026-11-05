@@ -11,7 +11,7 @@
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
-  buildPanelRecargaBody, panelDateToISO, panelRouteForClient, parsePanelRecargaResponse,
+  buildPanelRecargaBody, financialTransitionError, panelDateToISO, panelRouteForClient, parsePanelRecargaResponse,
   RECARGA_BASE_URL, type ExternalOutcome,
 } from "../_shared/painel-recarga.ts";
 
@@ -43,27 +43,6 @@ function parseLocalOptions(input:unknown):Options|null{
     if(!safeNumber(o[key]))return null;
   }
   return o as unknown as Options;
-}
-
-/**
- * Preserve coverage already paid in MaxFlix. Never convert a monthly server
- * renewal into a second payment, or shift the financial date of a package.
- */
-function financialTransitionError(client:ClientRow, values:Options):string|null {
-  const previousFinancial=client.financial_due_date??client.due_date;
-  if(previousFinancial<client.due_date)
-    return "Vencimento financeiro anterior ao técnico: conciliação manual necessária.";
-  if(previousFinancial>client.due_date){
-    if(values.financialDueDate!==previousFinancial)
-      return "Pacote já pago: o vencimento financeiro precisa ser preservado.";
-    if(values.dueDate>previousFinancial)
-      return "O próximo ciclo ultrapassa a cobertura paga; revise o novo pagamento manualmente.";
-    if(values.paymentAmount!==0 || values.monthlyPaid!==0 || values.paymentCost!==0)
-      return "Pacote já pago: não registrar outra cobrança nesta renovação.";
-  }else if(values.months===1 && values.financialDueDate!==values.dueDate){
-    return "Plano mensal: os vencimentos técnico e financeiro precisam avançar juntos.";
-  }
-  return null;
 }
 
 Deno.serve(async(request)=>{
