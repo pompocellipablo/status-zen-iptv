@@ -27,7 +27,7 @@ Headers: X-Auth-Token, Idempotency-Key UUID, Content-Type application/json.
 
 Rotas IPTV (POST):
 - All Play /renovar/iptv/allplay
-- Blade /renovar/iptv/blade
+- Blade IPTV /renovar/iptv/blade (rota da API, não utilizada pelos clientes Blade atuais da MaxFlix)
 - Club /renovar/iptv/club
 - Five /renovar/iptv/five
 - GF /renovar/iptv/gf
@@ -35,6 +35,7 @@ Rotas IPTV (POST):
 - Uniplay /renovar/iptv/uniplay
 
 Rotas P2P existem para Blade/Five/GF/Uniplay. O proprietário confirmou:
+- Blade na MaxFlix = Blade P2P: /renovar/p2p/blade (confirmado pelo proprietário em 04/11/2026; não há clientes Blade IPTV cadastrados)
 - UniP2P na MaxFlix = Uniplay P2P: /renovar/p2p/uniplay
 - Uniplay na MaxFlix = Uniplay IPTV: /renovar/iptv/uniplay
 
