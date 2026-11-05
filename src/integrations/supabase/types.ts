@@ -160,65 +160,6 @@ export type Database = {
           },
         ]
       }
-      external_simulation_jobs: {
-        Row: {
-          client_id: string | null
-          completed_at: string | null
-          created_at: string
-          expected_due_date: string
-          external_http_status: number | null
-          external_message: string | null
-          external_order_id: string | null
-          id: string
-          idempotency_key: string
-          login: string
-          panel_due_date: string | null
-          server: string
-          state: string
-          updated_at: string
-        }
-        Insert: {
-          client_id?: string | null
-          completed_at?: string | null
-          created_at?: string
-          expected_due_date: string
-          external_http_status?: number | null
-          external_message?: string | null
-          external_order_id?: string | null
-          id?: string
-          idempotency_key?: string
-          login: string
-          panel_due_date?: string | null
-          server: string
-          state?: string
-          updated_at?: string
-        }
-        Update: {
-          client_id?: string | null
-          completed_at?: string | null
-          created_at?: string
-          expected_due_date?: string
-          external_http_status?: number | null
-          external_message?: string | null
-          external_order_id?: string | null
-          id?: string
-          idempotency_key?: string
-          login?: string
-          panel_due_date?: string | null
-          server?: string
-          state?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "external_simulation_jobs_client_id_fkey"
-            columns: ["client_id"]
-            isOneToOne: false
-            referencedRelation: "clients"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       external_renewal_jobs: {
         Row: {
           client_id: string | null
@@ -280,6 +221,65 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "external_renewal_jobs_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      external_simulation_jobs: {
+        Row: {
+          client_id: string | null
+          completed_at: string | null
+          created_at: string
+          expected_due_date: string
+          external_http_status: number | null
+          external_message: string | null
+          external_order_id: string | null
+          id: string
+          idempotency_key: string
+          login: string
+          panel_due_date: string | null
+          server: string
+          state: string
+          updated_at: string
+        }
+        Insert: {
+          client_id?: string | null
+          completed_at?: string | null
+          created_at?: string
+          expected_due_date: string
+          external_http_status?: number | null
+          external_message?: string | null
+          external_order_id?: string | null
+          id?: string
+          idempotency_key?: string
+          login: string
+          panel_due_date?: string | null
+          server: string
+          state?: string
+          updated_at?: string
+        }
+        Update: {
+          client_id?: string | null
+          completed_at?: string | null
+          created_at?: string
+          expected_due_date?: string
+          external_http_status?: number | null
+          external_message?: string | null
+          external_order_id?: string | null
+          id?: string
+          idempotency_key?: string
+          login?: string
+          panel_due_date?: string | null
+          server?: string
+          state?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "external_simulation_jobs_client_id_fkey"
             columns: ["client_id"]
             isOneToOne: false
             referencedRelation: "clients"
