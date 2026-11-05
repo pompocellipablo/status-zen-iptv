@@ -110,7 +110,7 @@ function ServersPage() {
       const {data,error}=await supabase.functions.invoke("painel-recarga-renovar",{
         body:{mode:"simulate",clientId:client.id,expectedDueDate:client.due_date},
       });
-      let response=data as {simulated?:boolean;panelDueDate?:string|null;outcome?:{status?:string;message?:string};message?:string}|null;
+      let response=data as {simulated?:boolean;dateInspectionSupported?:boolean;panelDueDate?:string|null;outcome?:{status?:string;message?:string};message?:string}|null;
       if(error){
         const http=(error as {context?:unknown}).context;
         if(http instanceof Response){try{response=await http.json();}catch{response=null;}}
@@ -121,11 +121,14 @@ function ServersPage() {
       const panelDue=confirmed&&/^\d{4}-\d{2}-\d{2}$/.test(response?.panelDueDate??"")
         ?response!.panelDueDate!:null;
       const message=response?.outcome?.message??response?.message??"O painel não retornou um resultado reconhecido.";
+      const missingDeploy=confirmed&&response?.dateInspectionSupported!==true;
       setSimulation({clientId:client.id,ok:confirmed,message});
       setDirectChecks(s=>({...s,[client.id]:{
         server:client.server,login:client.login,panelDue,
         status:confirmed?(panelDue?(panelDue===client.due_date?"same":"different"):"unavailable"):"failed",
-        message:confirmed&&!panelDue?"O login foi localizado, mas o Painel Recarga não informou o vencimento atual nessa simulação.":message,
+        message:missingDeploy
+          ?"O login foi confirmado, mas a nova função de conferência ainda não foi publicada. Não é possível saber se a API envia datas."
+          :confirmed&&!panelDue?"O login foi localizado, mas o Painel Recarga não informou o vencimento atual nessa simulação.":message,
       }}));
       setLastCheckedId(client.id);
     }catch(err){
@@ -350,8 +353,8 @@ function ServersPage() {
                   <p className={"mt-1 text-xs "+(directChecks[c.id]?.status==="same"?"text-ok":"text-warn")}>
                     Painel: {formatDate(directChecks[c.id]!.panelDue)} · {directChecks[c.id]?.status==="same"?"Datas iguais":"Datas diferentes"}
                   </p>}
-                {directChecks[c.id]?.status==="unavailable"&&<p className="mt-1 text-xs text-warn">
-                  Data não disponibilizada pela simulação.
+                {directChecks[c.id]?.status==="unavailable"&&<p className="mt-1 max-w-sm text-xs text-warn">
+                  {directChecks[c.id]?.message}
                 </p>}
               </div>
             </div>;
