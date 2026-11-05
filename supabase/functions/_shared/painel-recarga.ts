@@ -49,6 +49,86 @@ export function financialTransitionError(
   return null;
 }
 
+/**
+ * Provider-authoritative technical due date after a confirmed ONE-cycle renewal.
+ *
+ * Prepaid coverage is immutable. A fresh payment with equal old dates extends
+ * financial coverage by the contracted period; for end-of-month dates retain
+ * the MaxFlix calendar anchor if the provider returns the expected technical due.
+ * A mismatch on the provider's *previous* expiry must be reconciled manually.
+ *
+ * This function only calculates a plan. It never renews, writes payments,
+ * consumes credits, or changes provider accounts.
+ */
+export function confirmedRenewalDatesFromPanel(
+  client: {due_date:string;financial_due_date:string|null},
+  values: {
+    months:number;dueDate:string;financialDueDate:string;
+    paymentAmount:number;monthlyPaid:number;paymentCost:number;
+  },
+  providerNextDue:string|undefined,
+  providerPreviousDue:string|undefined,
+  todayISO:string,
+): {dueDate:string|null;financialDueDate:string|null;blockedReason:string|null} {
+  const blocked=(reason:string)=>({dueDate:null,financialDueDate:null,blockedReason:reason});
+  const newDue=panelDateToISO(providerNextDue);
+  if(!newDue)return blocked("Painel não informou um vencimento novo válido. Concilie antes de registrar.");
+  if(newDue<=todayISO || newDue<=client.due_date)
+    return blocked("O vencimento novo do servidor não confirma avanço de um ciclo válido.");
+  const currentFinance=client.financial_due_date;
+  if(!currentFinance)
+    return blocked("Vencimento financeiro ausente. Revise o cadastro antes de registrar.");
+  if(currentFinance<client.due_date)
+    return blocked("Vencimento financeiro anterior ao técnico. Revise o cadastro.");
+  if(!Number.isInteger(values.months)||values.months<1||values.months>120)
+    return blocked("Quantidade de meses inválida.");
+
+  // The previous expiry is not mandatory in the provider response. If present,
+  // it must corroborate the MaxFlix state; otherwise manual reconciliation.
+  if(providerPreviousDue!==undefined){
+    const previous=panelDateToISO(providerPreviousDue);
+    if(!previous || previous!==client.due_date)
+      return blocked("O vencimento anterior informado pelo painel difere da MaxFlix. Revise antes de atualizar.");
+  }
+
+  if(currentFinance>client.due_date){
+    if(values.months!==1||values.financialDueDate!==currentFinance
+      ||values.paymentAmount!==0||values.monthlyPaid!==0||values.paymentCost!==0)
+      return blocked("Pacote já pago: não avance o financeiro nem registre outra cobrança.");
+    if(newDue>currentFinance)
+      return blocked("O novo vencimento técnico ultrapassa o período financeiro pago.");
+    return {dueDate:newDue,financialDueDate:currentFinance,blockedReason:null};
+  }
+
+  // Equal technical and financial dates signal a new paid period. Always align
+  // the NEXT technical due to the actual panel result, never to the projection.
+  if(values.months===1)
+    return {dueDate:newDue,financialDueDate:newDue,blockedReason:null};
+
+  // For a 6-/12-month package, one cycle is already provided by the panel.
+  // Use the original anchor if the provider agreed with the expected date;
+  // otherwise attach remaining prepaid months to the date actually confirmed.
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(values.dueDate))
+    return blocked("Data de renovação planejada inválida.");
+  const plannedFinance=newDue===values.dueDate?panelDateToISO(values.financialDueDate):null;
+  if(newDue===values.dueDate && !plannedFinance)
+    return blocked("Cobertura financeira planejada inválida.");
+  const financialDue=plannedFinance ?? addMonthsISO(newDue,values.months-1);
+  if(!financialDue || financialDue<newDue)
+    return blocked("Não foi possível calcular a cobertura do pacote com segurança.");
+  return {dueDate:newDue,financialDueDate:financialDue,blockedReason:null};
+}
+
+function addMonthsISO(value:string,months:number):string|null {
+  const parsed=panelDateToISO(value);
+  if(!parsed || !Number.isInteger(months)||months<0||months>120)return null;
+  const [year,month,day]=parsed.split("-").map(Number);
+  const start=new Date(Date.UTC(year!,month!-1+months,1));
+  const maxDay=new Date(Date.UTC(start.getUTCFullYear(),start.getUTCMonth()+1,0)).getUTCDate();
+  const due=new Date(Date.UTC(start.getUTCFullYear(),start.getUTCMonth(),Math.min(day!,maxDay)));
+  return due.toISOString().slice(0,10);
+}
+
 export function buildPanelRecargaBody(login:string,simulate:boolean):{
   usuario:string;ciclos:1;simular?:true
 } {
