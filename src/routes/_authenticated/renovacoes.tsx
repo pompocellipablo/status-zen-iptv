@@ -373,6 +373,7 @@ function Painel() {
   }, [clients]);
 
   const [renewing, setRenewing] = useState<Client | null>(null);
+  const [previewClient, setPreviewClient] = useState<Client | null>(null);
 
   const performRenewal = async (client: Client, opts: { dueDate: string; financialDueDate: string; cost: number; monthlyPaid: number; prevPaid: number; paymentAmount: number; paymentCost: number }) => {
     if (renewingBusy) return false;
@@ -991,7 +992,7 @@ function Painel() {
                         </p>
                       </div>
                     </div>
-                    <div className="mt-3 flex items-stretch gap-2 xl:mt-0">
+                    <div className="mt-3 flex flex-wrap items-stretch gap-2 xl:mt-0">
                       <button
                         type="button"
                         disabled={PANEL_PILOT_UI_ENABLED&&(externalJobsQuery.isLoading||externalJobsQuery.isError||
@@ -1048,6 +1049,14 @@ function Painel() {
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
+                      {panelRouteForClient(c.server) && !!c.login.trim()
+                        && c.access_type!=="gratuidade" && c.access_type!=="meu_acesso" && (
+                        <button type="button"
+                          onClick={() => setPreviewClient(c)}
+                          className="min-h-10 basis-full rounded-lg bg-panel2 px-3 text-xs font-semibold text-cyan ring-1 ring-cyan/25 hover:bg-cyan/10">
+                          Pré-validar renovação · sem alterar dados
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -1139,6 +1148,11 @@ function Painel() {
             setSettingsOpen(false);
           }}
         />
+      )}
+
+      {previewClient && (
+        <PreflightDialog key={previewClient.id} client={previewClient}
+          onClose={() => setPreviewClient(null)} />
       )}
 
       {renewing && (
