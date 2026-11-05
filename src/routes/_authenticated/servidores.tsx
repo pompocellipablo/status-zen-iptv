@@ -186,7 +186,7 @@ function ServersPage() {
       client.name+" · "+client.server+" · "+client.login,
       "Acesso MaxFlix: "+formatDate(client.due_date)+" → "+formatDate(plan.dueDate),
       "Financeiro: "+formatDate(client.financial_due_date)+" → "+formatDate(plan.financialDueDate),
-      plan.preservedFinancial?"A cobertura financeira já paga será preservada.":"As datas eram iguais e continuarão iguais.",
+      "A data financeira existente será preservada. Conferência não registra recebimento.",
       source==="simulacao"
         ?"Fonte: simulação autenticada do Painel Recarga. Confirme a validade antes de prosseguir."
         :"Fonte: lista exportada manualmente. Confira a validade no painel antes de continuar.",
@@ -314,12 +314,14 @@ function ServersPage() {
             <p className={"mt-2 "+(lastChecked.status==="same"?"text-ok":lastChecked.status==="different"?"text-warn":"text-mist")}>
               {lastChecked.status==="same"?"Datas de acesso iguais.":lastChecked.status==="different"?"Datas de acesso divergentes.":lastChecked.message}
             </p>
+            {lastChecked.status==="different"&&lastChecked.panelDue&&planPanelDateCorrection(lastClient,lastChecked.panelDue).blockedReason&&
+              <p className="mt-2 text-xs text-warn">{planPanelDateCorrection(lastClient,lastChecked.panelDue).blockedReason}</p>}
             {lastChecked.status==="different"&&lastChecked.panelDue&&<button type="button"
-              disabled={correctingId!==null}
+              disabled={correctingId!==null||!!planPanelDateCorrection(lastClient,lastChecked.panelDue).blockedReason}
               onClick={()=>void approveDateCorrection({login:lastClient.login,client:lastClient,
                 account:{login:lastChecked.login,status:"unknown",expires:lastChecked.panelDue}},"simulacao")}
               className="mt-3 min-h-10 rounded-lg bg-warn/10 px-3 font-semibold text-warn ring-1 ring-warn/30 disabled:opacity-40">
-              Revisar e aprovar correção
+              {planPanelDateCorrection(lastClient,lastChecked.panelDue).blockedReason?"Revisão financeira necessária":"Revisar e aprovar correção"}
             </button>}
           </div>}
           {correctionNotice&&<p role="status" className="mt-2 text-xs text-mist">{correctionNotice}</p>}
@@ -453,7 +455,7 @@ function ServersPage() {
                     <p>Após aprovação: <strong>{formatDate(plan.financialDueDate)}</strong></p>
                   </div>
                   <p className="mt-2 text-xs text-mist">
-                    {plan.preservedFinancial?"Cobertura financeira mantida; somente o acesso será corrigido.":"As duas datas serão corrigidas juntas, porque eram iguais."}
+                    {plan.preservedFinancial?"Cobertura financeira preservada; somente o acesso poderá ser corrigido.":"A conferência não comprova pagamento: esta diferença exige revisão financeira manual."}
                   </p>
                   {!exactLogin&&<p className="mt-2 text-xs text-warn">Login não idêntico (maiúsculas/minúsculas). Correção automática bloqueada.</p>}
                   {plan.blockedReason&&<p className="mt-2 text-xs text-warn">{plan.blockedReason}</p>}
