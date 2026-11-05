@@ -424,3 +424,38 @@ describe("Jardel pilot UI: one client, no accidental manual renewal",()=>{
     assert.ok(pilot.indexOf('mode:"renew"')>pilot.indexOf('window.confirm(summary)'));
   });
 });
+
+describe("Owner-only pilot configuration diagnostic is read-only and does not disclose secrets",()=>{
+  const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
+  const screen=readFileSync(new URL("../routes/_authenticated/renovacoes.tsx",import.meta.url),"utf8");
+  it("appears only in the authenticated preflight branch for the designated client",()=>{
+    const from=edge.indexOf('if(mode==="preflight"){');
+    const until=edge.indexOf('// SIMULATIONS ONLY:',from);
+    assert.ok(from>0&&until>from);
+    const preview=edge.slice(from,until);
+    assert.match(preview,/pilotDiagnostic/);
+    assert.match(preview,/customer\.id==="c0b6e1f2-3c65-4041-aa56-448122108cec"/);
+    assert.match(preview,/expected==="2026-11-19"/);
+    assert.match(preview,/providerRequestSent:false/);
+    assert.doesNotMatch(preview,/\bfetch\(|\.insert\(|\.update\(|\.rpc\(/);
+  });
+  it("returns statuses, not raw secret values or authentication tokens",()=>{
+    const start=edge.indexOf('const pilotSecretStatus=');
+    const end=edge.indexOf('return reply(200,{ok:true,previewOnly:true',start);
+    assert.ok(start>0&&end>start);
+    const code=edge.slice(start,end);
+    assert.match(code,/"ok"\|"missing"\|"different"/);
+    assert.match(code,/stored===expectedValue\?"ok":"different"/);
+    assert.doesNotMatch(code,/PAINEL_RECARGA_TOKEN|console\.log/);
+  });
+  it("shows read-only diagnostic results in the preflight dialog only",()=>{
+    const start=screen.indexOf("function PreflightDialog(");
+    const end=screen.indexOf("function RenewDialog(",start);
+    const part=screen.slice(start,end);
+    assert.match(part,/Diagnóstico seguro do piloto/);
+    assert.match(part,/isFirstPilotClient\(client\)/);
+    assert.match(part,/pilotDiagnostic\.clientId/);
+    assert.match(part,/pilotDiagnostic\.expectedDueDate/);
+    assert.doesNotMatch(part,/mode:"renew"|mode:"simulate"/);
+  });
+});
