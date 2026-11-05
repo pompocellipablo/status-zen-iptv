@@ -249,32 +249,46 @@ Deno.serve(async(request)=>{
     if(error)throw Error("Não foi possível salvar o andamento do pedido.");
   };
   const syncLocal=async()=>{
-    const values=job!.local_values;
-    const financeError=financialTransitionError(customer,values);
-    if(financeError){
-      await updateJob({state:"needs_review",external_message:financeError});
-      return reply(409,{ok:false,needsReview:true,externalConfirmed:true,message:financeError+
-        " A validade externa pode ter mudado; não renove novamente sem conciliar."});
-    }
-    const {error}=await userDb.rpc("renew_client_with_credit",{
-      p_client_id:customer.id,
-      p_expected_due_date:expected,
-      p_due_date:values.dueDate,
-      p_financial_due_date:values.financialDueDate,
-      p_cost:values.cost,
-      p_monthly_paid:values.monthlyPaid,
-      p_prev_paid:values.prevPaid,
-      p_payment_amount:values.paymentAmount,
-      p_payment_cost:values.paymentCost,
+    // ONE atomic PostgreSQL transaction now:
+    //   lock external job -> lock client -> update due/finance -> add payment
+    //   -> debit exactly one credit -> mark job synced.
+    // The job ID is the only RPC argument. The client cannot inject payment
+    // details a second time or race this transaction with another browser.
+    const {data:result,error}=await userDb.rpc("sync_external_renewal_job",{
+      p_job_id:jobId,
     });
     if(error){
-      await updateJob({state:"needs_review",external_message:"Confirmado no painel, mas a atualização da MaxFlix falhou: "+error.message.slice(0,250)});
-      return reply(409,{ok:false,needsReview:true,externalConfirmed:true,
-        message:"Painel renovado, mas a MaxFlix não foi atualizada. Não renove novamente: concilie este pedido.",orderId:job!.external_order_id});
+      // A timeout can happen AFTER a successful database commit. Re-read
+      // the ledger before claiming that settlement has failed.
+      const {data:latest}=await userDb.from("external_renewal_jobs")
+        .select("state,external_order_id").eq("id",jobId).maybeSingle();
+      if(latest?.state==="synced")
+        return reply(200,{ok:true,renewed:true,alreadyProcessed:true,
+          orderId:latest.external_order_id,
+          message:"Renovação já sincronizada no banco; nenhum novo pedido foi enviado."});
+      // Keep external_confirmed for a safe retry of the SAME local
+      // transaction. Do NOT re-send the provider's renewal.
+      return reply(409,{ok:false,externalConfirmed:true,needsReview:true,
+        orderId:job!.external_order_id,
+        message:"Painel confirmado, mas o registro financeiro ainda precisa de conferência: "
+          +error.message.slice(0,180)+". Não renove novamente no servidor."});
     }
-    await updateJob({state:"synced",synced_at:new Date().toISOString(),external_message:"Renovação sincronizada com a MaxFlix."});
-    return reply(200,{ok:true,renewed:true,orderId:job!.external_order_id,
-      message:"Renovação confirmada no painel e registrada na MaxFlix."});
+    const confirmed=result as {
+      ok?:boolean;alreadyProcessed?:boolean;dueDate?:string;
+      financialDueDate?:string;orderId?:string|null;
+    }|null;
+    if(confirmed?.ok!==true){
+      return reply(409,{ok:false,externalConfirmed:true,needsReview:true,
+        message:"O banco não confirmou o lançamento financeiro. Verifique este pedido antes de outra ação."});
+    }
+    return reply(200,{ok:true,renewed:true,
+      alreadyProcessed:confirmed.alreadyProcessed===true,
+      dueDate:confirmed.dueDate,
+      financialDueDate:confirmed.financialDueDate,
+      orderId:confirmed.orderId??job!.external_order_id,
+      message:confirmed.alreadyProcessed
+        ?"Esta renovação já havia sido sincronizada, sem novo débito."
+        :"Vencimento do painel, financeiro, pagamento e crédito sincronizados em uma transação."});
   };
   if(job.state==="synced")
     return reply(200,{ok:true,renewed:true,alreadyProcessed:true,orderId:job.external_order_id,message:"Esta renovação já foi concluída."});
