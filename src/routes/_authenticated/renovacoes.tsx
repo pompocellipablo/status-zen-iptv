@@ -218,6 +218,21 @@ function Painel() {
     },
   });
 
+  // This monitor is completely inactive unless an owner explicitly enables
+  // the supervised provider pilot UI. It is read-only; no provider calls.
+  const externalJobsQuery=useQuery({
+    queryKey:["external-renewal-jobs"],
+    enabled:PANEL_PILOT_UI_ENABLED,
+    queryFn:async()=>{
+      const {data,error}=await supabase.from("external_renewal_jobs")
+        .select("id,client_id,client_name,login,server,state,created_at,external_message,expected_due_date")
+        .neq("state","synced").order("created_at",{ascending:false}).limit(30);
+      if(error)throw error;
+      return data??[];
+    },
+    refetchOnWindowFocus:true,
+  });
+
   const settingsQuery = useQuery({
     queryKey: ["settings"],
     queryFn: async () => {
@@ -444,6 +459,39 @@ function Painel() {
     setRenewing(client);
   };
 
+  const verifyExternalPilotJob=async(job:{
+    client_id:string|null;client_name:string;expected_due_date:string;
+    state:string;
+  })=>{
+    if(!PANEL_PILOT_UI_ENABLED||!job.client_id||renewingBusy)return;
+    if(!["created","waiting","uncertain","external_confirmed"].includes(job.state)){
+      setNotice("Pedido requer conciliação manual, não uma nova renovação.");
+      return;
+    }
+    setRenewingBusy(true);
+    try{
+      const {data,error}=await supabase.functions.invoke("painel-recarga-renovar",{
+        body:{mode:"check",clientId:job.client_id,expectedDueDate:job.expected_due_date},
+      });
+      let result=data as {renewed?:boolean;pending?:boolean;message?:string}|null;
+      if(error){
+        const context=(error as {context?:unknown}).context;
+        if(context instanceof Response){try{result=await context.json();}catch{/* No JSON */}}
+      }
+      setNotice(job.client_name+": "+(result?.message??error?.message??"Pedido ainda sem confirmação."));
+      await qc.invalidateQueries({queryKey:["external-renewal-jobs"]});
+      if(result?.renewed){
+        await Promise.all([
+          qc.invalidateQueries({queryKey:["clients"]}),
+          qc.invalidateQueries({queryKey:["payments"]}),
+          qc.invalidateQueries({queryKey:["server-credit-movements"]}),
+        ]);
+      }
+    }catch{
+      setNotice("Não foi possível confirmar o pedido externo. Não inicie outra renovação: confira a fila.");
+    }finally{setRenewingBusy(false);}
+  };
+
   const confirmPanelPilot=async (
     client:Client,
     opts:{months:number;cost:number;paid:number;monthlyCost:number;monthlyPaid:number},
@@ -507,6 +555,7 @@ function Painel() {
           +" — confira o mesmo pedido no Painel Recarga antes de qualquer novo clique.");
       }
       setRenewing(null);
+      await qc.invalidateQueries({queryKey:["external-renewal-jobs"]});
     }catch(error){
       setNotice(client.name+": resultado da renovação externa desconhecido. "
         +"Não faça uma segunda renovação sem consultar o pedido original. "
@@ -818,6 +867,28 @@ function Painel() {
           </div>
         )}
 
+        {PANEL_PILOT_UI_ENABLED&&<section className="mt-4 rounded-xl bg-panel p-3 text-sm ring-1 ring-warn/25" aria-label="Acompanhamento do piloto Painel Recarga">
+          <p className="font-semibold text-warn">Painel Recarga — piloto supervisionado</p>
+          <p className="mt-1 text-xs text-mist">Somente pedidos externos já autorizados. Verificar andamento usa a mesma chave do pedido; não cria nova autorização.</p>
+          {externalJobsQuery.isError&&<p className="mt-2 text-danger">Histórico externo indisponível. Consulte o painel antes de qualquer nova renovação.</p>}
+          {externalJobsQuery.isLoading&&<p className="mt-2 text-mist">Verificando pedidos…</p>}
+          {(externalJobsQuery.data??[]).length===0&&!externalJobsQuery.isLoading&&
+            <p className="mt-2 text-xs text-mist">Nenhum pedido externo pendente ou em revisão.</p>}
+          <div className="mt-2 space-y-2">
+            {(externalJobsQuery.data??[]).map(job=><div key={job.id} className="rounded-lg bg-background/70 p-3 ring-1 ring-line">
+              <p className="font-semibold">{job.client_name} · {job.login} · {job.server}</p>
+              <p className="mt-1 text-xs text-mist">Estado: {job.state} · vencimento anterior: {formatDate(job.expected_due_date)}</p>
+              {job.external_message&&<p className="mt-1 text-xs text-warn">{job.external_message}</p>}
+              {["created","waiting","uncertain","external_confirmed"].includes(job.state)&&
+                <button type="button" disabled={renewingBusy||!job.client_id}
+                  onClick={()=>void verifyExternalPilotJob(job)}
+                  className="mt-2 min-h-9 rounded-lg bg-panel2 px-3 text-xs font-semibold text-cyan ring-1 ring-line disabled:opacity-40">
+                  {renewingBusy?"Verificando…":"Verificar andamento (mesma chave)"}
+                </button>}
+            </div>)}
+          </div>
+        </section>}
+
         {clientsQuery.isLoading ? (
           <p className="mt-6 text-sm text-mist">Carregando clientes…</p>
         ) : filtered.length === 0 ? (
@@ -890,6 +961,10 @@ function Painel() {
                     <div className="mt-3 flex items-stretch gap-2 xl:mt-0">
                       <button
                         type="button"
+                        disabled={PANEL_PILOT_UI_ENABLED&&(externalJobsQuery.isLoading||externalJobsQuery.isError||
+                          (externalJobsQuery.data??[]).some(job=>job.client_id===c.id
+                            &&job.expected_due_date===c.due_date
+                            &&["created","waiting","uncertain","external_confirmed","needs_review"].includes(job.state)))}
                         onClick={() => renew(c)}
                         className="font-display flex min-h-11 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl bg-cyan/15 px-2 text-sm font-semibold text-cyan ring-1 ring-cyan/30 hover:bg-cyan/25"
                       >
