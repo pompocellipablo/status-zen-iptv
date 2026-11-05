@@ -1,7 +1,7 @@
 import {describe,it} from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
-import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO,financialTransitionError} from "./painel-recarga";
+import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO,financialTransitionError,confirmedRenewalDatesFromPanel} from "./painel-recarga";
 
 describe("Painel Recarga integration guardrails",()=>{
   it("maps only documented IPTV panels",()=>{
@@ -108,5 +108,55 @@ describe("Persistent simulation idempotency contract (static guards)",()=>{
   it("keeps external renewals disabled by their own explicit server-side switch",()=>{
     assert.match(edge,/PAINEL_RECARGA_LIVE_ENABLED/);
     assert.match(edge,/mode==="simulate"\|\|mode==="check_simulation"/);
+  });
+});
+
+describe("Provider-authoritative renewal dates (no actual payments)",()=>{
+  const due="2026-11-10";
+  const client={due_date:due,financial_due_date:due};
+  const monthly={months:1,dueDate:"2026-12-10",financialDueDate:"2026-12-10",paymentAmount:35,monthlyPaid:35,paymentCost:6};
+  const check=(c:typeof client,v:typeof monthly,newDue:string,prev:string|undefined=due)=>
+    confirmedRenewalDatesFromPanel(c,v,newDue,prev,"2026-11-05");
+  it("monthly with equal dates follows the panel's actual new expiry for BOTH dates",()=>{
+    assert.deepEqual(check(client,monthly,"15/12/2026 16:00:00"),{
+      dueDate:"2026-12-15",financialDueDate:"2026-12-15",blockedReason:null,
+    });
+  });
+  it("a paid 6-month package starts with one provider cycle and 6 total months",()=>{
+    const semi={...monthly,months:6,dueDate:"2026-12-10",financialDueDate:"2027-05-10",paymentAmount:175};
+    assert.deepEqual(check(client,semi,"10/12/2026 09:00:00"),{
+      dueDate:"2026-12-10",financialDueDate:"2027-05-10",blockedReason:null,
+    });
+    assert.deepEqual(check(client,semi,"15/12/2026 09:00:00"),{
+      dueDate:"2026-12-15",financialDueDate:"2027-05-15",blockedReason:null,
+    });
+  });
+  it("a 12-month package advances finance without renewing 12 provider cycles",()=>{
+    const year={...monthly,months:12,financialDueDate:"2027-11-10",paymentAmount:310};
+    const result=check(client,year,"10/12/2026 09:00:00");
+    assert.equal(result.dueDate,"2026-12-10");
+    assert.equal(result.financialDueDate,"2027-11-10");
+  });
+  it("keeps the existing month-end anchor when actual panel date matches projection",()=>{
+    const end={due_date:"2027-01-31",financial_due_date:"2027-01-31"};
+    const plan={...monthly,months:6,dueDate:"2027-02-28",financialDueDate:"2027-07-31",paymentAmount:175};
+    const result=confirmedRenewalDatesFromPanel(end,plan,"28/02/2027 00:00:00","31/01/2027 00:00:00","2027-01-20");
+    assert.equal(result.financialDueDate,"2027-07-31");
+  });
+  it("preserves already-paid financial coverage without another payment",()=>{
+    const prepaid={due_date:"2026-11-10",financial_due_date:"2027-03-10"};
+    const values={...monthly,paymentAmount:0,monthlyPaid:0,paymentCost:0,financialDueDate:"2027-03-10"};
+    assert.deepEqual(check(prepaid,values,"15/12/2026 09:00:00"),{
+      dueDate:"2026-12-15",financialDueDate:"2027-03-10",blockedReason:null,
+    });
+    assert.match(check(prepaid,values,"15/04/2027 09:00:00").blockedReason??"",/ultrapassa/);
+    assert.match(check(prepaid,{...values,paymentAmount:35},"15/12/2026 09:00:00").blockedReason??"",/Pacote já pago/);
+  });
+  it("blocks a mismatch between confirmed previous expiry and local state",()=>{
+    assert.match(check(client,monthly,"10/12/2026 09:00:00","09/11/2026 09:00:00").blockedReason??"",/difere/);
+  });
+  it("blocks invalid/missing provider expiry and technical date that did not advance",()=>{
+    assert.ok(check(client,monthly,"not-a-date").blockedReason);
+    assert.ok(check(client,monthly,"10/11/2026 12:00:00").blockedReason);
   });
 });
