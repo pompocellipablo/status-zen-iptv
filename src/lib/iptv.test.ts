@@ -1,6 +1,6 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { isPackageCovered, renewalDates, renewalMessageLink, type Client } from "./iptv";
+import { isPackageCovered, planPanelDateCorrection, renewalDates, renewalMessageLink, type Client } from "./iptv";
 
 describe("datas da renovação", () => {
   const renewalDay = new Date(2026, 8, 27);
