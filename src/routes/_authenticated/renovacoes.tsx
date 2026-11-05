@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { paginateClients } from "@/lib/client-pagination";
+import { panelRouteForClient } from "@/lib/painel-recarga";
 import { sortClients, type ClientSortMode } from "@/lib/client-sort";
 import { MessageCircle, MoreHorizontal, RefreshCw, Search } from "lucide-react";
 import {
@@ -43,6 +44,10 @@ import {
   toCSV,
   type Client,
 } from "@/lib/iptv";
+
+// Disabled by default. Enabling this UI alone does NOT enable real provider
+// renewals; the Edge Function has a separate server-side safety switch.
+const PANEL_PILOT_UI_ENABLED = import.meta.env.VITE_MAXFLIX_PANEL_PILOT === "true";
 
 export const Route = createFileRoute("/_authenticated/renovacoes")({
   validateSearch: (search: Record<string, unknown>): { tab: Tab; access?: string; server?: string } => {
@@ -439,6 +444,77 @@ function Painel() {
     setRenewing(client);
   };
 
+  const confirmPanelPilot=async (
+    client:Client,
+    opts:{months:number;cost:number;paid:number;monthlyCost:number;monthlyPaid:number},
+  )=>{
+    if(!PANEL_PILOT_UI_ENABLED||!panelRouteForClient(client.server))return;
+    if(renewingBusy)return;
+    if(client.access_type==="gratuidade"||client.access_type==="meu_acesso"){
+      setNotice("Acesso gratuito: o fluxo de piloto não registra mensalidade. Continue usando a renovação manual.");
+      return;
+    }
+    const {dueDate,financialDueDate}=renewalDates(client.due_date,opts.months);
+    const covered=!!client.financial_due_date&&client.financial_due_date>client.due_date;
+    const summary=[
+      "PILOTO SUPERVISIONADO — Painel Recarga",
+      "Cliente: "+client.name+" ("+client.login+")",
+      "Servidor: "+client.server,
+      "Acesso atual: "+formatDate(client.due_date),
+      "Acesso projetado: "+formatDate(dueDate)+" (a data real virá do painel)",
+      "Financeiro projetado: "+formatDate(covered?client.financial_due_date:financialDueDate),
+      "Pagamento nesta renovação: "+formatBRL(covered?0:opts.paid),
+      "Ciclos no servidor: 1",
+      "",
+      "Esta confirmação pode gerar UMA RENOVAÇÃO REAL se a função estiver habilitada.",
+      "Confirma o envio deste cliente específico?",
+    ].join("\n");
+    if(!window.confirm(summary))return;
+    const values={
+      months:covered?1:opts.months,
+      dueDate,financialDueDate:covered?client.financial_due_date!:financialDueDate,
+      cost:opts.monthlyCost,monthlyPaid:covered?0:opts.monthlyPaid,
+      prevPaid:covered?client.prev_paid:(opts.months>1?client.prev_paid||client.paid:opts.monthlyPaid),
+      paymentAmount:covered?0:opts.paid,paymentCost:covered?0:opts.cost,
+    };
+    setRenewingBusy(true);
+    try{
+      const {data,error}=await supabase.functions.invoke("painel-recarga-renovar",{
+        body:{mode:"renew",confirm:true,clientId:client.id,
+          expectedDueDate:client.due_date,options:values},
+      });
+      let result=data as {
+        renewed?:boolean;pending?:boolean;needsReview?:boolean;
+        disabled?:boolean;message?:string;dueDate?:string;financialDueDate?:string;
+      }|null;
+      if(error){
+        const context=(error as {context?:unknown}).context;
+        if(context instanceof Response){try{result=await context.json();}catch{/* No JSON */}}
+      }
+      if(result?.renewed){
+        await Promise.all([
+          qc.invalidateQueries({queryKey:["clients"]}),
+          qc.invalidateQueries({queryKey:["payments"]}),
+          qc.invalidateQueries({queryKey:["server-credit-movements"]}),
+        ]);
+        setNotice(client.name+": renovação confirmada no painel e registrada na MaxFlix. "
+          +"Técnico "+formatDate(result.dueDate??dueDate)
+          +", financeiro "+formatDate(result.financialDueDate??financialDueDate)+".");
+      }else if(result?.disabled){
+        setNotice("Piloto permanece bloqueado no servidor. Nenhum pedido real enviado.");
+      }else{
+        setNotice(client.name+": "+(result?.message??error?.message??"Resposta não conclusiva")
+          +" — confira o mesmo pedido no Painel Recarga antes de qualquer novo clique.");
+      }
+      setRenewing(null);
+    }catch(error){
+      setNotice(client.name+": resultado da renovação externa desconhecido. "
+        +"Não faça uma segunda renovação sem consultar o pedido original. "
+        +(error instanceof Error?error.message:""));
+      setRenewing(null);
+    }finally{setRenewingBusy(false);}
+  };
+
   const confirmRenew = async (
     client: Client,
     opts: { months: number; cost: number; paid: number; monthlyCost: number; monthlyPaid: number },
@@ -819,6 +895,19 @@ function Painel() {
                       >
                         <RefreshCw size={15} aria-hidden="true" /> Renovar
                       </button>
+                      {PANEL_PILOT_UI_ENABLED&&panelRouteForClient(c.server)&&(
+                        <button type="button" disabled={renewingBusy}
+                          onClick={()=>{
+                            const next=nextDueDate(c.due_date);
+                            if(c.financial_due_date && c.financial_due_date>=next){
+                              const monthlyCost=c.cost||c.prev_cost||SERVER_COSTS[c.server]||0;
+                              void confirmPanelPilot(c,{months:1,cost:0,paid:0,monthlyCost,monthlyPaid:0});
+                            }else setRenewing(c);
+                          }}
+                          className="font-display min-h-11 rounded-xl bg-panel2 px-2 text-xs font-semibold text-warn ring-1 ring-warn/30 disabled:opacity-50">
+                          Painel (piloto)
+                        </button>
+                      )}
                       <a
                         href={renewalMessageLink(c, template, overdueTemplate)}
                         target="_blank"
@@ -950,6 +1039,8 @@ function Painel() {
           saving={renewingBusy}
           onCancel={() => setRenewing(null)}
           onConfirm={(opts) => confirmRenew(renewing, opts)}
+          onConfirmPilot={PANEL_PILOT_UI_ENABLED&&panelRouteForClient(renewing.server)
+            ?(opts)=>confirmPanelPilot(renewing,opts):undefined}
         />
       )}
 
@@ -1280,6 +1371,7 @@ function RenewDialog({
   saving,
   onCancel,
   onConfirm,
+  onConfirmPilot,
 }: {
   client: Client;
   saving: boolean;
@@ -1291,6 +1383,9 @@ function RenewDialog({
     monthlyCost: number;
     monthlyPaid: number;
   }) => void | Promise<void>;
+  onConfirmPilot?: (opts: {
+    months:number;cost:number;paid:number;monthlyCost:number;monthlyPaid:number;
+  })=>void|Promise<void>;
 }) {
   const defaultCost = client.cost || client.prev_cost || SERVER_COSTS[client.server] || 0;
   const defaultPaid = client.paid || client.prev_paid || 0;
@@ -1388,6 +1483,14 @@ function RenewDialog({
           )}
         </div>
 
+        {onConfirmPilot&&<div className="mt-4 rounded-xl bg-warn/10 p-3 text-xs text-warn ring-1 ring-warn/25">
+          <p>O piloto envia somente 1 ciclo ao Painel Recarga e usa o vencimento real confirmado. O financeiro segue o período pago. Exige sua confirmação.</p>
+          <Button type="button" variant="outline" disabled={!validMonths||saving||paidValue<=0}
+            onClick={()=>void onConfirmPilot({months,cost:totalCost,paid:paidValue,monthlyCost,monthlyPaid})}
+            className="mt-3 w-full rounded-xl text-warn ring-1 ring-warn/30">
+            Renovar também no Painel Recarga (piloto)
+          </Button>
+        </div>}
         <div className="mt-5 flex gap-3">
           <Button
             type="button"
