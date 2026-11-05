@@ -92,7 +92,7 @@ describe("Persistent simulation idempotency contract (static guards)",()=>{
   const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
   const migration=readFileSync(new URL("../../supabase/migrations/20261105110000_external_simulation_jobs.sql",import.meta.url),"utf8");
   it("never invents a new key for an existing queued simulation",()=>{
-    assert.match(edge,/idempotency_key:simulationJob\.idempotency_key/);
+    assert.match(edge,/"Idempotency-Key":simulationJob\.idempotency_key/);
     assert.match(edge,/\.in\("state",\["created","waiting","uncertain"\]\)/);
     assert.match(edge,/mode==="check_simulation"/);
     const simBranch=edge.slice(edge.indexOf('// SIMULATIONS ONLY:'),edge.indexOf('if(Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")'));
