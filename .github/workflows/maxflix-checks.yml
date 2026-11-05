@@ -1,0 +1,36 @@
+name: MaxFlix — testes e build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: maxflix-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Testes seguros e compilação
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout sem credenciais persistentes
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Preparar Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Instalar dependências do lockfile
+        run: bun install --frozen-lockfile
+
+      - name: Validar vencimentos, auditoria e Painel Recarga
+        run: bun test src/lib/iptv.test.ts src/lib/server-panel-audit.test.ts src/lib/painel-recarga.test.ts
+
+      - name: Compilar a aplicação (sem deploy)
+        run: bun run build
