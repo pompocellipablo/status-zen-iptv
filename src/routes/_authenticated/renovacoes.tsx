@@ -1489,6 +1489,143 @@ function TemplateDialog({
   );
 }
 
+/**
+ * Safe renewal preview: only calls mode=preflight.
+ * It cannot create provider requests, payments, credits or date changes.
+ */
+function PreflightDialog({client,onClose}:{client:Client;onClose:()=>void}) {
+  const prepaid=!!client.financial_due_date&&client.financial_due_date>client.due_date;
+  const [months,setMonths]=useState(1);
+  const [paid,setPaid]=useState(String(client.paid||client.prev_paid||0).replace(".",","));
+  const [cost,setCost]=useState(String(client.cost||client.prev_cost||SERVER_COSTS[client.server]||0).replace(".",","));
+  const [busy,setBusy]=useState(false);
+  const [outcome,setOutcome]=useState<{ok:boolean;message:string}|null>(null);
+  const period=prepaid?1:months;
+  const validMonths=Number.isInteger(period)&&period>=1&&period<=120;
+  const dates=renewalDates(client.due_date,validMonths?period:1);
+  const technicalDue=dates.dueDate;
+  const financialDue=prepaid?(client.financial_due_date??dates.financialDueDate):dates.financialDueDate;
+  const charged=prepaid?0:num(paid);
+  const monthlyCost=num(cost);
+  const blockedCoverage=prepaid&&financialDue<technicalDue;
+  const inspect=async()=>{
+    if(busy||!validMonths)return;
+    setOutcome(null);
+    setBusy(true);
+    const options={
+      months:period,dueDate:technicalDue,financialDueDate:financialDue,
+      cost:monthlyCost,
+      monthlyPaid:prepaid||period>1?0:charged,
+      prevPaid:prepaid?client.prev_paid:(period>1?client.prev_paid||client.paid:charged),
+      paymentAmount:charged,
+      paymentCost:prepaid?0:monthlyCost*period,
+    };
+    try {
+      const {data,error}=await supabase.functions.invoke("painel-recarga-renovar",{
+        body:{mode:"preflight",clientId:client.id,
+          expectedDueDate:client.due_date,options},
+      });
+      let response=data as {
+        ok?:boolean;previewOnly?:boolean;providerRequestSent?:boolean;message?:string;
+        estimatedDueDate?:string;estimatedFinancialDueDate?:string;paymentAmount?:number;
+      }|null;
+      if(error){
+        const context=(error as {context?:unknown}).context;
+        if(context instanceof Response){
+          try{response=await context.json();}catch{/* fall back to error */}
+        }
+      }
+      const approved=!error&&response?.ok===true&&response.previewOnly===true
+        &&response.providerRequestSent===false
+        &&response.estimatedDueDate===technicalDue
+        &&response.estimatedFinancialDueDate===financialDue
+        &&response.paymentAmount===charged;
+      setOutcome({ok:approved,message:approved
+        ?"Pré-validação aprovada. Nenhuma renovação, cobrança ou consumo de crédito foi realizado."
+        :(response?.message??error?.message??"Pré-validação segura indisponível.")});
+    }catch(error){
+      setOutcome({ok:false,message:error instanceof Error?error.message:"Pré-validação indisponível."});
+    }finally{setBusy(false);}
+  };
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-background/85 p-4 backdrop-blur-sm">
+      <section role="dialog" aria-modal="true" aria-label="Pré-validar renovação"
+        className="mx-auto my-6 max-w-md rounded-2xl bg-panel2 p-5 ring-1 ring-line sm:p-6">
+        <h2 className="font-display text-lg font-semibold">Pré-validar renovação</h2>
+        <p className="mt-1 break-words text-sm text-mist">{client.name} · {client.login} · {client.server}</p>
+        <p className="mt-3 rounded-lg bg-panel px-3 py-2 text-xs text-cyan ring-1 ring-cyan/20">
+          Somente leitura: não renova no servidor, não cobra e não desconta créditos.
+        </p>
+        {prepaid?(
+          <div className="mt-4 rounded-lg bg-panel p-3 text-sm ring-1 ring-line">
+            <p className="font-medium text-frost">Pacote já pago</p>
+            <p className="mt-1 text-xs text-mist">Um ciclo técnico previsto; financeiro preservado e nenhum novo pagamento.</p>
+          </div>
+        ):(
+          <div className="mt-4">
+            <p className="text-xs font-semibold text-mist">Quantidade de meses contratados</p>
+            <div className="mt-2 grid grid-cols-5 gap-1.5">
+              {[1,2,3,6,12].map(m=><button key={m} type="button"
+                disabled={busy} aria-pressed={months===m}
+                onClick={()=>{setMonths(m);setOutcome(null);}}
+                className={months===m
+                  ?"min-h-10 rounded-lg bg-cyan/15 text-sm font-semibold text-cyan ring-1 ring-cyan/40"
+                  :"min-h-10 rounded-lg bg-panel text-sm text-mist ring-1 ring-line"}>
+                {m}
+              </button>)}
+            </div>
+            <label className="mt-3 block text-xs text-mist" htmlFor="preview-months">Meses</label>
+            <input id="preview-months" type="number" min={1} max={120} step={1}
+              disabled={busy} value={months}
+              onChange={e=>{setMonths(Number(e.target.value));setOutcome(null);}}
+              className="mt-1 w-full rounded-lg bg-panel px-3 py-2 text-sm ring-1 ring-line" />
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-mist" htmlFor="preview-paid">Valor pago (total)</label>
+                <input id="preview-paid" inputMode="decimal" disabled={busy} value={paid}
+                  onChange={e=>{setPaid(e.target.value);setOutcome(null);}}
+                  className="mt-1 w-full rounded-lg bg-panel px-3 py-2 text-sm ring-1 ring-line" />
+              </div>
+              <div>
+                <label className="text-xs text-mist" htmlFor="preview-cost">Custo por ciclo</label>
+                <input id="preview-cost" inputMode="decimal" disabled={busy} value={cost}
+                  onChange={e=>{setCost(e.target.value);setOutcome(null);}}
+                  className="mt-1 w-full rounded-lg bg-panel px-3 py-2 text-sm ring-1 ring-line" />
+              </div>
+            </div>
+          </div>
+        )}
+        <div className="mt-4 space-y-2 rounded-lg bg-panel px-3 py-3 text-sm ring-1 ring-line">
+          <p className="text-xs font-semibold text-mist">Previsão sem renovação</p>
+          <div className="flex justify-between gap-3"><span className="text-mist">Técnico atual</span><span>{formatDate(client.due_date)}</span></div>
+          <div className="flex justify-between gap-3"><span className="text-mist">Financeiro atual</span><span>{formatDate(client.financial_due_date)}</span></div>
+          <div className="flex justify-between gap-3"><span className="text-mist">Técnico projetado</span><span>{formatDate(technicalDue)}</span></div>
+          <div className="flex justify-between gap-3"><span className="text-mist">Financeiro projetado</span><span>{formatDate(financialDue)}</span></div>
+          <div className="flex justify-between gap-3"><span className="text-mist">Pagamento previsto</span><span>{formatBRL(charged)}</span></div>
+          <p className="pt-1 text-xs text-mist">Um ciclo técnico. A data definitiva do painel será conhecida somente numa renovação real futura.</p>
+        </div>
+        {blockedCoverage&&<p className="mt-3 text-xs text-warn">Cobertura financeira insuficiente para o próximo ciclo. Corrija antes de renovar.</p>}
+        {outcome&&<p role="status" className={outcome.ok
+          ?"mt-3 rounded-lg bg-ok/10 px-3 py-2 text-sm text-ok"
+          :"mt-3 rounded-lg bg-warn/10 px-3 py-2 text-sm text-warn"}>
+          {outcome.ok?"Aprovado: ":"Revisão necessária: "}{outcome.message}
+        </p>}
+        <div className="mt-5 flex flex-wrap gap-2">
+          <Button type="button" disabled={busy||!validMonths}
+            onClick={()=>void inspect()}
+            className="min-h-11 flex-1 rounded-lg bg-cyan font-semibold text-background disabled:opacity-40">
+            {busy?"Conferindo…":"Pré-validar sem renovar"}
+          </Button>
+          <Button type="button" variant="outline" disabled={busy} onClick={onClose}
+            className="min-h-11 rounded-lg bg-panel px-4 ring-1 ring-line">
+            Fechar
+          </Button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function RenewDialog({
   client,
   saving,
