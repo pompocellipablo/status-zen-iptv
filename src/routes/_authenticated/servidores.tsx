@@ -1,9 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, CalendarClock, CheckCircle2, CircleAlert, FileSearch, Search, Server, ShieldCheck, Upload, Users, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { SERVERS, formatDate, getStatus, type Client } from "@/lib/iptv";
+import { SERVERS, formatDate, getStatus, planPanelDateCorrection, type Client } from "@/lib/iptv";
 import { auditServerAccounts, parsePanelExport, type ParsedPanelExport, type PanelAuditRow } from "@/lib/server-panel-audit";
 import {panelRouteForClient} from "@/lib/painel-recarga";
 
@@ -54,9 +54,13 @@ function ServersPage() {
   const [importedFile,setImportedFile]=useState<string|null>(null);
   const [importError,setImportError]=useState<string|null>(null);
   const [fullExport,setFullExport]=useState(false);
+  const [showDateChecks,setShowDateChecks]=useState(false);
+  const [correctingId,setCorrectingId]=useState<string|null>(null);
+  const [correctionNotice,setCorrectionNotice]=useState<string|null>(null);
   const [simulatingId,setSimulatingId]=useState<string|null>(null);
   const [simulation,setSimulation]=useState<{clientId:string;ok:boolean;message:string}|null>(null);
 
+  const queryClient=useQueryClient();
   const clientsQuery=useQuery({queryKey:["clients"],queryFn:fetchClients});
   const clients=useMemo(()=>clientsQuery.data??[],[clientsQuery.data]);
   const counts=useMemo(()=>{
@@ -116,9 +120,11 @@ function ServersPage() {
   const choose=(name:string)=>{
     setLocalSelection(name);setMode("todos");setSearch("");setExpanded(false);
     setExported(null);setImportedFile(null);setImportError(null);setFullExport(false);setSimulation(null);
+    setShowDateChecks(false);setCorrectionNotice(null);
   };
   const handleFile=async (file:File|undefined)=>{
     setImportedFile(null);setExported(null);setImportError(null);setFullExport(false);
+    setShowDateChecks(false);setCorrectionNotice(null);
     if(!file)return;
     if(file.size>2_000_000){setImportError("O arquivo excede 2 MB. Exporte apenas os logins deste servidor.");return;}
     try{
@@ -131,6 +137,49 @@ function ServersPage() {
       setExported(parsed);
     }catch(e){
       setImportError(e instanceof Error?e.message:"Não foi possível ler o arquivo.");
+    }
+  };
+
+  const approveDateCorrection=async(row:PanelAuditRow)=>{
+    const client=row.client,account=row.account;
+    if(!client||!account?.expires||correctingId)return;
+    setCorrectionNotice(null);
+    if(client.server!==selected||account.login!==client.login){
+      setCorrectionNotice("Login ou servidor diferente: confira manualmente; nenhuma data foi alterada.");
+      return;
+    }
+    const plan=planPanelDateCorrection(client,account.expires);
+    if(plan.blockedReason){
+      setCorrectionNotice(plan.blockedReason+" Nenhuma data foi alterada.");
+      return;
+    }
+    const message=[
+      "Conferir e aprovar a correção de vencimento:",
+      client.name+" · "+client.server+" · "+client.login,
+      "Acesso MaxFlix: "+formatDate(client.due_date)+" → "+formatDate(plan.dueDate),
+      "Financeiro: "+formatDate(client.financial_due_date)+" → "+formatDate(plan.financialDueDate),
+      plan.preservedFinancial?"A cobertura financeira já paga será preservada.":"As datas eram iguais e continuarão iguais.",
+      "Fonte: lista exportada manualmente. Confira a validade no painel antes de continuar.",
+      "NÃO registra pagamento, renovação no servidor nem movimentação de créditos. Confirmar?",
+    ].join("\n");
+    if(!window.confirm(message))return;
+    setCorrectingId(client.id);
+    try{
+      let request=supabase.from("clients").update({
+        due_date:plan.dueDate,financial_due_date:plan.financialDueDate,
+      }).eq("id",client.id).eq("server",selected).eq("login",client.login).eq("due_date",client.due_date);
+      request=client.financial_due_date===null
+        ?request.is("financial_due_date",null)
+        :request.eq("financial_due_date",client.financial_due_date);
+      const {data,error}=await request.select("id").maybeSingle();
+      if(error)throw error;
+      if(!data)throw Error("O cadastro foi modificado desde a exportação. Recarregue e confira novamente.");
+      await queryClient.invalidateQueries({queryKey:["clients"]});
+      setCorrectionNotice(client.name+": vencimento conferido e corrigido. Os dados financeiros seguem a regra de cobertura, sem lançar pagamento.");
+    }catch(error){
+      setCorrectionNotice("Correção não realizada: "+(error instanceof Error?error.message:"erro desconhecido")+".");
+    }finally{
+      setCorrectingId(null);
     }
   };
 
@@ -265,8 +314,8 @@ function ServersPage() {
         </div>
         <p className="mt-2 text-xs text-mist">
           Exporte uma lista CSV ou TXT do painel do servidor com a coluna de login. Se houver colunas
-          status e vencimento, podemos apontar também situações e datas divergentes. A comparação
-          ocorre somente no navegador, sem modificar cadastros, pagamentos ou créditos.
+          status e vencimento, podemos apontar também situações e datas divergentes. A comparação ocorre no navegador. Só uma correção de data individual, confirmada por você, pode atualizar
+          o cadastro; nunca registra renovação, pagamento ou consumo de créditos.
         </p>
         <label className="mt-4 flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-cyan/50 bg-cyan/5 px-3 py-3 text-center text-sm font-semibold text-cyan hover:bg-cyan/10">
           <Upload size={18}/> Selecionar lista exportada (.csv ou .txt)
@@ -278,7 +327,7 @@ function ServersPage() {
         {exported&&audit&&<div className="mt-4 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm font-semibold">Arquivo: {importedFile} · {exported.accounts.length} registros</p>
-            <button type="button" onClick={()=>{setExported(null);setImportedFile(null);setFullExport(false);}}
+            <button type="button" onClick={()=>{setExported(null);setImportedFile(null);setFullExport(false);setShowDateChecks(false);setCorrectionNotice(null);}}
               className="flex min-h-9 items-center gap-1 rounded-lg bg-panel2 px-3 text-xs ring-1 ring-line">
               <X size={14}/> Limpar
             </button>
@@ -315,9 +364,48 @@ function ServersPage() {
           <AuditGroup title="Situação ativo/inativo divergente"
             detail="A classificação do painel não corresponde ao vencimento do cadastro; confira antes de alterar."
             rows={audit.statusDifferences} variant="warn"/>
-          <AuditGroup title="Datas de vencimento para revisar"
-            detail="Podem existir diferenças legítimas entre o ciclo MaxFlix e a validade do painel, especialmente em pacotes."
-            rows={audit.dateDifferences}/>
+          {exported.hasExpiry&&<section className="rounded-xl bg-background/60 p-3 ring-1 ring-line" aria-label="Conferir vencimentos">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-semibold">Conferência de vencimentos · {audit.dateDifferences.length}</h3>
+                <p className="mt-1 text-xs text-mist">A data vem do arquivo importado, não de uma consulta direta à API. Confirme cada diferença no painel antes de aceitar.</p>
+              </div>
+              <button type="button" onClick={()=>setShowDateChecks(v=>!v)}
+                className="min-h-10 rounded-xl bg-cyan/15 px-3 text-xs font-semibold text-cyan ring-1 ring-cyan/40">
+                {showDateChecks?"Ocultar datas":"Conferir datas"}
+              </button>
+            </div>
+            {correctionNotice&&<p role="status" className="mt-3 rounded-lg bg-panel p-3 text-xs text-frost ring-1 ring-line">{correctionNotice}</p>}
+            {showDateChecks&&<div className="mt-3 max-h-[36rem] space-y-3 overflow-y-auto">
+              {audit.dateDifferences.length===0&&<p className="text-xs text-ok">Nenhuma divergência de datas nas contas com login correspondente.</p>}
+              {audit.dateDifferences.map((r,index)=>{
+                const client=r.client,account=r.account;
+                if(!client||!account?.expires)return null;
+                const plan=planPanelDateCorrection(client,account.expires);
+                const exactLogin=account.login===client.login;
+                const canApprove=exactLogin&&!plan.blockedReason&&correctingId===null;
+                return <article key={client.id+"-"+index} className="rounded-lg bg-panel p-3 ring-1 ring-line">
+                  <p className="break-words text-sm font-semibold">{client.name}</p>
+                  <p className="mt-1 break-all text-xs text-mist">{client.login} · {selected}</p>
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                    <p>MaxFlix: <strong>{formatDate(client.due_date)}</strong></p>
+                    <p>Painel: <strong>{formatDate(account.expires)}</strong></p>
+                    <p>Financeiro atual: <strong>{formatDate(client.financial_due_date)}</strong></p>
+                    <p>Após aprovação: <strong>{formatDate(plan.financialDueDate)}</strong></p>
+                  </div>
+                  <p className="mt-2 text-xs text-mist">
+                    {plan.preservedFinancial?"Cobertura financeira mantida; somente o acesso será corrigido.":"As duas datas serão corrigidas juntas, porque eram iguais."}
+                  </p>
+                  {!exactLogin&&<p className="mt-2 text-xs text-warn">Login não idêntico (maiúsculas/minúsculas). Correção automática bloqueada.</p>}
+                  {plan.blockedReason&&<p className="mt-2 text-xs text-warn">{plan.blockedReason}</p>}
+                  <button type="button" disabled={!canApprove} onClick={()=>void approveDateCorrection(r)}
+                    className="mt-3 min-h-10 rounded-lg bg-cyan/15 px-3 text-xs font-semibold text-cyan ring-1 ring-cyan/30 disabled:cursor-not-allowed disabled:opacity-40">
+                    {correctingId===client.id?"Conferindo…":"Aprovar correção deste cliente"}
+                  </button>
+                </article>;
+              })}
+            </div>}
+          </section>}
           {(audit.duplicatePanel.length>0||audit.duplicateMaxflix.length>0)&&<div className="rounded-xl bg-warn/10 p-3 text-xs text-warn ring-1 ring-warn/30">
             <p className="font-semibold">Logins duplicados ou ambíguos:</p>
             {audit.duplicatePanel.length>0&&<p>Painel: {audit.duplicatePanel.join(", ")}</p>}
@@ -326,8 +414,8 @@ function ServersPage() {
           </div>}
           <div className="flex items-start gap-2 rounded-lg bg-background/55 p-3 text-xs text-mist ring-1 ring-line">
             <ShieldCheck size={18} className="shrink-0 text-ok"/>
-            Nenhuma divergência gera exclusão, renovação, alteração de vencimento ou cobrança automática.
-            Faça a conferência manual antes de corrigir qualquer registro.
+            A comparação nunca altera dados automaticamente. Correções individuais exigem sua confirmação
+            e não geram cobrança ou consumo de crédito. Datas no passado, cobertura ultrapassada e logins ambíguos ficam bloqueados.
           </div>
         </div>}
       </section>
