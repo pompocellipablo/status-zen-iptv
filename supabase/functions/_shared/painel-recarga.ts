@@ -83,6 +83,16 @@ export function confirmedRenewalDatesFromPanel(
   if(!Number.isInteger(values.months)||values.months<1||values.months>120)
     return blocked("Quantidade de meses inválida.");
 
+  // A provider cycle represents roughly one month, not an unlimited period.
+  // When the account has already expired, providers can restart its 30-day
+  // cycle from payment day; for an early renewal the next cycle starts from
+  // the existing expiration. Accept calendar months plus a generous buffer,
+  // but never let a surprising one-cycle response advance finance by a year.
+  const anchor=client.due_date>todayISO?client.due_date:todayISO;
+  const maxOneCycle=addDaysISO(anchor,45);
+  if(!maxOneCycle||newDue>maxOneCycle)
+    return blocked("O painel informou vencimento muito distante para apenas um ciclo. Verifique manualmente antes de registrar.");
+
   // The previous expiry is not mandatory in the provider response. If present,
   // it must corroborate the MaxFlix state; otherwise manual reconciliation.
   if(providerPreviousDue!==undefined){
@@ -121,6 +131,14 @@ export function confirmedRenewalDatesFromPanel(
   if(!financialDue || financialDue<newDue)
     return blocked("Não foi possível calcular a cobertura do pacote com segurança.");
   return {dueDate:newDue,financialDueDate:financialDue,blockedReason:null};
+}
+
+function addDaysISO(value:string,days:number):string|null {
+  const parsed=panelDateToISO(value);
+  if(!parsed||!Number.isInteger(days)||days<0||days>365)return null;
+  const [year,month,day]=parsed.split("-").map(Number);
+  const next=new Date(Date.UTC(year!,month!-1,day!+days));
+  return next.toISOString().slice(0,10);
 }
 
 function addMonthsISO(value:string,months:number):string|null {
