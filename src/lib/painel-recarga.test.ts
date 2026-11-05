@@ -174,3 +174,33 @@ describe("Provider-authoritative renewal dates (no actual payments)",()=>{
     assert.ok(check(client,monthly,"10/11/2026 12:00:00").blockedReason);
   });
 });
+
+describe("Atomic settlement of confirmed external renewal (contract guards)",()=>{
+  const sql=readFileSync(new URL("../../supabase/migrations/20261105152000_atomic_external_renewal_sync.sql",import.meta.url),"utf8");
+  const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
+  it("only posts a locally confirmed order into one database RPC transaction",()=>{
+    assert.match(sql,/CREATE OR REPLACE FUNCTION public\.sync_external_renewal_job/);
+    assert.match(sql,/SECURITY INVOKER/);
+    assert.match(sql,/IF v_job\.state <> 'external_confirmed'/);
+    assert.match(sql,/WHERE id = p_job_id\s+FOR UPDATE/);
+    assert.match(sql,/WHERE id = v_job\.client_id FOR UPDATE/);
+    assert.match(sql,/IF v_job\.state = 'synced'/);
+    assert.match(sql,/INSERT INTO public\.payments/);
+    assert.match(sql,/INSERT INTO public\.server_credit_movements/);
+    assert.match(sql,/state='synced'/);
+  });
+  it("syncs by job ID instead of re-sending browser-provided financial values",()=>{
+    const sync=edge.slice(edge.indexOf("  const syncLocal=async()=>{"),edge.indexOf('  if(job.state==="synced")'));
+    assert.match(sync,/userDb\.rpc\("sync_external_renewal_job"/);
+    assert.match(sync,/p_job_id:jobId/);
+    assert.doesNotMatch(sync,/renew_client_with_credit/);
+    assert.doesNotMatch(sync,/p_payment_amount:/);
+  });
+  it("refuses anonymous call, unconfirmed provider job and prepaid double payment",()=>{
+    assert.match(sql,/REVOKE EXECUTE ON FUNCTION public\.sync_external_renewal_job\(uuid\) FROM PUBLIC, anon, authenticated/);
+    assert.match(sql,/auth\.uid\(\)/);
+    assert.match(sql,/IF v_payment_amount <> 0/);
+    assert.match(sql,/v_job\.financial_due_date <> v_client\.financial_due_date/);
+    assert.match(sql,/v_job\.new_due_date <= v_client\.due_date/);
+  });
+});
