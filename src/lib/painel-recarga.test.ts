@@ -376,8 +376,16 @@ describe("First real panel pilot is restricted to one backend-approved customer"
     assert.ok(gate>0&&jobs>gate);
     const guard=edge.slice(gate,jobs);
     assert.match(guard,/PAINEL_RECARGA_PILOT_CLIENT_ID/);
+    assert.match(guard,/PAINEL_RECARGA_PILOT_EXPECTED_DUE_DATE/);
     assert.match(guard,/allowedPilotId!==customer\.id/);
+    assert.match(guard,/allowedExpectedDue!==expected/);
+    assert.match(guard,/customer\.financial_due_date!==customer\.due_date/);
     assert.match(guard,/return reply\(403,/);
+  });
+  it("first pilot rejects prepaid packages or multiple paid cycles",()=>{
+    const block=edge.slice(edge.indexOf('if(mode==="renew"&&!job){'),edge.indexOf('// The API cycles are not the same as months'));
+    assert.match(block,/values\.months!==1/);
+    assert.match(block,/values\.paymentAmount<=0/);
   });
   it("continues to permit status checking of older authorized jobs",()=>{
     const gate=edge.slice(edge.indexOf('// SINGLE-CLIENT LIVE PILOT'),edge.indexOf('// For live operations, persist a stable idempotency key'));
