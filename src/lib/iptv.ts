@@ -120,6 +120,15 @@ export function getStatus(client: Client, base = today()): Status {
 }
 
 /**
+ * Only current/non-overdue customers are eligible for automatic read-only
+ * panel audits. Expired customers remain in MaxFlix and may be inspected
+ * individually; never delete customer or server data during an audit.
+ */
+export function isPanelAuditEligible(client:Pick<Client,"due_date">,base=today()):boolean {
+  return daysUntil(client.due_date,base)>=0;
+}
+
+/**
  * True when the client already paid a package that covers beyond the current
  * monthly cycle. In those months the paid amount is 0 (nothing is charged),
  * but the server credit cost keeps being deducted.
