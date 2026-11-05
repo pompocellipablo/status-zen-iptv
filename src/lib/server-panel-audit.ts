@@ -129,9 +129,12 @@ export function auditServerAccounts(clients: readonly Client[], exported: readon
     const c=client[0];
     if(!c)continue;
     const active=getStatus(c).key!=="vencido";
-    if((a.status==="active"&&!active)||(a.status==="inactive"&&active)) res.statusDifferences.push({login:c.login,client:c,account:a});
-    else if(a.expires && a.expires!==c.due_date) res.dateDifferences.push({login:c.login,client:c,account:a});
-    else res.matching++;
+    const statusMismatch=(a.status==="active"&&!active)||(a.status==="inactive"&&active);
+    const dateMismatch=!!a.expires && a.expires!==c.due_date;
+    // A status discrepancy must never hide a date discrepancy for the same account.
+    if(statusMismatch)res.statusDifferences.push({login:c.login,client:c,account:a});
+    if(dateMismatch)res.dateDifferences.push({login:c.login,client:c,account:a});
+    if(!statusMismatch&&!dateMismatch)res.matching++;
   }
   for(const [key,records] of apps){
     const c=records[0];
