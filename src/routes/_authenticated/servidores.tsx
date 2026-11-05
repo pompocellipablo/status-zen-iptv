@@ -35,10 +35,10 @@ async function fetchClients():Promise<Client[]> {
  * Edge Function. Never changes a provider account or local payment/credit.
  * Never infer a date from "vencimento_novo".
  */
-async function inspectClientOnPanel(client:Client):Promise<DirectCheck> {
+async function inspectClientOnPanel(client:Client,mode:"simulate"|"check_simulation"="simulate"):Promise<DirectCheck> {
   try {
     const {data,error}=await supabase.functions.invoke("painel-recarga-renovar",{
-      body:{mode:"simulate",clientId:client.id,expectedDueDate:client.due_date},
+      body:{mode,clientId:client.id,expectedDueDate:client.due_date},
     });
     let response=data as {simulated?:boolean;dateInspectionSupported?:boolean;panelDueDate?:string|null;outcome?:{status?:string;message?:string};message?:string}|null;
     if(error){
@@ -112,6 +112,19 @@ function ServersPage() {
 
   const queryClient=useQueryClient();
   const clientsQuery=useQuery({queryKey:["clients"],queryFn:fetchClients});
+  // Owner-only table: pending provider requests survive a browser refresh.
+  const pendingJobsQuery=useQuery({
+    queryKey:["panel-simulation-pending"],
+    queryFn:async()=>{
+      const {data,error}=await supabase.from("external_simulation_jobs")
+        .select("client_id,login,server,expected_due_date,state,external_message")
+        .in("state",["created","waiting","uncertain"]);
+      if(error)throw error;
+      return data??[];
+    },
+    staleTime:10_000,
+    refetchOnWindowFocus:true,
+  });
   const clients=useMemo(()=>clientsQuery.data??[],[clientsQuery.data]);
   const counts=useMemo(()=>{
     const grouped=new Map<string,{total:number;active:number;expired:number;today:number;soon:number}>();
@@ -150,33 +163,52 @@ function ServersPage() {
   const batchEligibleClients=serverClients.filter(c=>c.login.trim()&&isPanelAuditEligible(c));
   const expiredExcluded=serverClients.filter(c=>!isPanelAuditEligible(c)).length;
   const missingLoginExcluded=serverClients.filter(c=>isPanelAuditEligible(c)&&!c.login.trim()).length;
-  const directCandidate=batchEligibleClients.find(c=>directChecks[c.id]?.status!=="pending")??null;
-  const lastChecked=lastCheckedId?directChecks[lastCheckedId]:undefined;
+  const persistedPending=useMemo(()=>new Map(
+    (pendingJobsQuery.data??[]).filter(job=>job.client_id).map(job=>[job.client_id!,job])
+  ),[pendingJobsQuery.data]);
+  const auditChecks=useMemo(()=>{
+    const merged={...directChecks};
+    for(const client of serverClients){
+      const job=persistedPending.get(client.id);
+      if(!job)continue;
+      const changed=job.login!==client.login||job.server!==client.server||job.expected_due_date!==client.due_date;
+      merged[client.id]={
+        server:client.server,login:client.login,panelDue:null,status:"pending",
+        message:changed
+          ?"Há consulta pendente com login, servidor ou vencimento anterior. Confira a fila antes de reenviar."
+          :job.external_message??"Pedido em andamento. Use Verificar andamento.",
+      };
+    }
+    return merged;
+  },[directChecks,persistedPending,serverClients]);
+  const directCandidate=batchEligibleClients.find(c=>auditChecks[c.id]?.status!=="pending")??null;
+  const lastChecked=lastCheckedId?auditChecks[lastCheckedId]:undefined;
   const lastClient=lastCheckedId?serverClients.find(c=>c.id===lastCheckedId):undefined;
   const reviewedClients=batchEligibleClients.filter(c=>{
-    const r=directChecks[c.id];
+    const r=auditChecks[c.id];
     return r?.server===c.server&&r.login===c.login;
   });
   const outstandingClients=batchEligibleClients.filter(c=>{
-    const r=directChecks[c.id];
+    const r=auditChecks[c.id];
     return !r||r.server!==c.server||r.login!==c.login;
   });
-  const changedClients=reviewedClients.filter(c=>directChecks[c.id]?.status==="different");
-  const sameCount=reviewedClients.filter(c=>directChecks[c.id]?.status==="same").length;
-  const unavailableCount=reviewedClients.filter(c=>directChecks[c.id]?.status==="unavailable").length;
-  const pendingClients=reviewedClients.filter(c=>directChecks[c.id]?.status==="pending");
-  const failedClients=reviewedClients.filter(c=>directChecks[c.id]?.status==="failed");
+  const changedClients=reviewedClients.filter(c=>auditChecks[c.id]?.status==="different");
+  const sameCount=reviewedClients.filter(c=>auditChecks[c.id]?.status==="same").length;
+  const unavailableCount=reviewedClients.filter(c=>auditChecks[c.id]?.status==="unavailable").length;
+  const pendingClients=reviewedClients.filter(c=>auditChecks[c.id]?.status==="pending");
+  const failedClients=reviewedClients.filter(c=>auditChecks[c.id]?.status==="failed");
   const failedCount=failedClients.length;
-  const runSimulation=async(client:Client)=>{
+  const runSimulation=async(client:Client,mode:"simulate"|"check_simulation"="simulate")=>{
     if(simulatingId||batchBusyRef.current||!panelRouteForClient(client.server)
-      ||directChecks[client.id]?.status==="pending")return;
+      ||(mode==="simulate"&&auditChecks[client.id]?.status==="pending"))return;
     setSimulatingId(client.id);
     setSimulation(null);
     try{
-      const check=await inspectClientOnPanel(client);
+      const check=await inspectClientOnPanel(client,mode);
       setDirectChecks(previous=>({...previous,[client.id]:check}));
       setSimulation({clientId:client.id,ok:check.status==="same"||check.status==="different"||check.status==="unavailable",message:check.message});
       setLastCheckedId(client.id);
+      await queryClient.invalidateQueries({queryKey:["panel-simulation-pending"]});
     }finally{setSimulatingId(null);}
   };
   const inspectNextBatch=async()=>{
@@ -195,6 +227,7 @@ function ServersPage() {
         if(batchStopRef.current)break;
         setDirectChecks(previous=>({...previous,[client.id]:result}));
         setBatchProgress(progress=>({...progress,done:progress.done+1}));
+        await queryClient.invalidateQueries({queryKey:["panel-simulation-pending"]});
         if(result.status==="pending"){
           setBatchNotice("Consulta interrompida: existe pedido aguardando sessão ou confirmação no Painel Recarga. Confira a fila antes de reenviar.");
           break;
@@ -406,14 +439,22 @@ function ServersPage() {
                 Parar após a consulta atual
               </button>}
             </div>
-            {batchNotice&&<p role="status" className="mt-2 text-xs text-warn">{batchNotice}</p>}
+            {pendingJobsQuery.isError&&<p role="status" className="mt-2 text-xs text-warn">
+              Histórico de consultas indisponível. Não repita pedidos que possam estar na fila do Painel Recarga.
+            </p>}
+            {batchNotice&&<p role="status" className="mt-2 text-xs text-warn">{batchNotice}</p>
             {pendingClients.length>0&&<section className="mt-3 space-y-2" aria-label="Consultas aguardando sessão">
               <h3 className="text-xs font-semibold text-warn">Aguardando no Painel Recarga · {pendingClients.length}</h3>
-              <p className="text-xs text-mist">O pedido pode ser executado ao reconectar o servidor. Não envie outra simulação até conferir o resultado na fila do Painel Recarga. Este bloqueio é temporário na tela atual.</p>
+              <p className="text-xs text-mist">A consulta pode terminar quando a sessão reconectar. O pedido usa uma chave persistente; Verificar andamento reutiliza essa chave.</p>
               <div className="max-h-72 space-y-2 overflow-y-auto">
                 {pendingClients.map(client=><div key={client.id} className="rounded-lg bg-background/80 p-3 text-xs ring-1 ring-line">
                   <p className="break-words font-semibold">{client.name} · {client.login}</p>
-                  <p className="mt-1 text-warn">{directChecks[client.id]?.message}</p>
+                  <p className="mt-1 text-warn">{auditChecks[client.id]?.message}</p>
+                  <button type="button" disabled={batchBusy||simulatingId!==null||pendingJobsQuery.isError}
+                    onClick={()=>void runSimulation(client,"check_simulation")}
+                    className="mt-2 min-h-9 rounded-lg bg-panel2 px-3 font-semibold text-cyan ring-1 ring-line disabled:opacity-40">
+                    {simulatingId===client.id?"Verificando…":"Verificar andamento (mesmo pedido)"}
+                  </button>
                 </div>)}
               </div>
             </section>}
@@ -422,7 +463,7 @@ function ServersPage() {
               <p className="text-xs text-mist">Falha não significa que o cliente foi excluído do painel. Confira a mensagem antes de agir.</p>
               <div className="max-h-80 space-y-2 overflow-y-auto">
                 {failedClients.map(client=>{
-                  const check=directChecks[client.id]!;
+                  const check=auditChecks[client.id]!;
                   return <div key={client.id} className="rounded-lg bg-background/80 p-3 text-xs ring-1 ring-line">
                     <p className="break-words font-semibold">{client.name} · {client.login}</p>
                     <p className="mt-1 break-words text-warn">{check.message}</p>
@@ -438,7 +479,7 @@ function ServersPage() {
             {changedClients.length>0&&<div className="mt-3 max-h-96 space-y-2 overflow-y-auto">
               <p className="text-xs font-semibold text-warn">Divergências encontradas — nenhuma será corrigida automaticamente</p>
               {changedClients.map(client=>{
-                const result=directChecks[client.id]!;
+                const result=auditChecks[client.id]!;
                 const plan=result.panelDue?planPanelDateCorrection(client,result.panelDue):null;
                 return <div key={client.id} className="rounded-lg bg-background/80 p-3 text-xs ring-1 ring-line">
                   <p className="break-words font-semibold">{client.name} · {client.login}</p>
@@ -486,9 +527,9 @@ function ServersPage() {
                 </p>
                 <p className="text-xs text-mist">Vence {formatDate(c.due_date)}</p>
                 {panelRouteForClient(c.server)&&<button type="button"
-                  disabled={simulatingId!==null||batchBusy||directChecks[c.id]?.status==="pending"} onClick={()=>void runSimulation(c)}
+                  disabled={simulatingId!==null||batchBusy||auditChecks[c.id]?.status==="pending"||pendingJobsQuery.isError} onClick={()=>void runSimulation(c)}
                   className="mt-1 min-h-9 rounded-lg bg-cyan/15 px-3 text-xs font-semibold text-cyan ring-1 ring-cyan/30 disabled:opacity-50">
-                  {simulatingId===c.id?"Conferindo…":directChecks[c.id]?.status==="pending"?"Aguardando sessão":"Conferir no painel"}
+                  {simulatingId===c.id?"Conferindo…":auditChecks[c.id]?.status==="pending"?"Aguardando sessão":"Conferir no painel"}
                 </button>}
                 {simulation?.clientId===c.id&&<p role="status" aria-live="polite"
                   className={"mt-2 max-w-sm rounded-lg px-3 py-2 text-left text-xs ring-1 "+(simulation.ok?"bg-ok/10 text-ok ring-ok/20":"bg-warn/10 text-warn ring-warn/20")}>
@@ -498,9 +539,9 @@ function ServersPage() {
                   <p className={"mt-1 text-xs "+(directChecks[c.id]?.status==="same"?"text-ok":"text-warn")}>
                     Painel: {formatDate(directChecks[c.id]!.panelDue)} · {directChecks[c.id]?.status==="same"?"Datas iguais":"Datas diferentes"}
                   </p>}
-                {directChecks[c.id]?.status==="unavailable"&&<p className="mt-1 max-w-sm text-xs text-warn">
-                  {directChecks[c.id]?.message}
-                </p>}
+                {auditChecks[c.id]?.status==="unavailable"&&<p className="mt-1 max-w-sm text-xs text-warn">
+                  {auditChecks[c.id]?.message}
+                </p>
               </div>
             </div>;
           })}
