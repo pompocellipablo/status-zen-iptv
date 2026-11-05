@@ -40,6 +40,25 @@ describe("datas da renovação", () => {
   });
 });
 
+describe("conciliação manual de vencimentos", () => {
+  const base=new Date(2026,10,4);
+  test("datas iguais acompanham a correção aprovada",()=>{
+    assert.deepEqual(planPanelDateCorrection({due_date:"2026-11-10",financial_due_date:"2026-11-10"},"2026-11-12",base),{
+      dueDate:"2026-11-12",financialDueDate:"2026-11-12",preservedFinancial:false,blockedReason:null,
+    });
+  });
+  test("pacote pago mantém a data financeira sem nova cobrança",()=>{
+    assert.deepEqual(planPanelDateCorrection({due_date:"2026-11-10",financial_due_date:"2027-03-10"},"2026-11-12",base),{
+      dueDate:"2026-11-12",financialDueDate:"2027-03-10",preservedFinancial:true,blockedReason:null,
+    });
+  });
+  test("não concilia automaticamente data vencida, inválida ou maior que a cobertura",()=>{
+    assert.ok(planPanelDateCorrection({due_date:"2026-11-10",financial_due_date:"2027-03-10"},"2027-04-10",base).blockedReason);
+    assert.ok(planPanelDateCorrection({due_date:"2026-11-10",financial_due_date:"2026-11-10"},"2026-10-10",base).blockedReason);
+    assert.ok(planPanelDateCorrection({due_date:"2026-11-10",financial_due_date:"2026-11-10"},"2026-02-30",base).blockedReason);
+  });
+});
+
 describe("mensagem de renovação", () => {
   const client = { name: "Ana", login: "ana", whatsapp: "21999999999", due_date: "2026-09-27", paid: 0, prev_paid: 35, server: "Five" } as Client;
   const base = new Date(2026, 8, 28);
