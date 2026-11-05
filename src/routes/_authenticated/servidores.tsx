@@ -541,7 +541,7 @@ function ServersPage() {
                   </p>}
                 {auditChecks[c.id]?.status==="unavailable"&&<p className="mt-1 max-w-sm text-xs text-warn">
                   {auditChecks[c.id]?.message}
-                </p>
+                </p>}
               </div>
             </div>;
           })}
