@@ -36,5 +36,8 @@ CREATE POLICY "Owner manages panel simulations" ON public.external_simulation_jo
   USING ((select auth.uid()) = 'c70b3e1f-e5d2-4caf-ae09-019964dbf30e'::uuid)
   WITH CHECK ((select auth.uid()) = 'c70b3e1f-e5d2-4caf-ae09-019964dbf30e'::uuid);
 
-GRANT SELECT, INSERT, UPDATE ON public.external_simulation_jobs TO authenticated;
--- No DELETE privilege is granted to the app.
+-- Older Lovable Cloud projects may grant ALL to anon/authenticated by default.
+-- Reset these privileges explicitly before granting only necessary operations.
+REVOKE ALL PRIVILEGES ON TABLE public.external_simulation_jobs FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE ON TABLE public.external_simulation_jobs TO authenticated;
+-- Neither anon nor authenticated has DELETE/TRUNCATE privileges.
