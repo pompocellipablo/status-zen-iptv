@@ -1,5 +1,6 @@
 import {describe,it} from "node:test";
 import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
 import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO,financialTransitionError} from "./painel-recarga";
 
 describe("Painel Recarga integration guardrails",()=>{
@@ -84,5 +85,28 @@ describe("Financial coverage safety",()=>{
     assert.match(financialTransitionError(current,{...planned,financialDueDate:"2027-04-10"})??" ",/preservado/);
     assert.match(financialTransitionError(current,{...planned,paymentAmount:35})??" ",/cobrança/);
     assert.match(financialTransitionError(current,{...planned,dueDate:"2027-04-10"})??" ",/ultrapassa/);
+  });
+});
+
+describe("Persistent simulation idempotency contract (static guards)",()=>{
+  const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
+  const migration=readFileSync(new URL("../../supabase/migrations/20261105110000_external_simulation_jobs.sql",import.meta.url),"utf8");
+  it("never invents a new key for an existing queued simulation",()=>{
+    assert.match(edge,/idempotency_key:simulationJob\.idempotency_key/);
+    assert.match(edge,/\.in\("state",\["created","waiting","uncertain"\]\)/);
+    assert.match(edge,/mode==="check_simulation"/);
+    const simBranch=edge.slice(edge.indexOf('// SIMULATIONS ONLY:'),edge.indexOf('if(Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")'));
+    assert.doesNotMatch(simBranch,/crypto\.randomUUID\(\)/);
+  });
+  it("durably reserves one pending attempt for each client and restricts access",()=>{
+    assert.match(migration,/CREATE UNIQUE INDEX IF NOT EXISTS external_simulation_jobs_one_pending/);
+    assert.match(migration,/WHERE state IN \('created','waiting','uncertain'\)/);
+    assert.match(migration,/ALTER TABLE public\.external_simulation_jobs ENABLE ROW LEVEL SECURITY/);
+    assert.match(migration,/GRANT SELECT, INSERT, UPDATE/);
+    assert.doesNotMatch(migration,/GRANT[^\n]*DELETE/);
+  });
+  it("keeps external renewals disabled by their own explicit server-side switch",()=>{
+    assert.match(edge,/PAINEL_RECARGA_LIVE_ENABLED/);
+    assert.match(edge,/mode==="simulate"\|\|mode==="check_simulation"/);
   });
 });
