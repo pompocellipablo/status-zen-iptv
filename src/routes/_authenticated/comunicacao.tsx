@@ -295,8 +295,8 @@ function CommunicationPage() {
                   Salvar número
                 </Button>
               </div>
-              {phoneFeedback[c.id] && <p role="status" className={`mt-2 text-xs ${phoneFeedback[c.id].ok ? "text-ok" : "text-warn"}`}>
-                {phoneFeedback[c.id].text}
+              {phoneFeedback[c.id] && <p role="status" className={`mt-2 text-xs ${phoneFeedback[c.id]?.ok ? "text-ok" : "text-warn"}`}>
+                {phoneFeedback[c.id]?.text}
               </p>}
               <div className="mt-4 flex flex-wrap gap-x-6 gap-y-3">
                 <label className="flex items-center gap-2 text-xs text-mist">

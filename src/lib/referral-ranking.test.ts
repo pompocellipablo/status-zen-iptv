@@ -30,8 +30,10 @@ describe("historical referral ranking",()=>{
       ledger("3","b","indicacao",1,"e"),
     ];
     const result=buildReferralRanking(clients,movements,[]);
+    assert.ok(result[0]);
     assert.deepEqual(result.map(r=>r.client.name),["Ana","Bruno"]);
     assert.deepEqual([result[0].confirmed,result[0].pending,result[0].total],[2,1,3]);
+    assert.ok(result[1]);
     assert.deepEqual([result[1].confirmed,result[1].pending],[1,1]);
     assert.ok(result[0].referrals.some(r=>r.client.id==="f"&&!r.confirmed));
   });
@@ -43,10 +45,15 @@ describe("historical referral ranking",()=>{
       ledger("5","a","expiracao",-1),
     ];
     const result=buildReferralRanking(clients,movements,[]);
+    assert.ok(result[0]);
     assert.equal(result[0].confirmed,2);
+    assert.ok(result[0]);
     assert.equal(result[0].pointsAvailable,0);
+    assert.ok(result[0]);
     assert.equal(result[0].pointsRedeemed,2);
+    assert.ok(result[0]);
     assert.equal(result[0].pointsExpired,1);
+    assert.ok(result[0]);
     assert.equal(result[0].pointsRestored,1);
   });
   test("ignores unrelated accounts and excludes confirmed links from pending",()=>{
@@ -54,14 +61,18 @@ describe("historical referral ranking",()=>{
     const movements=[ledger("1","a","indicacao",1,"c")];
     const result=buildReferralRanking(clients,movements,[]);
     assert.equal(result.length,1);
+    assert.ok(result[0]);
     assert.equal(result[0].confirmed,1);
+    assert.ok(result[0]);
     assert.equal(result[0].pending,0);
+    assert.ok(result[0]);
     assert.equal(result[0].total,1);
   });
   test("keeps unconfirmed referrals of a previously inactive indicator in history",()=>{
     const clients=[client("a","Ana",null,"2020-01-01"),client("b","Bruno","a")];
     const result=buildReferralRanking(clients,[],[]);
     assert.equal(result.length,1);
+    assert.ok(result[0]);
     assert.equal(result[0].pending,1);
   });
   test("counts pending rewards separately from delivered prizes",()=>{
@@ -71,7 +82,9 @@ describe("historical referral ranking",()=>{
       {client_id:"a",status:"concluido",id:"2"},
     ] as ReferralReward[];
     const result=buildReferralRanking(clients,[],rewards);
+    assert.ok(result[0]);
     assert.equal(result[0].pendingRewards,1);
+    assert.ok(result[0]);
     assert.equal(result[0].completedRewards,1);
   });
 });

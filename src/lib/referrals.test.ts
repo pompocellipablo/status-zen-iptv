@@ -75,6 +75,7 @@ describe("referral WhatsApp incentive", () => {
     assert.equal(referralWhatsAppUrl("123", text), null);
     const url = referralWhatsAppUrl("(21) 99999-9999", text);
     assert.ok(url?.startsWith("https://wa.me/5521999999999?text="));
-    assert.equal(decodeURIComponent(url!.split("?text=")[1]), text);
+    assert.ok(url);
+    assert.equal(new URL(url).searchParams.get("text"), text);
   });
 });

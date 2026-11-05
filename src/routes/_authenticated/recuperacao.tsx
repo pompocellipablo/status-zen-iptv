@@ -239,11 +239,11 @@ function RecoveryPage(){
     try{
       const patch:Record<string,unknown>={status:next,updated_at:new Date().toISOString()};
       if(next==="recuperado") {
-        patch.recovered_at=new Date().toISOString();
-        patch.monthly_value=row.monthly_value??35;
+        patch["recovered_at"]=new Date().toISOString();
+        patch["monthly_value"]=row.monthly_value??35;
       }
-      if(next==="nao_contatar")patch.contact_permission="revogada";
-      if(next==="contatado")patch.last_contacted_at=new Date().toISOString();
+      if(next==="nao_contatar")patch["contact_permission"]="revogada";
+      if(next==="contatado")patch["last_contacted_at"]=new Date().toISOString();
       const {error}=await db.from("former_clients").update(patch).eq("id",row.id);
       if(error)throw error;
       const {error:logError}=await db.from("former_client_events").insert({
@@ -261,7 +261,7 @@ function RecoveryPage(){
     setBusy(true);
     try{
       const patch:Record<string,unknown>={contact_permission:next,updated_at:new Date().toISOString()};
-      if(next==="revogada")patch.status="nao_contatar";
+      if(next==="revogada")patch["status"]="nao_contatar";
       const {error}=await db.from("former_clients").update(patch).eq("id",row.id);
       if(error)throw error;
       await db.from("former_client_events").insert({

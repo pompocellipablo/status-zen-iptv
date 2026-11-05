@@ -47,9 +47,9 @@ import {
 export const Route = createFileRoute("/_authenticated/renovacoes")({
   validateSearch: (search: Record<string, unknown>): { tab: Tab; access?: string; server?: string } => {
     const allowed: Tab[] = ["todos", "cadastrados", "vencidos", "hoje", "breve", "cobranca"];
-    const tab = allowed.includes(search.tab as Tab) ? search.tab as Tab : "hoje";
+    const tab = allowed.includes(search["tab"] as Tab) ? search["tab"] as Tab : "hoje";
     const allowedAccess = ["padrao", "pacote_pago", "gratuidade", "meu_acesso", "gratuitos"];
-    return {tab, ...(allowedAccess.includes(search.access as string) ? {access:search.access as string} : {}), ...(typeof search.server === "string" && search.server.length <= 100 ? {server:search.server} : {})};
+    return {tab, ...(allowedAccess.includes(search["access"] as string) ? {access:search["access"] as string} : {}), ...(typeof search["server"] === "string" && search["server"].length <= 100 ? {server:search["server"]} : {})};
   },
   head: () => ({
     meta: [

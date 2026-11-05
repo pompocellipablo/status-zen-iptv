@@ -47,7 +47,8 @@ describe("contact numbers", () => {
   test("opens WhatsApp with the prefilled migration message", () => {
     const link = campaignWhatsAppLink("21999999999");
     assert.ok(link?.startsWith("https://wa.me/5521999999999?text="));
-    assert.equal(decodeURIComponent(link!.split("?text=")[1]), MIGRATION_MESSAGE);
+    assert.ok(link);
+    assert.equal(new URL(link).searchParams.get("text"), MIGRATION_MESSAGE);
   });
   test("never opens link without a valid number", () => {
     assert.equal(campaignWhatsAppLink(""), null);
@@ -64,10 +65,13 @@ describe("avoid duplicate messages to the same number", () => {
       sent_at: "2026-10-19T14:00:00Z", replied_at: null, payer_name: null },
   };
   test("flags another login with same confirmed number", () => {
+    assert.ok(clients[1]);
+    assert.ok(clients[2]);
     assert.equal(samePhoneAlreadySent(clients[1], clients, tracking, {}), true);
     assert.equal(samePhoneAlreadySent(clients[2], clients, tracking, {}), false);
   });
   test("does not flag when phone changes or send confirmation disappears", () => {
+    assert.ok(clients[1]);
     assert.equal(samePhoneAlreadySent(clients[1], clients, tracking, { quarto: "21977777777" }), false);
     assert.equal(samePhoneAlreadySent(clients[1], clients, {}, {}), false);
   });

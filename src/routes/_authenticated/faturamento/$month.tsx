@@ -18,7 +18,7 @@ type ClientLookup = {id:string;login:string;name:string};
 
 function parseMonth(value:string) {
   if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(value))return null;
-  const [y,m]=value.split("-").map(Number);
+  const y=Number(value.slice(0,4)),m=Number(value.slice(5,7));
   const monthEnd=new Date(Date.UTC(y,m,1)).toISOString().slice(0,10);
   return {
     start:value+"-01",end:monthEnd,
