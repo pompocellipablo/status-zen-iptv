@@ -1,6 +1,6 @@
 import {describe,it} from "node:test";
 import assert from "node:assert/strict";
-import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO} from "./painel-recarga";
+import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO,financialTransitionError} from "./painel-recarga";
 
 describe("Painel Recarga integration guardrails",()=>{
   it("maps only documented IPTV panels",()=>{
@@ -41,5 +41,25 @@ describe("Provider dates",()=>{
     assert.equal(panelDateToISO("2026-11-04T17:12:51"),"2026-11-04");
     assert.equal(panelDateToISO("31/02/2026 10:00:00"),null);
     assert.equal(panelDateToISO(undefined),null);
+  });
+});
+
+
+describe("Financial coverage safety",()=>{
+  const month={months:1,dueDate:"2026-12-10",financialDueDate:"2026-12-10",paymentAmount:35,monthlyPaid:35,paymentCost:6};
+  it("allows a new paid month when technical and financial dates were equal",()=>{
+    assert.equal(financialTransitionError({due_date:"2026-11-10",financial_due_date:"2026-11-10"},month),null);
+  });
+  it("requires both dates to advance together for a new monthly payment",()=>{
+    assert.match(financialTransitionError({due_date:"2026-11-10",financial_due_date:"2026-11-10"},
+      {...month,financialDueDate:"2027-01-10"})??" ",/juntos/);
+  });
+  it("preserves prepaid financial due date without creating payment",()=>{
+    const current={due_date:"2026-11-10",financial_due_date:"2027-03-10"};
+    const planned={...month,financialDueDate:"2027-03-10",paymentAmount:0,monthlyPaid:0,paymentCost:0};
+    assert.equal(financialTransitionError(current,planned),null);
+    assert.match(financialTransitionError(current,{...planned,financialDueDate:"2027-04-10"})??" ",/preservado/);
+    assert.match(financialTransitionError(current,{...planned,paymentAmount:35})??" ",/cobrança/);
+    assert.match(financialTransitionError(current,{...planned,dueDate:"2027-04-10"})??" ",/ultrapassa/);
   });
 });
