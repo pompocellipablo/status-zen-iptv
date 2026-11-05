@@ -82,3 +82,41 @@ Consulta somente de leitura no Lovable Cloud MaxFlix, útil para auditoria,
 As quantidades podem mudar com o uso normal do app. Antes de qualquer piloto
 real, fazer nova leitura e comparar movimentos do cliente escolhido, não
 concluir segurança pela contagem total isoladamente.
+
+## 05/11/2026 — reforço transacional para o piloto (sem ativar renovação real)
+
+- Função `public.sync_external_renewal_job(uuid)` instalada no Lovable Cloud.
+  É **aditiva e inerte** até a Edge Function atualizada chamá-la: aguarda
+  estado `external_confirmed`, bloqueia por linha o pedido e o cliente,
+  registra vencimentos, pagamento (se aplicável), 1 débito de crédito e
+  estado `synced` **na mesma transação**. A chamada repetida sobre
+  `synced` apenas devolve `alreadyProcessed`.
+- `public.renew_client_with_credit` foi atualizado para **bloquear o botão
+  manual quando há pedido externo ativo** no mesmo ciclo. Na ausência de
+  pedido externo aberto, mantém as regras e parâmetros anteriores.
+- O SQL original desse RPC manual está arquivado em
+  `docs/ROLLBACK_RPC_MANUAL_ANTES_PILOTO.sql`. Reverter o código do GitHub
+  **não restaura essa função no banco**; avaliar e executar o SQL de rollback
+  somente após congelar a integração e conciliar todos os pedidos abertos.
+- A nova Edge Function de renovação real **ainda não foi publicada** nesta
+  etapa. Renovações reais continuam desabilitadas.
+- A UI de piloto está atrás de `VITE_MAXFLIX_PANEL_PILOT==="true"`, que
+  deve ficar **ausente/false** até liberação expressa do operador. Isso é
+  uma segunda proteção além de `PAINEL_RECARGA_LIVE_ENABLED=false` no backend.
+- Valores do banco antes/depois das alterações SQL: 347 clientes,
+  320 pagamentos, 385 movimentações de crédito, 0 pedidos externos reais.
+  Nenhuma renovação/lançamento foi executado nesta etapa.
+
+### Ordem de restauração em incidente do piloto
+1. Desabilitar imediatamente `PAINEL_RECARGA_LIVE_ENABLED` e a flag de UI.
+2. Consultar a fila do Painel Recarga e os estados de
+   `external_renewal_jobs`, inclusive os pedidos `uncertain`.
+3. Reverter a Edge Function ao código do branch de backup.
+4. **Não** reaplicar o RPC manual anterior se existir pedido externo
+   potencialmente executado. Preservar a guarda até resolver cada pedido.
+5. Se todos os pedidos estiverem conciliados e a guarda manual causar
+   regressão, usar `docs/ROLLBACK_RPC_MANUAL_ANTES_PILOTO.sql` somente após
+   nova revisão. A função atômica aditiva pode continuar instalada, pois não
+   executa nada sozinha.
+6. Comparar pagamentos e movimentos de crédito individuais do(s) cliente(s)
+   afetado(s). Nunca apagar lançamentos de todo o sistema para corrigir um.
