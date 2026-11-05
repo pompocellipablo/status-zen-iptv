@@ -128,6 +128,33 @@ export function isPackageCovered(client: Client): boolean {
   return !!client.financial_due_date && client.financial_due_date > client.due_date;
 }
 
+/**
+ * Preview a manually approved reconciliation against a trusted, freshly exported
+ * panel due date. No payment or server credit is created by a reconciliation.
+ * Existing prepaid coverage is immutable; equal dates remain equal.
+ */
+export function planPanelDateCorrection(
+  client: Pick<Client, "due_date" | "financial_due_date">,
+  panelDueDate: string,
+  base = today(),
+): { dueDate: string; financialDueDate: string | null; preservedFinancial: boolean; blockedReason: string | null } {
+  const currentFinance=client.financial_due_date;
+  const preservedFinancial=currentFinance!==client.due_date;
+  const financialDueDate=preservedFinancial?currentFinance:panelDueDate;
+  let blockedReason: string | null=null;
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(panelDueDate) || toISODate(parseDate(panelDueDate))!==panelDueDate)
+    blockedReason="Data do painel inválida.";
+  else if(panelDueDate<toISODate(base))
+    blockedReason="A data do painel está no passado. Confira a situação financeira manualmente.";
+  else if(!currentFinance)
+    blockedReason="Vencimento financeiro ausente. Faça a revisão manual.";
+  else if(currentFinance<client.due_date)
+    blockedReason="Vencimento financeiro já está anterior ao técnico. Revise manualmente.";
+  else if(preservedFinancial && panelDueDate>currentFinance)
+    blockedReason="A validade do painel ultrapassa a cobertura financeira atual. Revise manualmente.";
+  return {dueDate:panelDueDate,financialDueDate,preservedFinancial,blockedReason};
+}
+
 
 export function formatBRL(value: number): string {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
