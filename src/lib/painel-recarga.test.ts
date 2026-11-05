@@ -152,6 +152,18 @@ describe("Provider-authoritative renewal dates (no actual payments)",()=>{
     assert.match(check(prepaid,values,"15/04/2027 09:00:00").blockedReason??"",/ultrapassa/);
     assert.match(check(prepaid,{...values,paymentAmount:35},"15/12/2026 09:00:00").blockedReason??"",/Pacote já pago/);
   });
+  it("cannot extend a new financial period without payment",()=>{
+    const result=check(client,{...monthly,paymentAmount:0},"10/12/2026 09:00:00");
+    assert.match(result.blockedReason??"",/sem pagamento/);
+  });
+  it("edge function uses provider-authoritative dates only after confirmation",()=>{
+    const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
+    const confirmed=edge.slice(edge.indexOf('if(outcome.status==="confirmed"){'));
+    assert.match(confirmed,/confirmedRenewalDatesFromPanel\(/);
+    assert.match(confirmed,/financialTransitionError\(customer,validatedValues\)/);
+    assert.match(confirmed,/local_values:validatedValues/);
+    assert.doesNotMatch(confirmed,/providerDue!==job\.new_due_date/);
+  });
   it("blocks a mismatch between confirmed previous expiry and local state",()=>{
     assert.match(check(client,monthly,"10/12/2026 09:00:00","09/11/2026 09:00:00").blockedReason??"",/difere/);
   });
