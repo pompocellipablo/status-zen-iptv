@@ -24,13 +24,19 @@ const headers={
 };
 const reply=(status:number,payload:Record<string,unknown>)=>
   new Response(JSON.stringify(payload),{status,headers});
-type Mode="simulate"|"renew"|"check";
+type Mode="simulate"|"check_simulation"|"renew"|"check";
 type ClientRow={id:string;name:string;login:string;server:string;due_date:string;financial_due_date:string|null};
 type Options={months:number;dueDate:string;financialDueDate:string;cost:number;monthlyPaid:number;prevPaid:number;paymentAmount:number;paymentCost:number};
 type Job={
   id:string;client_id:string|null;login:string;server:string;expected_due_date:string;
   new_due_date:string;financial_due_date:string;idempotency_key:string;
   state:string;local_values:Options;external_order_id:string|null;
+};
+type SimulationJob={
+  id:string;client_id:string|null;login:string;server:string;expected_due_date:string;
+  idempotency_key:string;state:"created"|"waiting"|"uncertain"|"completed"|"failed";
+  panel_due_date:string|null;external_order_id:string|null;external_message:string|null;
+  external_http_status:number|null;created_at:string;
 };
 const isDate=(value:unknown):value is string=>typeof value==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(value);
 const safeNumber=(value:unknown)=>typeof value==="number"&&Number.isFinite(value)&&value>=0&&value<=1_000_000;
@@ -75,7 +81,7 @@ Deno.serve(async(request)=>{
     return reply(400,{ok:false,message:"Corpo JSON inválido."});
   }
   const mode=input.mode as Mode;
-  if(!["simulate","renew","check"].includes(mode))
+  if(!["simulate","check_simulation","renew","check"].includes(mode))
     return reply(400,{ok:false,message:"Modo inválido."});
   if(typeof input.clientId!=="string"||!isDate(input.expectedDueDate))
     return reply(400,{ok:false,message:"Cliente e vencimento esperado obrigatórios."});
@@ -89,30 +95,112 @@ Deno.serve(async(request)=>{
   const base=RECARGA_BASE_URL;
   const expected=input.expectedDueDate as string;
 
-  // A simulation never renews remotely or in MaxFlix and never creates jobs.
-  if(mode==="simulate"){
+
+  // SIMULATIONS ONLY: the provider can queue an operation when the session is
+  // offline. Persist the UUID BEFORE sending; reconnect/recheck MUST reuse it.
+  // No provider call is allowed if the durable ledger cannot be reached.
+  if(mode==="simulate"||mode==="check_simulation"){
     if(customer.due_date!==expected)
-      return reply(409,{ok:false,message:"Vencimento alterado; atualize a lista antes da simulação."});
+      return reply(409,{ok:false,message:"Vencimento alterado; atualize o cadastro antes da conferência."});
     const route=panelRouteForClient(customer.server);
-    if(!route)return reply(422,{ok:false,message:"Este servidor ainda não possui rota de renovação validada."});
+    if(!route)return reply(422,{ok:false,message:"Este servidor ainda não possui rota de conferência validada."});
+
+    const table=userDb.from("external_simulation_jobs");
+    const active=await table.select("*").eq("client_id",customer.id)
+      .in("state",["created","waiting","uncertain"]).maybeSingle();
+    if(active.error)return reply(503,{ok:false,message:"Registro persistente de consultas indisponível. Nenhum pedido foi enviado."});
+    let simulationJob=active.data as SimulationJob|null;
+
+    if(simulationJob && (simulationJob.login!==customer.login||simulationJob.server!==customer.server||
+      simulationJob.expected_due_date!==expected))
+      return reply(409,{ok:false,pending:true,simulationJobId:simulationJob.id,
+        message:"Existe uma consulta pendente para este cliente com dados anteriores. Confira a fila do Painel Recarga antes de iniciar outra."});
+
+    // Don't create a fresh request if a recent identical check has already
+    // succeeded or failed. A new check after the cache window is a new audit.
+    if(!simulationJob){
+      const recent=await table.select("*").eq("client_id",customer.id)
+        .order("created_at",{ascending:false}).limit(1).maybeSingle();
+      if(recent.error)return reply(503,{ok:false,message:"Histórico de consultas indisponível. Nenhum pedido foi enviado."});
+      const previous=recent.data as SimulationJob|null;
+      const same=!!previous&&previous.login===customer.login&&previous.server===customer.server
+        &&previous.expected_due_date===expected;
+      const finished=same&&(previous!.state==="completed"||previous!.state==="failed");
+      const fresh=finished&&Number.isFinite(Date.parse(previous!.created_at))
+        &&Date.now()-Date.parse(previous!.created_at)<120_000;
+      if(finished&&(mode==="check_simulation"||fresh)){
+        const ok=previous!.state==="completed";
+        return reply(200,{ok,simulated:true,cached:true,dateInspectionSupported:true,
+          simulationJobId:previous!.id,
+          outcome:{status:ok?"simulated":"failed",
+            message:previous!.external_message??(ok?"Simulação concluída.":"Simulação recusada.")},
+          panelDueDate:ok?previous!.panel_due_date:null});
+      }
+      if(mode==="check_simulation")
+        return reply(404,{ok:false,message:"Nenhuma consulta pendente para acompanhar. Use Conferir no painel."});
+
+      const created=await table.insert({
+        client_id:customer.id,login:customer.login,server:customer.server,
+        expected_due_date:expected,state:"created",
+      }).select("*").single();
+      if(created.error){
+        if(created.error.code!=="23505")
+          return reply(503,{ok:false,message:"Não foi possível reservar a conferência. Nenhum pedido foi enviado."});
+        // Another browser/tab won the unique pending-client reservation:
+        // reuse the existing UUID rather than generating another provider job.
+        const concurrent=await table.select("*").eq("client_id",customer.id)
+          .in("state",["created","waiting","uncertain"]).maybeSingle();
+        if(concurrent.error||!concurrent.data)
+          return reply(409,{ok:false,message:"Consulta concorrente: atualize a página para acompanhar o pedido existente."});
+        simulationJob=concurrent.data as SimulationJob;
+      }else simulationJob=created.data as SimulationJob;
+    }
+    if(!simulationJob)return reply(503,{ok:false,message:"Consulta sem identificação persistente; nenhuma operação enviada."});
+    if(simulationJob.login!==customer.login||simulationJob.server!==customer.server||
+       simulationJob.expected_due_date!==expected)
+      return reply(409,{ok:false,pending:true,simulationJobId:simulationJob.id,
+        message:"A solicitação em andamento usa login ou vencimento diferente. Concilie antes de prosseguir."});
+    const persist=async(fields:Record<string,unknown>)=>{
+      const {error}=await table.update({...fields,updated_at:new Date().toISOString()}).eq("id",simulationJob!.id);
+      return !error;
+    };
+    let response:Response;
+    let remoteData:unknown;
     try{
-      const result=await fetch(base+route.path,{
+      // Replaying the SAME body + UUID is the provider's documented retry
+      // method. A different key would create another queued request.
+      response=await fetch(base+route.path,{
         method:"POST",
-        headers:{"X-Auth-Token":token,"Idempotency-Key":crypto.randomUUID(),"Content-Type":"application/json"},
-        body:JSON.stringify(buildPanelRecargaBody(customer.login,true)),
+        headers:{"X-Auth-Token":token,"Idempotency-Key":simulationJob.idempotency_key,
+          "Content-Type":"application/json"},
+        body:JSON.stringify(buildPanelRecargaBody(simulationJob.login,true)),
         signal:AbortSignal.timeout(125_000),
       });
-      const raw=await result.text();
-      let data:unknown;
-      try{data=JSON.parse(raw);}catch{data=null;}
-      const outcome=parsePanelRecargaResponse(result.status,data,customer.login,true);
-      return reply(200,{ok:true,simulated:true,dateInspectionSupported:true,remoteHttpStatus:result.status,outcome,
-        // Optional: only available if simulation explicitly returned a verified "vencimento_antes".
-        panelDueDate:outcome.status==="simulated"?outcome.previousDue??null:null,
-        note:"Simulação não altera o painel nem os créditos da MaxFlix."});
+      const raw=await response.text();
+      try{remoteData=JSON.parse(raw);}catch{remoteData=null;}
     }catch{
-      return reply(502,{ok:false,simulated:true,message:"Simulação indisponível; nenhuma renovação foi solicitada."});
+      await persist({state:"uncertain",external_message:"Resposta incerta: confirme pela mesma chave, não crie outra consulta."});
+      return reply(202,{ok:false,simulated:true,pending:true,dateInspectionSupported:true,
+        simulationJobId:simulationJob.id,
+        outcome:{status:"uncertain",message:"A consulta pode estar na fila. Verifique o andamento; nenhuma nova chave deve ser gerada."}});
     }
+    const outcome=parsePanelRecargaResponse(response.status,remoteData,simulationJob.login,true);
+    const newState=outcome.status==="simulated"?"completed":outcome.status==="waiting"?"waiting":
+      outcome.status==="failed"?"failed":"uncertain";
+    const due=outcome.status==="simulated"?outcome.previousDue??null:null;
+    const stored=await persist({
+      state:newState,external_http_status:response.status,
+      external_message:outcome.message.slice(0,400),panel_due_date:due,
+      ...(outcome.orderId?{external_order_id:outcome.orderId}:{}),
+      ...(newState==="completed"||newState==="failed"?{completed_at:new Date().toISOString()}:{}),
+    });
+    if(!stored)
+      return reply(503,{ok:false,simulated:true,pending:true,simulationJobId:simulationJob.id,
+        outcome:{status:"uncertain",message:"O painel respondeu, mas não foi possível gravar o resultado; confira o mesmo pedido."}});
+    return reply(200,{ok:outcome.status==="simulated",simulated:true,dateInspectionSupported:true,
+      simulationJobId:simulationJob.id,pending:newState==="waiting"||newState==="uncertain",
+      remoteHttpStatus:response.status,outcome,panelDueDate:due,
+      note:"Consulta sem renovação, pagamento ou consumo de crédito da MaxFlix."});
   }
 
   if(Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")!=="true")
