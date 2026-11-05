@@ -238,6 +238,18 @@ Deno.serve(async(request)=>{
   if(Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")!=="true")
     return reply(503,{ok:false,disabled:true,message:"Renovação real ainda bloqueada. Use apenas o modo simulação."});
 
+  // SINGLE-CLIENT LIVE PILOT, fail closed. This is an ADDITIONAL backend
+  // safeguard after the existing live switch and owner JWT check. A VITE_
+  // flag in the browser is NOT authorization to renew other customers.
+  // Only 'renew' is constrained; 'check' must stay available to reconcile
+  // an already-issued job even if the pilot configuration changes later.
+  if(mode==="renew"){
+    const allowedPilotId=Deno.env.get("PAINEL_RECARGA_PILOT_CLIENT_ID")?.trim();
+    if(!allowedPilotId||allowedPilotId!==customer.id)
+      return reply(403,{ok:false,pilotRestricted:true,
+        message:"Piloto real restrito ao cliente autorizado no backend. Nenhuma renovação enviada."});
+  }
+
   // For live operations, persist a stable idempotency key BEFORE the provider call.
   const {data:stored,error:queryError}=await userDb.from("external_renewal_jobs")
     .select("*").eq("client_id",customer.id).eq("expected_due_date",expected).maybeSingle();
