@@ -221,3 +221,24 @@ describe("Manual versus external renewal concurrency guard",()=>{
     assert.match(part,/state:"needs_review"/);
   });
 });
+
+describe("Supervised pilot UI safety",()=>{
+  const screen=readFileSync(new URL("../routes/_authenticated/renovacoes.tsx",import.meta.url),"utf8");
+  it("uses an opt-in frontend gate, with existing manual renewal preserved",()=>{
+    assert.match(screen,/VITE_MAXFLIX_PANEL_PILOT === "true"/);
+    assert.match(screen,/PANEL_PILOT_UI_ENABLED&&panelRouteForClient/);
+    assert.match(screen,/supabase\.rpc\("renew_client_with_credit"/);
+  });
+  it("requires a named-client confirmation before making an external request",()=>{
+    const handler=screen.slice(screen.indexOf("const confirmPanelPilot=async"),screen.indexOf("const confirmRenew = async"));
+    assert.match(handler,/window\.confirm\(summary\)/);
+    assert.match(handler,/mode:"renew",confirm:true,clientId:client\.id/);
+    assert.match(handler,/Ciclos no servidor: 1/);
+  });
+  it("tracks external status with the same job, not another confirm call",()=>{
+    const check=screen.slice(screen.indexOf("const verifyExternalPilotJob=async"),screen.indexOf("const confirmPanelPilot=async"));
+    assert.match(check,/mode:"check"/);
+    assert.doesNotMatch(check,/confirm:true/);
+    assert.match(screen,/enabled:PANEL_PILOT_UI_ENABLED/);
+  });
+});
