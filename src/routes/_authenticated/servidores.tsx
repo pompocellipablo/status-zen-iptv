@@ -361,13 +361,13 @@ function ServersPage() {
           <div className="mt-3 rounded-xl bg-panel p-3 ring-1 ring-line">
             <p className="text-sm font-semibold">Conferência por lotes · {reviewedClients.length}/{serverClients.length}</p>
             <p className="mt-1 text-xs text-mist">
-              Sem arquivos, em lotes de até 10 consultas sequenciais. Apenas leitura; não altera vencimentos, pagamentos, créditos ou contas externas.
+              Sem arquivos, em lotes de até 10 consultas sequenciais. Apenas leitura; não altera vencimentos, pagamentos, créditos ou contas externas. Os resultados ficam nesta tela até ela ser recarregada.
             </p>
             <div className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
               <span className="text-ok">Datas iguais: {sameCount}</span>
               <span className="text-warn">Datas diferentes: {changedClients.length}</span>
               <span className="text-mist">Sem data: {unavailableCount}</span>
-              <span className="text-danger">Não consultados: {failedCount}</span>
+              <span className="text-danger">Falhas: {failedCount}</span>
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
               <button type="button" onClick={()=>void inspectNextBatch()}
