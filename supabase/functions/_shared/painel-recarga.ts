@@ -100,8 +100,12 @@ export function confirmedRenewalDatesFromPanel(
     return {dueDate:newDue,financialDueDate:currentFinance,blockedReason:null};
   }
 
-  // Equal technical and financial dates signal a new paid period. Always align
-  // the NEXT technical due to the actual panel result, never to the projection.
+  // Equal technical and financial dates signal a new paid period.
+  // Free referral months have a distinct workflow; never silently create a
+  // fresh paid financial period from a zero-payment provider renewal.
+  if(values.paymentAmount<=0)
+    return blocked("Novo período financeiro sem pagamento registrado. Revise o tipo de renovação.");
+  // Always align the NEXT technical due to the actual provider result.
   if(values.months===1)
     return {dueDate:newDue,financialDueDate:newDue,blockedReason:null};
 
