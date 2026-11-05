@@ -50,6 +50,62 @@ export function financialTransitionError(
 }
 
 /**
+ * Preflight validation only: validates a planned renewal BEFORE any
+ * external job is reserved or posted. This does not authorize payment.
+ * The final confirmation is validated a second time against the actual
+ * provider dates and inside the atomic database settlement.
+ */
+export function validatePanelRenewalDraft(
+  client:{due_date:string;financial_due_date:string|null;access_type?:string|null},
+  values:{
+    months:number;dueDate:string;financialDueDate:string;
+    paymentAmount:number;monthlyPaid:number;paymentCost:number;
+  },
+  todayISO:string,
+):string|null {
+  const due=panelDateToISO(client.due_date);
+  const finance=panelDateToISO(client.financial_due_date??undefined);
+  const planned=panelDateToISO(values.dueDate);
+  const plannedFinance=panelDateToISO(values.financialDueDate);
+  const today=panelDateToISO(todayISO);
+  if(!due||!finance||!planned||!plannedFinance||!today)
+    return "Datas técnicas ou financeiras inválidas; revise o cadastro.";
+  if(client.access_type==="gratuidade"||client.access_type==="meu_acesso")
+    return "Acesso gratuito exige fluxo específico de renovação.";
+  if(!Number.isInteger(values.months)||values.months<1||values.months>120)
+    return "Número de meses inválido para a renovação.";
+  if(finance<due)
+    return "O financeiro está anterior ao acesso técnico; concilie antes de renovar.";
+  if(planned<=today||planned<=due)
+    return "Próximo vencimento técnico inválido ou não avançou.";
+  const anchorDate=due>today?due:today;
+  const maxOneCycle=addDaysISO(anchorDate,45);
+  if(!maxOneCycle||planned>maxOneCycle)
+    return "A projeção de um único ciclo ficou muito distante; revise o plano.";
+  if(plannedFinance<planned)
+    return "O vencimento financeiro não cobre o novo ciclo técnico.";
+  if(!Number.isFinite(values.paymentAmount)||values.paymentAmount<0||
+     !Number.isFinite(values.monthlyPaid)||values.monthlyPaid<0||
+     !Number.isFinite(values.paymentCost)||values.paymentCost<0)
+    return "Valores financeiros inválidos.";
+
+  if(finance>due){
+    if(values.months!==1||values.financialDueDate!==finance
+      ||values.paymentAmount!==0||values.monthlyPaid!==0
+      ||values.paymentCost!==0)
+      return "Pacote já pago: somente um ciclo técnico, sem nova cobrança e com financeiro preservado.";
+  } else {
+    if(values.paymentAmount<=0)
+      return "Nova renovação financeira exige valor de pagamento positivo.";
+    if(values.months===1&&plannedFinance!==planned)
+      return "Plano mensal exige vencimento técnico e financeiro iguais.";
+    if(values.months>1&&plannedFinance<=planned)
+      return "Plano de vários meses precisa cobrir mais de um ciclo.";
+  }
+  return null;
+}
+
+/**
  * Provider-authoritative technical due date after a confirmed ONE-cycle renewal.
  *
  * Prepaid coverage is immutable. A fresh payment with equal old dates extends
