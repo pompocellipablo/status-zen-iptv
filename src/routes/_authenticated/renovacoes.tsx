@@ -48,15 +48,21 @@ import {
 // Disabled by default. Enabling this UI alone does NOT enable real provider
 // renewals; the Edge Function has a separate server-side safety switch.
 const PANEL_PILOT_UI_ENABLED = import.meta.env["VITE_MAXFLIX_PANEL_PILOT"] === "true";
-const FIRST_PILOT_CLIENT_ID = "c0b6e1f2-3c65-4041-aa56-448122108cec";
-const FIRST_PILOT_EXPECTED_DUE = "2026-11-19";
+// Non-secret, build-time UI configuration. Backend independently checks
+// PAINEL_RECARGA_PILOT_CLIENT_ID + PAINEL_RECARGA_PILOT_EXPECTED_DUE_DATE.
+const PILOT_CLIENT_ID = import.meta.env["VITE_MAXFLIX_PILOT_CLIENT_ID"] ?? "";
+const PILOT_EXPECTED_DUE = import.meta.env["VITE_MAXFLIX_PILOT_EXPECTED_DUE_DATE"] ?? "";
+const PILOT_SERVER = import.meta.env["VITE_MAXFLIX_PILOT_SERVER"] ?? "";
 // UX-only guard: the backend independently enforces private allowed-client
 // and expected-cycle secrets, even if this public UI is tampered with.
 const isFirstPilotClient = (client:Client) =>
   PANEL_PILOT_UI_ENABLED
-  && client.id===FIRST_PILOT_CLIENT_ID
-  && client.due_date===FIRST_PILOT_EXPECTED_DUE
-  && client.server==="Club";
+  && !!PILOT_CLIENT_ID
+  && !!PILOT_EXPECTED_DUE
+  && !!PILOT_SERVER
+  && client.id===PILOT_CLIENT_ID
+  && client.due_date===PILOT_EXPECTED_DUE
+  && client.server===PILOT_SERVER;
 
 export const Route = createFileRoute("/_authenticated/renovacoes")({
   validateSearch: (search: Record<string, unknown>): { tab: Tab; access?: string; server?: string } => {
@@ -508,8 +514,11 @@ function Painel() {
   )=>{
     if(!isFirstPilotClient(client)||!panelRouteForClient(client.server))return;
     if(renewingBusy)return;
-    if(opts.months!==1||opts.paid!==30||opts.monthlyCost!==6){
-      setNotice("Piloto inicial restrito a um mês, R$ 30 recebidos e R$ 6 de custo por ciclo.");
+    if(opts.months!==1||opts.paid!==Number(client.paid)
+      ||opts.monthlyCost!==Number(client.cost)){
+      setNotice("Piloto mensal restrito a um ciclo e aos valores do cadastro: "+
+        formatBRL(Number(client.paid))+" recebidos, custo "+
+        formatBRL(Number(client.cost))+".");
       return;
     }
     if(client.access_type==="gratuidade"||client.access_type==="meu_acesso"){
