@@ -6,7 +6,7 @@
 export const RECARGA_BASE_URL = "https://painelrecarga.dev";
 export type PanelRoute = {kind: "iptv" | "p2p"; panel: string; path: string};
 const IPTV_PANELS: Record<string,string> = {
-  "All Play":"allplay", "Blade":"blade", "Club":"club",
+  "All Play":"allplay", "Club":"club",
   "Five":"five", "GF":"gf", "Now":"now", "Uniplay":"uniplay",
 };
 
@@ -17,6 +17,9 @@ const IPTV_PANELS: Record<string,string> = {
 export function panelRouteForClient(server: string):PanelRoute|null {
   if(server==="UniP2P")
     return {kind:"p2p",panel:"uniplay",path:"/renovar/p2p/uniplay"};
+  // All currently registered Blade customers use Blade P2P, not Blade IPTV.
+  if(server==="Blade")
+    return {kind:"p2p",panel:"blade",path:"/renovar/p2p/blade"};
   const name=IPTV_PANELS[server];
   if(!name)return null;
   return {kind:"iptv",panel:name,path:"/renovar/iptv/"+name};
