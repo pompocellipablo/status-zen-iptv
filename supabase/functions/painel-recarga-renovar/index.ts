@@ -245,9 +245,14 @@ Deno.serve(async(request)=>{
   // an already-issued job even if the pilot configuration changes later.
   if(mode==="renew"){
     const allowedPilotId=Deno.env.get("PAINEL_RECARGA_PILOT_CLIENT_ID")?.trim();
-    if(!allowedPilotId||allowedPilotId!==customer.id)
+    const allowedExpectedDue=Deno.env.get("PAINEL_RECARGA_PILOT_EXPECTED_DUE_DATE")?.trim();
+    if(!allowedPilotId||allowedPilotId!==customer.id
+      ||!allowedExpectedDue||allowedExpectedDue!==expected)
       return reply(403,{ok:false,pilotRestricted:true,
-        message:"Piloto real restrito ao cliente autorizado no backend. Nenhuma renovação enviada."});
+        message:"Piloto real restrito ao cliente e ciclo autorizados no backend. Nenhuma renovação enviada."});
+    if(customer.financial_due_date!==customer.due_date)
+      return reply(409,{ok:false,pilotRestricted:true,
+        message:"Piloto inicial restrito a mensalidade sem pacote ativo."});
   }
 
   // For live operations, persist a stable idempotency key BEFORE the provider call.
@@ -265,6 +270,12 @@ Deno.serve(async(request)=>{
     const values=parseLocalOptions(input.options);
     if(!values||values.dueDate<=expected||values.financialDueDate<values.dueDate)
       return reply(400,{ok:false,message:"Datas, valores ou período da renovação inválidos."});
+    // The first production pilot has exactly one paid MONTH and one provider
+    // cycle; expansion to prepaid packages requires a separately reviewed
+    // release. This prevents a wrong frontend plan from broadening the pilot.
+    if(values.months!==1||values.paymentAmount<=0)
+      return reply(403,{ok:false,pilotRestricted:true,
+        message:"Piloto inicial limitado a um ciclo mensal pago. Nenhuma renovação enviada."});
     const draftIssue=validatePanelRenewalDraft(customer,values,
       new Date().toLocaleDateString("sv-SE",{timeZone:"America/Sao_Paulo"}));
     if(draftIssue)return reply(409,{ok:false,message:draftIssue});
