@@ -334,3 +334,32 @@ describe("Read-only provider renewal preflight (no remote requests)",()=>{
     assert.match(pilot,/preflight\.providerRequestSent!==false/);
   });
 });
+describe("Per-client preview button (safe by default)",()=>{
+  const screen=readFileSync(new URL("../routes/_authenticated/renovacoes.tsx",import.meta.url),"utf8");
+  it("is separately available even while the live pilot is disabled",()=>{
+    assert.match(screen,/Pré-validar renovação · sem alterar dados/);
+    assert.match(screen,/setPreviewClient\(c\)/);
+    assert.match(screen,/\{previewClient && \(/);
+  });
+  it("calls only the read-only preflight mode and never posts a renewal",()=>{
+    const start=screen.indexOf("function PreflightDialog(");
+    const end=screen.indexOf("function RenewDialog(",start);
+    assert.ok(start>0 && end>start);
+    const body=screen.slice(start,end);
+    assert.match(body,/mode:"preflight"/);
+    assert.doesNotMatch(body,/mode:"renew"|mode:"simulate"/);
+    assert.doesNotMatch(body,/\.rpc\(/);
+    assert.doesNotMatch(body,/\.update\(|\.insert\(|\.delete\(/);
+    assert.match(body,/response\.providerRequestSent===false/);
+    assert.match(body,/response\.previewOnly===true/);
+  });
+  it("previews one technical cycle and never charges a prepaid customer",()=>{
+    const start=screen.indexOf("function PreflightDialog(");
+    const end=screen.indexOf("function RenewDialog(",start);
+    const body=screen.slice(start,end);
+    assert.match(body,/const period=prepaid\?1:months/);
+    assert.match(body,/const charged=prepaid\?0:num\(paid\)/);
+    assert.match(body,/financialDue=prepaid\?/);
+    assert.match(body,/paymentCost:prepaid\?0:/);
+  });
+});
