@@ -510,6 +510,40 @@ function Painel() {
         +"o vencimento financeiro. Concilie o saldo do pacote antes de renovar no painel.");
       return;
     }
+    const values={
+      months:covered?1:opts.months,
+      dueDate,financialDueDate:covered?client.financial_due_date!:financialDueDate,
+      cost:opts.monthlyCost,monthlyPaid:covered?0:opts.monthlyPaid,
+      prevPaid:covered?client.prev_paid:(opts.months>1?client.prev_paid||client.paid:opts.monthlyPaid),
+      paymentAmount:covered?0:opts.paid,paymentCost:covered?0:opts.cost,
+    };
+
+    // A read-only preflight MUST succeed before even offering a real renewal.
+    // It never creates provider jobs and works while live renewals are off.
+    let preflight:{
+      ok?:boolean;previewOnly?:boolean;providerRequestSent?:boolean;
+      message?:string;
+    }|null=null;
+    try{
+      const {data,error}=await supabase.functions.invoke("painel-recarga-renovar",{
+        body:{mode:"preflight",clientId:client.id,
+          expectedDueDate:client.due_date,options:values},
+      });
+      preflight=data as typeof preflight;
+      if(error){
+        const context=(error as {context?:unknown}).context;
+        if(context instanceof Response){try{preflight=await context.json();}catch{/* No JSON */}}
+        if(!preflight?.message)preflight={ok:false,message:error.message};
+      }
+    }catch(error){
+      preflight={ok:false,message:error instanceof Error?error.message:"Erro inesperado na validação."};
+    }
+    if(preflight?.ok!==true||preflight.previewOnly!==true||preflight.providerRequestSent!==false){
+      setNotice(client.name+": o pré-teste bloqueou esta renovação: "+
+        (preflight?.message??"Validação segura indisponível. Nenhum pedido externo enviado."));
+      return;
+    }
+
     const summary=[
       "PILOTO SUPERVISIONADO — Painel Recarga",
       "Cliente: "+client.name+" ("+client.login+")",
@@ -524,13 +558,6 @@ function Painel() {
       "Confirma o envio deste cliente específico?",
     ].join("\n");
     if(!window.confirm(summary))return;
-    const values={
-      months:covered?1:opts.months,
-      dueDate,financialDueDate:covered?client.financial_due_date!:financialDueDate,
-      cost:opts.monthlyCost,monthlyPaid:covered?0:opts.monthlyPaid,
-      prevPaid:covered?client.prev_paid:(opts.months>1?client.prev_paid||client.paid:opts.monthlyPaid),
-      paymentAmount:covered?0:opts.paid,paymentCost:covered?0:opts.cost,
-    };
     setRenewingBusy(true);
     try{
       const {data,error}=await supabase.functions.invoke("painel-recarga-renovar",{
