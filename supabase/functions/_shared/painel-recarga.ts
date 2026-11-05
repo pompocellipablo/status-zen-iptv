@@ -198,7 +198,7 @@ export function parsePanelRecargaResponse(
   }
   const loginExact=row?.["usuario"]===expectedLogin;
   if(root["ok"]===true && row?.["ok"]===true && loginExact && row?.["incerto"]!==true
-    && (typeof row["ciclos_feitos"]!=="number"||row["ciclos_feitos"]>=1)){
+    && (typeof row["ciclos_feitos"]!=="number"||row["ciclos_feitos"]===1)){
     return {
       ...base,status:"confirmed",message:"Renovação confirmada pelo painel externo.",
       ...(typeof row["vencimento_antes"]==="string"?{previousDue:row["vencimento_antes"]}:{}),
