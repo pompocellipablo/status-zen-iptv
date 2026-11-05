@@ -120,3 +120,32 @@ concluir segurança pela contagem total isoladamente.
    executa nada sozinha.
 6. Comparar pagamentos e movimentos de crédito individuais do(s) cliente(s)
    afetado(s). Nunca apagar lançamentos de todo o sistema para corrigir um.
+
+## Piloto REAL restrito a um único ciclo (Jardel Sabino — Club)
+
+- Selecionado após comparar o acesso técnico com Painel Recarga:
+  ambos em `19/11/2026` (05/11/2026).
+- O pagamento mensal confirmado pelo operador é R$ 30,00. O banco
+  ainda mostrava o último pagamento em 19/10/2026. Verificar novamente
+  antes do piloto para evitar duplicar qualquer registro manual posterior.
+- A Edge Function do branch principal exige **duas configurações privadas**,
+  além da chave geral de live: `PAINEL_RECARGA_PILOT_CLIENT_ID` e
+  `PAINEL_RECARGA_PILOT_EXPECTED_DUE_DATE`. Não divulgar UUID ou segredo em
+  código, documentação pública ou frontend; configurar via secrets privados.
+- Para este piloto, o vencimento autorizado é `2026-11-19`. A função rejeita
+  qualquer cliente/ciclo diferente, pacote pré-pago e mais de um mês pago.
+- A operação continua desativada até serem feitos **todos** os passos:
+  1. Conferir **backup restaurável do banco** no Lovable Cloud.
+  2. Confirmar que o cliente ainda não foi renovado técnica ou
+     financeiramente em outro dispositivo.
+  3. Publicar a Edge Function reforçada e revisar as flags privadas.
+  4. Habilitar somente para o cliente permitido e usar confirmação humana.
+  5. Verificar a resposta do fornecedor; exigir exatamente um ciclo.
+  6. Registrar localmente via RPC atômico, revisar o pagamento único.
+  7. Desligar `PAINEL_RECARGA_LIVE_ENABLED` assim que o único pedido for
+     conciliado e revisar o estado `external_renewal_jobs`.
+- Se a resposta for 202, incerta ou timeout, **não clicar Renovar outra vez**:
+  consultar o andamento da mesma chave, pois a fila pode executar ao
+  reconectar o servidor.
+- A versão segura do piloto está preparada no GitHub, mas **não será
+  executada/publicada de forma a renovar clientes sem autorização e backup**.
