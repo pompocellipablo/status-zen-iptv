@@ -7,6 +7,7 @@ describe("Painel Recarga integration guardrails",()=>{
     assert.equal(panelRouteForClient("Five")?.path,"/renovar/iptv/five");
     assert.equal(panelRouteForClient("GF")?.path,"/renovar/iptv/gf");
     assert.equal(panelRouteForClient("Club")?.path,"/renovar/iptv/club");
+    assert.deepEqual(panelRouteForClient("Blade"),{kind:"p2p",panel:"blade",path:"/renovar/p2p/blade"});
     assert.deepEqual(panelRouteForClient("UniP2P"),{kind:"p2p",panel:"uniplay",path:"/renovar/p2p/uniplay"});
     assert.deepEqual(panelRouteForClient("Uniplay"),{kind:"iptv",panel:"uniplay",path:"/renovar/iptv/uniplay"});
     assert.equal(panelRouteForClient("Elite"),null);
