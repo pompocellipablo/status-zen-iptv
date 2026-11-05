@@ -765,6 +765,7 @@ export type Database = {
         }
         Returns: undefined
       }
+      sync_external_renewal_job: { Args: { p_job_id: string }; Returns: Json }
       sync_overdue_former_clients: { Args: never; Returns: number }
     }
     Enums: {
