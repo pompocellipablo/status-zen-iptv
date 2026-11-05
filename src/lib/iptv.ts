@@ -130,8 +130,9 @@ export function isPackageCovered(client: Client): boolean {
 
 /**
  * Preview a manually approved reconciliation against a trusted, freshly exported
- * panel due date. No payment or server credit is created by a reconciliation.
- * Existing prepaid coverage is immutable; equal dates remain equal.
+ * panel due date. No payment or server credit is created by reconciliation.
+ * Never infer a payment from a provider date: financial due is immutable.
+ * Without prepaid coverage, any mismatch requires manual financial review.
  */
 export function planPanelDateCorrection(
   client: Pick<Client, "due_date" | "financial_due_date">,
@@ -140,7 +141,7 @@ export function planPanelDateCorrection(
 ): { dueDate: string; financialDueDate: string | null; preservedFinancial: boolean; blockedReason: string | null } {
   const currentFinance=client.financial_due_date;
   const preservedFinancial=currentFinance!==client.due_date;
-  const financialDueDate=preservedFinancial?currentFinance:panelDueDate;
+  const financialDueDate=currentFinance;
   let blockedReason: string | null=null;
   if(!/^\d{4}-\d{2}-\d{2}$/.test(panelDueDate) || toISODate(parseDate(panelDueDate))!==panelDueDate)
     blockedReason="Data do painel inválida.";
@@ -150,6 +151,8 @@ export function planPanelDateCorrection(
     blockedReason="Vencimento financeiro ausente. Faça a revisão manual.";
   else if(currentFinance<client.due_date)
     blockedReason="Vencimento financeiro já está anterior ao técnico. Revise manualmente.";
+  else if(!preservedFinancial && panelDueDate!==client.due_date)
+    blockedReason="Vencimentos iguais: a consulta do painel não comprova novo pagamento. Confira a cobrança e o consumo de crédito antes de corrigir.";
   else if(preservedFinancial && panelDueDate>currentFinance)
     blockedReason="A validade do painel ultrapassa a cobertura financeira atual. Revise manualmente.";
   return {dueDate:panelDueDate,financialDueDate,preservedFinancial,blockedReason};
