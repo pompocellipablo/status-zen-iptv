@@ -407,7 +407,7 @@ function ServersPage() {
             compara a data do acesso quando o fornecedor a informar. Não renova, cobra ou consome crédito.
             A primeira consulta verifica se o servidor disponibiliza a data atual.
           </p>
-          <button type="button" disabled={!directCandidate||simulatingId!==null||batchBusy}
+          <button type="button" disabled={!directCandidate||simulatingId!==null||batchBusy||pendingJobsQuery.isError||pendingJobsQuery.isPending}
             onClick={()=>{if(directCandidate)void runSimulation(directCandidate);}}
             className="mt-3 min-h-10 rounded-xl bg-cyan px-3 py-2 text-xs font-bold text-background disabled:opacity-40">
             {simulatingId?"Consultando o servidor…":"Conferir vencimento diretamente (1 cliente)"}
@@ -415,7 +415,7 @@ function ServersPage() {
           <div className="mt-3 rounded-xl bg-panel p-3 ring-1 ring-line">
             <p className="text-sm font-semibold">Conferência por lotes · {reviewedClients.length}/{batchEligibleClients.length}</p>
             <p className="mt-1 text-xs text-mist">
-              Somente clientes não vencidos (incluindo quem vence hoje), em grupos de até 10 consultas sequenciais. Sem arquivo, renovações ou alterações. Os resultados são temporários até recarregar a tela.
+              Somente clientes não vencidos (incluindo quem vence hoje), em grupos de até 10 consultas sequenciais. Sem arquivo, renovações ou alterações. Pedidos pendentes permanecem registrados depois de recarregar a tela; resultados concluídos desta visualização são temporários.
             </p>
             <p className="mt-2 text-xs text-mist">
               {expiredExcluded} vencido(s) fora da consulta automática — permanecem cadastrados e podem ser conferidos individualmente.
@@ -430,7 +430,7 @@ function ServersPage() {
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
               <button type="button" onClick={()=>void inspectNextBatch()}
-                disabled={batchBusy||simulatingId!==null||outstandingClients.length===0}
+                disabled={batchBusy||simulatingId!==null||outstandingClients.length===0||pendingJobsQuery.isError||pendingJobsQuery.isPending}
                 className="min-h-10 rounded-lg bg-cyan/15 px-3 text-xs font-semibold text-cyan ring-1 ring-cyan/30 disabled:opacity-40">
                 {batchBusy?`Consultando ${batchProgress.done}/${batchProgress.total}…`:`Conferir próximos ${Math.min(10,outstandingClients.length)} clientes`}
               </button>
@@ -442,7 +442,7 @@ function ServersPage() {
             {pendingJobsQuery.isError&&<p role="status" className="mt-2 text-xs text-warn">
               Histórico de consultas indisponível. Não repita pedidos que possam estar na fila do Painel Recarga.
             </p>}
-            {batchNotice&&<p role="status" className="mt-2 text-xs text-warn">{batchNotice}</p>
+            {batchNotice&&<p role="status" className="mt-2 text-xs text-warn">{batchNotice}</p>}
             {pendingClients.length>0&&<section className="mt-3 space-y-2" aria-label="Consultas aguardando sessão">
               <h3 className="text-xs font-semibold text-warn">Aguardando no Painel Recarga · {pendingClients.length}</h3>
               <p className="text-xs text-mist">A consulta pode terminar quando a sessão reconectar. O pedido usa uma chave persistente; Verificar andamento reutiliza essa chave.</p>
@@ -527,7 +527,7 @@ function ServersPage() {
                 </p>
                 <p className="text-xs text-mist">Vence {formatDate(c.due_date)}</p>
                 {panelRouteForClient(c.server)&&<button type="button"
-                  disabled={simulatingId!==null||batchBusy||auditChecks[c.id]?.status==="pending"||pendingJobsQuery.isError} onClick={()=>void runSimulation(c)}
+                  disabled={simulatingId!==null||batchBusy||auditChecks[c.id]?.status==="pending"||pendingJobsQuery.isError||pendingJobsQuery.isPending} onClick={()=>void runSimulation(c)}
                   className="mt-1 min-h-9 rounded-lg bg-cyan/15 px-3 text-xs font-semibold text-cyan ring-1 ring-cyan/30 disabled:opacity-50">
                   {simulatingId===c.id?"Conferindo…":auditChecks[c.id]?.status==="pending"?"Aguardando sessão":"Conferir no painel"}
                 </button>}
