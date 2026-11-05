@@ -30,7 +30,7 @@ Rotas IPTV (POST):
 - Blade IPTV /renovar/iptv/blade (rota da API, não utilizada pelos clientes Blade atuais da MaxFlix)
 - Club /renovar/iptv/club
 - Five /renovar/iptv/five
-- GF /renovar/iptv/gf
+- GF /renovar/iptv/gf (documentada pelo fornecedor, mas bloqueada na MaxFlix por falta de acesso habilitado)
 - Now /renovar/iptv/now
 - Uniplay /renovar/iptv/uniplay
 
@@ -38,6 +38,8 @@ Rotas P2P existem para Blade/Five/GF/Uniplay. O proprietário confirmou:
 - Blade na MaxFlix = Blade P2P: /renovar/p2p/blade (confirmado pelo proprietário em 04/11/2026; não há clientes Blade IPTV cadastrados)
 - UniP2P na MaxFlix = Uniplay P2P: /renovar/p2p/uniplay
 - Uniplay na MaxFlix = Uniplay IPTV: /renovar/iptv/uniplay
+
+GF, Elite e Fast permanecem manuais na MaxFlix; não possuem rota habilitada no adaptador.
 
 Esse mapeamento foi implementado no adaptador com testes para evitar
 confundir as duas modalidades. Elite e demais servidores sem mapeamento
