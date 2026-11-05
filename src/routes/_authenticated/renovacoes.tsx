@@ -47,7 +47,7 @@ import {
 
 // Disabled by default. Enabling this UI alone does NOT enable real provider
 // renewals; the Edge Function has a separate server-side safety switch.
-const PANEL_PILOT_UI_ENABLED = import.meta.env.VITE_MAXFLIX_PANEL_PILOT === "true";
+const PANEL_PILOT_UI_ENABLED = import.meta.env["VITE_MAXFLIX_PANEL_PILOT"] === "true";
 
 export const Route = createFileRoute("/_authenticated/renovacoes")({
   validateSearch: (search: Record<string, unknown>): { tab: Tab; access?: string; server?: string } => {
@@ -1147,8 +1147,9 @@ function Painel() {
           saving={renewingBusy}
           onCancel={() => setRenewing(null)}
           onConfirm={(opts) => confirmRenew(renewing, opts)}
-          onConfirmPilot={PANEL_PILOT_UI_ENABLED&&panelRouteForClient(renewing.server)
-            ?(opts)=>confirmPanelPilot(renewing,opts):undefined}
+          {...(PANEL_PILOT_UI_ENABLED && panelRouteForClient(renewing.server)
+            ? { onConfirmPilot: (opts: { months: number; cost: number; paid: number; monthlyCost: number; monthlyPaid: number }) => confirmPanelPilot(renewing, opts) }
+            : {})}
         />
       )}
 
