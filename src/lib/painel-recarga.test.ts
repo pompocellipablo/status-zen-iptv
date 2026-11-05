@@ -45,6 +45,29 @@ describe("Provider dates",()=>{
 });
 
 
+describe("Read-only panel expiry inspection",()=>{
+  it("extracts expiry only from exact-login successful simulation",()=>{
+    const response={ok:true,resultados:[{ok:true,usuario:"cliente1",vencimento_antes:"10/11/2026 10:00:00",vencimento_novo:"10/12/2026 10:00:00"}]};
+    const match=parsePanelRecargaResponse(200,response,"cliente1",true);
+    assert.equal(match.status,"simulated");
+    assert.equal(match.previousDue,"2026-11-10");
+    assert.equal(match.nextDue,undefined);
+    const wrong=parsePanelRecargaResponse(200,response,"cliente2",true);
+    assert.equal(wrong.status,"failed");
+    assert.equal(wrong.previousDue,undefined);
+  });
+  it("never guesses expiry from projected new date or an invalid date",()=>{
+    for(const response of [
+      {ok:true,resultados:[{ok:true,usuario:"cliente1",vencimento_novo:"10/12/2026 10:00:00"}]},
+      {ok:true,resultados:[{ok:true,usuario:"cliente1",vencimento_antes:"31/02/2026 10:00:00"}]},
+    ]) {
+      const outcome=parsePanelRecargaResponse(200,response,"cliente1",true);
+      assert.equal(outcome.status,"simulated");
+      assert.equal(outcome.previousDue,undefined);
+    }
+  });
+});
+
 describe("Financial coverage safety",()=>{
   const month={months:1,dueDate:"2026-12-10",financialDueDate:"2026-12-10",paymentAmount:35,monthlyPaid:35,paymentCost:6};
   it("allows a new paid month when technical and financial dates were equal",()=>{
