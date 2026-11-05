@@ -48,6 +48,15 @@ import {
 // Disabled by default. Enabling this UI alone does NOT enable real provider
 // renewals; the Edge Function has a separate server-side safety switch.
 const PANEL_PILOT_UI_ENABLED = import.meta.env["VITE_MAXFLIX_PANEL_PILOT"] === "true";
+const FIRST_PILOT_CLIENT_ID = "c0b6e1f2-3c65-4041-aa56-448122108cec";
+const FIRST_PILOT_EXPECTED_DUE = "2026-11-19";
+// UX-only guard: the backend independently enforces private allowed-client
+// and expected-cycle secrets, even if this public UI is tampered with.
+const isFirstPilotClient = (client:Client) =>
+  PANEL_PILOT_UI_ENABLED
+  && client.id===FIRST_PILOT_CLIENT_ID
+  && client.due_date===FIRST_PILOT_EXPECTED_DUE
+  && client.server==="Club";
 
 export const Route = createFileRoute("/_authenticated/renovacoes")({
   validateSearch: (search: Record<string, unknown>): { tab: Tab; access?: string; server?: string } => {
@@ -497,8 +506,12 @@ function Painel() {
     client:Client,
     opts:{months:number;cost:number;paid:number;monthlyCost:number;monthlyPaid:number},
   )=>{
-    if(!PANEL_PILOT_UI_ENABLED||!panelRouteForClient(client.server))return;
+    if(!isFirstPilotClient(client)||!panelRouteForClient(client.server))return;
     if(renewingBusy)return;
+    if(opts.months!==1||opts.paid!==30||opts.monthlyCost!==6){
+      setNotice("Piloto inicial restrito a um mês, R$ 30 recebidos e R$ 6 de custo por ciclo.");
+      return;
+    }
     if(client.access_type==="gratuidade"||client.access_type==="meu_acesso"){
       setNotice("Acesso gratuito: o fluxo de piloto não registra mensalidade. Continue usando a renovação manual.");
       return;
@@ -995,7 +1008,7 @@ function Painel() {
                     <div className="mt-3 flex flex-wrap items-stretch gap-2 xl:mt-0">
                       <button
                         type="button"
-                        disabled={PANEL_PILOT_UI_ENABLED&&(externalJobsQuery.isLoading||externalJobsQuery.isError||
+                        disabled={isFirstPilotClient(c)&&(externalJobsQuery.isLoading||externalJobsQuery.isError||
                           (externalJobsQuery.data??[]).some(job=>job.client_id===c.id
                             &&job.expected_due_date===c.due_date
                             &&["created","waiting","uncertain","external_confirmed","needs_review"].includes(job.state)))}
@@ -1004,7 +1017,7 @@ function Painel() {
                       >
                         <RefreshCw size={15} aria-hidden="true" /> Renovar
                       </button>
-                      {PANEL_PILOT_UI_ENABLED&&panelRouteForClient(c.server)&&(
+                      {isFirstPilotClient(c)&&panelRouteForClient(c.server)&&(
                         <button type="button" disabled={renewingBusy}
                           onClick={()=>{
                             const next=nextDueDate(c.due_date);
@@ -1161,7 +1174,7 @@ function Painel() {
           saving={renewingBusy}
           onCancel={() => setRenewing(null)}
           onConfirm={(opts) => confirmRenew(renewing, opts)}
-          {...(PANEL_PILOT_UI_ENABLED && panelRouteForClient(renewing.server)
+          {...(isFirstPilotClient(renewing) && panelRouteForClient(renewing.server)
             ? { onConfirmPilot: (opts: { months: number; cost: number; paid: number; monthlyCost: number; monthlyPaid: number }) => confirmPanelPilot(renewing, opts) }
             : {})}
         />
@@ -1752,7 +1765,7 @@ function RenewDialog({
           </Button>
         </div>}
         <div className="mt-5 flex gap-3">
-          <Button
+          {!onConfirmPilot && <Button
             type="button"
             disabled={!validMonths || saving}
             onClick={() =>
@@ -1761,7 +1774,7 @@ function RenewDialog({
             className="font-display rounded-xl bg-cyan px-4 py-2.5 text-sm font-semibold text-background ring-1 ring-cyan/40"
           >
             {saving ? "Renovando…" : "Confirmar renovação"}
-          </Button>
+          </Button>}
           <Button
             type="button"
             variant="outline"
