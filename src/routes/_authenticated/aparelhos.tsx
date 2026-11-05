@@ -7,7 +7,7 @@ import { formatBRL, formatDate, getStatus, type Client } from "@/lib/iptv";
 import type { Database } from "@/integrations/supabase/types";
 
 export const Route = createFileRoute("/_authenticated/aparelhos")({
-  head: () => ({meta:[{title:"TV Box + Acesso — MaxFlix"}]}),
+  head: () => ({ meta: [{"title": "TV Box + Acesso — MaxFlix"}, {"name": "description", "content": "Acompanhe vendas de TV Box e seus acessos MaxFlix."}, {"property": "og:title", "content": "TV Box + Acesso — MaxFlix"}, {"property": "og:description", "content": "Acompanhe vendas de TV Box e seus acessos MaxFlix."}, {"property": "og:type", "content": "website"}, {"name": "twitter:card", "content": "summary"}] }),
   component: DevicesPage,
 });
 

@@ -8,7 +8,7 @@ import {
 } from "@/lib/marketing-catalog";
 
 export const Route = createFileRoute("/_authenticated/marketing")({
-  head: () => ({ meta:[{ title:"Marketing IA — MaxFlix" }] }),
+  head: () => ({ meta: [{"title": "Marketing IA — MaxFlix"}, {"name": "description", "content": "Organize o catálogo e as recomendações de conteúdo da MaxFlix."}, {"property": "og:title", "content": "Marketing IA — MaxFlix"}, {"property": "og:description", "content": "Organize o catálogo e as recomendações de conteúdo da MaxFlix."}, {"property": "og:type", "content": "website"}, {"name": "twitter:card", "content": "summary"}] }),
   component: MarketingPage,
 });
 

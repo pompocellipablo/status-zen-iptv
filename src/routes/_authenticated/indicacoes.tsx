@@ -9,7 +9,7 @@ import { buildReferralRanking, type RankedReferral } from "@/lib/referral-rankin
 import type { ReferralMovement, ReferralReward } from "@/lib/referrals";
 
 export const Route = createFileRoute("/_authenticated/indicacoes")({
-  head: () => ({ meta: [{ title: "Ranking de Indicações — MaxFlix" }] }),
+  head: () => ({ meta: [{"title": "Ranking de Indicações — MaxFlix"}, {"name": "description", "content": "Acompanhe indicações, pontos e prêmios dos clientes MaxFlix."}, {"property": "og:title", "content": "Ranking de Indicações — MaxFlix"}, {"property": "og:description", "content": "Acompanhe indicações, pontos e prêmios dos clientes MaxFlix."}, {"property": "og:type", "content": "website"}, {"name": "twitter:card", "content": "summary"}] }),
   component: ReferralRankingPage,
 });
 

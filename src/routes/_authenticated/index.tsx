@@ -14,6 +14,10 @@ export const Route = createFileRoute("/_authenticated/")({
   head: () => ({
     meta: [
       { title: "MaxFlix — Dashboard" },
+      { property: "og:title", content: "MaxFlix — Dashboard" },
+      { property: "og:description", content: "Visão geral de vencimentos, faturamento, créditos e custos da MaxFlix." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
       { name: "description", content: "Visão geral de vencimentos, faturamento, créditos e custos da MaxFlix." },
     ],
   }),

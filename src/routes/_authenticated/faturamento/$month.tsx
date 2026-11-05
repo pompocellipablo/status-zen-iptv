@@ -6,7 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { formatBRL } from "@/lib/iptv";
 
 export const Route = createFileRoute("/_authenticated/faturamento/$month")({
-  head: () => ({ meta: [{title:"Faturamento detalhado — MaxFlix"}] }),
+  head: () => ({ meta: [{"title": "Faturamento detalhado — MaxFlix"}, {"name": "description", "content": "Confira os pagamentos e o faturamento mensal da MaxFlix."}, {"property": "og:title", "content": "Faturamento detalhado — MaxFlix"}, {"property": "og:description", "content": "Confira os pagamentos e o faturamento mensal da MaxFlix."}, {"property": "og:type", "content": "website"}, {"name": "twitter:card", "content": "summary"}] }),
   component: MonthlyPaymentsPage,
 });
 

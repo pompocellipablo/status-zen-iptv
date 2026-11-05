@@ -4,7 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/_authenticated/recuperacao")({
-  head: () => ({ meta: [{ title: "Recuperação de Clientes — MaxFlix" }] }),
+  head: () => ({ meta: [{"title": "Recuperação de Clientes — MaxFlix"}, {"name": "description", "content": "Acompanhe contatos e retornos de antigos clientes MaxFlix."}, {"property": "og:title", "content": "Recuperação de Clientes — MaxFlix"}, {"property": "og:description", "content": "Acompanhe contatos e retornos de antigos clientes MaxFlix."}, {"property": "og:type", "content": "website"}, {"name": "twitter:card", "content": "summary"}] }),
   component: RecoveryPage,
 });
 

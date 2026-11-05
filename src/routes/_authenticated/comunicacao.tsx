@@ -39,7 +39,7 @@ async function readTracking(): Promise<CampaignTracking[]> {
 }
 
 export const Route = createFileRoute("/_authenticated/comunicacao")({
-  head: () => ({ meta: [{ title: "Comunicação — MaxFlix" }] }),
+  head: () => ({ meta: [{"title": "Comunicação — MaxFlix"}, {"name": "description", "content": "Organize contatos e mensagens de comunicação da MaxFlix."}, {"property": "og:title", "content": "Comunicação — MaxFlix"}, {"property": "og:description", "content": "Organize contatos e mensagens de comunicação da MaxFlix."}, {"property": "og:type", "content": "website"}, {"name": "twitter:card", "content": "summary"}] }),
   component: CommunicationPage,
 });
 
