@@ -61,7 +61,7 @@ describe("conciliação manual de vencimentos", () => {
     assert.equal(result.dueDate,"2026-12-08");
     assert.equal(result.financialDueDate,"2026-11-08");
     assert.equal(result.preservedFinancial,false);
-    assert.match(result.blockedReason??"",/não comprova novo pagamento/);
+    assert.match(result.blockedReason??"",/não autoriza alterar o financeiro/);
   });
   test("data de painel menor também não reduz cobertura financeira de cliente mensal",()=>{
     const result=planPanelDateCorrection({due_date:"2026-11-20",financial_due_date:"2026-11-20"},"2026-11-10",base);
