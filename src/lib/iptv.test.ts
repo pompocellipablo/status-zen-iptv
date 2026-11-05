@@ -1,6 +1,6 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { isPackageCovered, planPanelDateCorrection, renewalDates, renewalMessageLink, type Client } from "./iptv";
+import { isPackageCovered, isPanelAuditEligible, planPanelDateCorrection, renewalDates, renewalMessageLink, type Client } from "./iptv";
 
 describe("datas da renovação", () => {
   const renewalDay = new Date(2026, 8, 27);
@@ -37,6 +37,20 @@ describe("datas da renovação", () => {
     assert.throws(() => renewalDates("2026-09-27", 0, renewalDay));
     assert.throws(() => renewalDates("2026-09-27", 2.5, renewalDay));
     assert.throws(() => renewalDates("2026-09-27", 121, renewalDay));
+  });
+});
+
+describe("clientes elegíveis à conferência em lote",()=>{
+  const base=new Date(2026,10,5);
+  test("somente ativos e clientes que vencem hoje entram no lote",()=>{
+    assert.equal(isPanelAuditEligible({due_date:"2026-11-04"},base),false);
+    assert.equal(isPanelAuditEligible({due_date:"2026-11-05"},base),true);
+    assert.equal(isPanelAuditEligible({due_date:"2026-11-06"},base),true);
+  });
+  test("vencidos continuam identificáveis, sem afetar pacotes ativos",()=>{
+    const overdue={due_date:"2026-11-01",financial_due_date:"2027-05-01"} as Client;
+    assert.equal(isPanelAuditEligible(overdue,base),false);
+    assert.equal(isPackageCovered(overdue),true);
   });
 });
 
