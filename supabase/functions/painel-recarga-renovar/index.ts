@@ -106,7 +106,7 @@ Deno.serve(async(request)=>{
       let data:unknown;
       try{data=JSON.parse(raw);}catch{data=null;}
       const outcome=parsePanelRecargaResponse(result.status,data,customer.login,true);
-      return reply(200,{ok:true,simulated:true,remoteHttpStatus:result.status,outcome,
+      return reply(200,{ok:true,simulated:true,dateInspectionSupported:true,remoteHttpStatus:result.status,outcome,
         // Optional: only available if simulation explicitly returned a verified "vencimento_antes".
         panelDueDate:outcome.status==="simulated"?outcome.previousDue??null:null,
         note:"Simulação não altera o painel nem os créditos da MaxFlix."});
