@@ -64,3 +64,21 @@ Criado em **05/11/2026** para proteger a integração Painel Recarga.
 - Verificação do plano do servidor, do saldo e do vencimento técnico ANTES
   de registrar a operação local; com desvio, bloquear e apresentar revisão.
 - Operação real desativada até autorização explícita do usuário.
+
+## Linha de base observada antes do piloto (05/11/2026)
+
+Consulta somente de leitura no Lovable Cloud MaxFlix, útil para auditoria,
+**não é uma cópia restaurável dos registros**:
+
+| Registro | Quantidade |
+|---|---:|
+| Clientes cadastrados | 347 |
+| Pagamentos históricos | 320 |
+| Movimentos de crédito | 385 |
+| Pedidos externos de renovação real | 0 |
+| Simulações registradas | 2 |
+| Simulações em aberto | 0 |
+
+As quantidades podem mudar com o uso normal do app. Antes de qualquer piloto
+real, fazer nova leitura e comparar movimentos do cliente escolhido, não
+concluir segurança pela contagem total isoladamente.
