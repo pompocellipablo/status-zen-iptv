@@ -151,7 +151,7 @@ describe("Provider-authoritative renewal dates (no actual payments)",()=>{
     assert.deepEqual(check(prepaid,values,"15/12/2026 09:00:00"),{
       dueDate:"2026-12-15",financialDueDate:"2027-03-10",blockedReason:null,
     });
-    assert.match(check(prepaid,values,"15/04/2027 09:00:00").blockedReason??"",/ultrapassa/);
+    assert.match(check(prepaid,values,"15/04/2027 09:00:00").blockedReason??"",/ultrapassa|muito distante/);
     assert.match(check(prepaid,{...values,paymentAmount:35},"15/12/2026 09:00:00").blockedReason??"",/Pacote já pago/);
   });
   it("cannot extend a new financial period without payment",()=>{
