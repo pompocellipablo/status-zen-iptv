@@ -37,6 +37,20 @@ test("flags duplicate panel logins rather than guessing the match",()=>{
   assert.deepEqual(result.duplicatePanel,["one"]);
   assert.equal(result.statusDifferences.length,0);
 });
+test("reports both status and date differences for the same matching login",()=>{
+  const app=[client("ONE","2099-01-01")];
+  const rows=parsePanelExport("login;status;vencimento\nONE;inativo;2099-02-01").accounts;
+  const result=auditServerAccounts(app,rows);
+  assert.equal(result.statusDifferences.length,1);
+  assert.equal(result.dateDifferences.length,1);
+  assert.equal(result.matching,0);
+});
+test("never compares a date without a valid expiry value",()=>{
+  const app=[client("ONE","2099-01-01")];
+  const rows=parsePanelExport("login;vencimento\nONE;31/02/2027").accounts;
+  const result=auditServerAccounts(app,rows);
+  assert.equal(result.dateDifferences.length,0);
+});
 test("does not flag active/inactive differences if panel has no status",()=>{
   const app=[client("ONE","2099-01-01")];
   const result=auditServerAccounts(app,parsePanelExport("ONE").accounts);
