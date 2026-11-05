@@ -503,7 +503,13 @@ function Painel() {
       return;
     }
     const {dueDate,financialDueDate}=renewalDates(client.due_date,opts.months);
-    const covered=!!client.financial_due_date&&client.financial_due_date>client.due_date;
+    const hasPrepaidCoverage=!!client.financial_due_date&&client.financial_due_date>client.due_date;
+    const covered=hasPrepaidCoverage&&client.financial_due_date!>=dueDate;
+    if(hasPrepaidCoverage&&!covered){
+      setNotice("Este cliente tem cobertura parcial, mas o próximo ciclo técnico ultrapassa "
+        +"o vencimento financeiro. Concilie o saldo do pacote antes de renovar no painel.");
+      return;
+    }
     const summary=[
       "PILOTO SUPERVISIONADO — Painel Recarga",
       "Cliente: "+client.name+" ("+client.login+")",
