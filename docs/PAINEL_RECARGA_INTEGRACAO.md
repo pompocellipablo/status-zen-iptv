@@ -91,3 +91,41 @@ O vínculo com os vencimentos da MaxFlix deve ser homologado servidor por servid
 - Painel de pedidos pendentes/incertos e conciliação manual.
 - Tratamento das renovações gratuitas por indicação e de pacotes pré-pagos.
 - Só depois habilitar fluxo ao clicar no botão principal, sem ação dupla.
+
+
+## 05/11/2026 — acompanhamento seguro de simulações (PREPARADO, NÃO PUBLICADO)
+
+O desenvolvedor confirmou a regra: **uma nova Idempotency-Key representa uma nova solicitação**.
+Se a primeira solicitação ficou aguardando a sessão e foi executada ao reconectar,
+reconsultar com uma chave nova pode duplicar o registro de pedido.
+O corpo, login, servidor, ciclos e a chave devem ser idênticos na reconsulta.
+
+Mudança preparada no GitHub (não chamar o agente Lovable sem autorização):
+- Migração `20261105110000_external_simulation_jobs.sql`: tabela separada das renovações
+  financeiras, UUID imutável por solicitação, índice único por cliente com consulta
+  aberta e políticas RLS somente para o proprietário.
+- `mode=simulate`: reserva o pedido antes de chamar a API. Se já houver consulta
+  `created`, `waiting` ou `uncertain`, reutiliza **a mesma chave**;
+  não cria outro pedido. Resultado final recente pode vir de cache (até 2 minutos).
+- `mode=check_simulation`: verifica a solicitação existente com a mesma chave,
+  sem gerar nova. Se já está concluída, devolve o resultado armazenado.
+- Resposta `202`, rede indisponível ou estado incerto: preserva a consulta pendente,
+  não atualiza vencimentos, pagamento nem créditos.
+- Falha no banco de consultas: **falha fechada**, sem enviar pedido ao fornecedor.
+- Endpoint `renew`/ `check` de operações reais mantém seu controle independente
+  `external_renewal_jobs` e a chave existente por cliente/ciclo.
+
+**Sequência obrigatória na publicação:**
+1. Validar GitHub Actions e revisar migration/Edge Function.
+2. Aplicar a migração ao Lovable Cloud do projeto MaxFlix CORRETO.
+3. Só então publicar a versão atualizada da função `painel-recarga-renovar`.
+4. Testar com `simular:true` e uma conta autorizada; na pendência, consultar o
+   mesmo pedido, nunca renovar. Não habilitar `PAINEL_RECARGA_LIVE_ENABLED`.
+5. Separadamente, atualizar o frontend para apresentar "Verificar andamento"
+   e recuperar histórico após recarregar a página (não liberado ainda).
+
+**Não confundir**: preparar código/migration no GitHub não instala a tabela
+nem altera a Edge Function em produção. Até a implantação, a tela de auditoria
+tem somente bloqueios de pendência temporários e solicitações de simulação
+podem seguir gerando novas chaves após recarga. Não repetir manualmente
+uma consulta em espera na versão antiga sem conferir a fila.
