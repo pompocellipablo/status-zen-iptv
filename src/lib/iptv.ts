@@ -161,7 +161,7 @@ export function planPanelDateCorrection(
   else if(currentFinance<client.due_date)
     blockedReason="Vencimento financeiro já está anterior ao técnico. Revise manualmente.";
   else if(!preservedFinancial && panelDueDate!==client.due_date)
-    blockedReason="Vencimentos iguais: a consulta do painel não comprova novo pagamento. Confira a cobrança e o consumo de crédito antes de corrigir.";
+    blockedReason="As datas do acesso são diferentes. O painel não comprova pagamento e não autoriza alterar o financeiro. Confira a causa da diferença antes de corrigir.";
   else if(preservedFinancial && panelDueDate>currentFinance)
     blockedReason="A validade do painel ultrapassa a cobertura financeira atual. Revise manualmente.";
   return {dueDate:panelDueDate,financialDueDate,preservedFinancial,blockedReason};
