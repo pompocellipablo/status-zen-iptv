@@ -14,66 +14,20 @@ export type Database = {
   }
   public: {
     Tables: {
-      box_sales: {
+      box_sale_clients: {
         Row: {
-          id: string
-          customer_name: string
-          sale_date: string | null
-          model: string | null
-          quantity: number | null
-          amount_received: number | null
-          device_cost: number | null
-          extra_cost: number
-          months_included: number
-          notes: string | null
-          historical_source: string | null
-          created_at: string
-          updated_at: string
+          client_id: string
+          sale_id: string
         }
         Insert: {
-          id?: string
-          customer_name: string
-          sale_date?: string | null
-          model?: string | null
-          quantity?: number | null
-          amount_received?: number | null
-          device_cost?: number | null
-          extra_cost?: number
-          months_included?: number
-          notes?: string | null
-          historical_source?: string | null
-          created_at?: string
-          updated_at?: string
+          client_id: string
+          sale_id: string
         }
         Update: {
-          id?: string
-          customer_name?: string
-          sale_date?: string | null
-          model?: string | null
-          quantity?: number | null
-          amount_received?: number | null
-          device_cost?: number | null
-          extra_cost?: number
-          months_included?: number
-          notes?: string | null
-          historical_source?: string | null
-          created_at?: string
-          updated_at?: string
+          client_id?: string
+          sale_id?: string
         }
-        Relationships: []
-      }
-      box_sale_clients: {
-        Row: { sale_id: string; client_id: string }
-        Insert: { sale_id: string; client_id: string }
-        Update: { sale_id?: string; client_id?: string }
         Relationships: [
-          {
-            foreignKeyName: "box_sale_clients_sale_id_fkey"
-            columns: ["sale_id"]
-            isOneToOne: false
-            referencedRelation: "box_sales"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "box_sale_clients_client_id_fkey"
             columns: ["client_id"]
@@ -81,12 +35,66 @@ export type Database = {
             referencedRelation: "clients"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "box_sale_clients_sale_id_fkey"
+            columns: ["sale_id"]
+            isOneToOne: false
+            referencedRelation: "box_sales"
+            referencedColumns: ["id"]
+          },
         ]
+      }
+      box_sales: {
+        Row: {
+          amount_received: number | null
+          created_at: string
+          customer_name: string
+          device_cost: number | null
+          extra_cost: number
+          historical_source: string | null
+          id: string
+          model: string | null
+          months_included: number
+          notes: string | null
+          quantity: number | null
+          sale_date: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount_received?: number | null
+          created_at?: string
+          customer_name: string
+          device_cost?: number | null
+          extra_cost?: number
+          historical_source?: string | null
+          id?: string
+          model?: string | null
+          months_included?: number
+          notes?: string | null
+          quantity?: number | null
+          sale_date?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount_received?: number | null
+          created_at?: string
+          customer_name?: string
+          device_cost?: number | null
+          extra_cost?: number
+          historical_source?: string | null
+          id?: string
+          model?: string | null
+          months_included?: number
+          notes?: string | null
+          quantity?: number | null
+          sale_date?: string | null
+          updated_at?: string
+        }
+        Relationships: []
       }
       clients: {
         Row: {
-          access_type: "padrao" | "pacote_pago" | "gratuidade" | "meu_acesso"
-          notes: string | null
+          access_type: string
           cost: number
           created_at: string
           due_date: string
@@ -94,18 +102,18 @@ export type Database = {
           id: string
           login: string
           name: string
+          notes: string | null
           paid: number
           prev_cost: number
           prev_paid: number
+          referral_first_payment_confirmed: boolean
+          referred_by_client_id: string | null
           server: string
           updated_at: string
-          referred_by_client_id: string | null
-          referral_first_payment_confirmed: boolean
           whatsapp: string | null
         }
         Insert: {
-          access_type?: "padrao" | "pacote_pago" | "gratuidade" | "meu_acesso"
-          notes?: string | null
+          access_type?: string
           cost?: number
           created_at?: string
           due_date: string
@@ -113,18 +121,18 @@ export type Database = {
           id?: string
           login: string
           name: string
+          notes?: string | null
           paid?: number
           prev_cost?: number
           prev_paid?: number
+          referral_first_payment_confirmed?: boolean
+          referred_by_client_id?: string | null
           server: string
           updated_at?: string
-          referred_by_client_id?: string | null
-          referral_first_payment_confirmed?: boolean
           whatsapp?: string | null
         }
         Update: {
-          access_type?: "padrao" | "pacote_pago" | "gratuidade" | "meu_acesso"
-          notes?: string | null
+          access_type?: string
           cost?: number
           created_at?: string
           due_date?: string
@@ -132,13 +140,14 @@ export type Database = {
           id?: string
           login?: string
           name?: string
+          notes?: string | null
           paid?: number
           prev_cost?: number
           prev_paid?: number
+          referral_first_payment_confirmed?: boolean
+          referred_by_client_id?: string | null
           server?: string
           updated_at?: string
-          referred_by_client_id?: string | null
-          referral_first_payment_confirmed?: boolean
           whatsapp?: string | null
         }
         Relationships: [
@@ -151,139 +160,169 @@ export type Database = {
           },
         ]
       }
-      referral_point_movements: {
+      external_renewal_jobs: {
         Row: {
-          id: string
-          client_id: string
-          referred_client_id: string | null
-          kind: string
-          points: number
-          note: string | null
-          reversed_expiration_id: string | null
+          client_id: string | null
+          client_name: string
           created_at: string
-        }
-        Insert: {
-          id?: string
-          client_id: string
-          referred_client_id?: string | null
-          kind: string
-          points: number
-          note?: string | null
-          reversed_expiration_id?: string | null
-          created_at?: string
-        }
-        Update: {
-          id?: string
-          client_id?: string
-          referred_client_id?: string | null
-          kind?: string
-          points?: number
-          note?: string | null
-          reversed_expiration_id?: string | null
-          created_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "referral_point_movements_client_id_fkey"
-            columns: ["client_id"]
-            isOneToOne: false
-            referencedRelation: "clients"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "referral_point_movements_reversed_expiration_id_fkey"
-            columns: ["reversed_expiration_id"]
-            isOneToOne: true
-            referencedRelation: "referral_point_movements"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "referral_point_movements_referred_client_id_fkey"
-            columns: ["referred_client_id"]
-            isOneToOne: false
-            referencedRelation: "clients"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      referral_rewards: {
-        Row: {
+          expected_due_date: string
+          external_http_status: number | null
+          external_message: string | null
+          external_order_id: string | null
+          financial_due_date: string
           id: string
-          movement_id: string
-          client_id: string
-          reward: string
-          status: string
-          created_at: string
-          completed_at: string | null
-        }
-        Insert: {
-          id?: string
-          movement_id: string
-          client_id: string
-          reward: string
-          status?: string
-          created_at?: string
-          completed_at?: string | null
-        }
-        Update: {
-          id?: string
-          movement_id?: string
-          client_id?: string
-          reward?: string
-          status?: string
-          created_at?: string
-          completed_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "referral_rewards_client_id_fkey"
-            columns: ["client_id"]
-            isOneToOne: false
-            referencedRelation: "clients"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "referral_rewards_movement_id_fkey"
-            columns: ["movement_id"]
-            isOneToOne: true
-            referencedRelation: "referral_point_movements"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      whatsapp_migration_tracking: {
-        Row: {
-          client_id: string
-          phone_reviewed: boolean
-          agenda_updated: boolean
-          sent_at: string | null
-          replied_at: string | null
-          payer_name: string | null
+          idempotency_key: string
+          local_values: Json
+          login: string
+          new_due_date: string
+          server: string
+          state: string
+          synced_at: string | null
           updated_at: string
         }
         Insert: {
-          client_id: string
-          phone_reviewed?: boolean
-          agenda_updated?: boolean
-          sent_at?: string | null
-          replied_at?: string | null
-          payer_name?: string | null
+          client_id?: string | null
+          client_name: string
+          created_at?: string
+          expected_due_date: string
+          external_http_status?: number | null
+          external_message?: string | null
+          external_order_id?: string | null
+          financial_due_date: string
+          id?: string
+          idempotency_key?: string
+          local_values: Json
+          login: string
+          new_due_date: string
+          server: string
+          state?: string
+          synced_at?: string | null
           updated_at?: string
         }
         Update: {
-          client_id?: string
-          phone_reviewed?: boolean
-          agenda_updated?: boolean
-          sent_at?: string | null
-          replied_at?: string | null
-          payer_name?: string | null
+          client_id?: string | null
+          client_name?: string
+          created_at?: string
+          expected_due_date?: string
+          external_http_status?: number | null
+          external_message?: string | null
+          external_order_id?: string | null
+          financial_due_date?: string
+          id?: string
+          idempotency_key?: string
+          local_values?: Json
+          login?: string
+          new_due_date?: string
+          server?: string
+          state?: string
+          synced_at?: string | null
           updated_at?: string
         }
         Relationships: [
           {
-            foreignKeyName: "whatsapp_migration_tracking_client_id_fkey"
+            foreignKeyName: "external_renewal_jobs_client_id_fkey"
             columns: ["client_id"]
-            isOneToOne: true
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      former_client_events: {
+        Row: {
+          action: string
+          actor_id: string
+          created_at: string
+          former_client_id: string
+          from_status: string | null
+          id: string
+          note: string | null
+          to_status: string | null
+        }
+        Insert: {
+          action: string
+          actor_id?: string
+          created_at?: string
+          former_client_id: string
+          from_status?: string | null
+          id?: string
+          note?: string | null
+          to_status?: string | null
+        }
+        Update: {
+          action?: string
+          actor_id?: string
+          created_at?: string
+          former_client_id?: string
+          from_status?: string | null
+          id?: string
+          note?: string | null
+          to_status?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "former_client_events_former_client_id_fkey"
+            columns: ["former_client_id"]
+            isOneToOne: false
+            referencedRelation: "former_clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      former_clients: {
+        Row: {
+          contact_permission: string
+          created_at: string
+          id: string
+          last_contacted_at: string | null
+          linked_client_id: string | null
+          monthly_value: number | null
+          name: string
+          notes: string | null
+          origin: string
+          phone: string | null
+          recovered_at: string | null
+          server: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          contact_permission?: string
+          created_at?: string
+          id?: string
+          last_contacted_at?: string | null
+          linked_client_id?: string | null
+          monthly_value?: number | null
+          name: string
+          notes?: string | null
+          origin?: string
+          phone?: string | null
+          recovered_at?: string | null
+          server?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          contact_permission?: string
+          created_at?: string
+          id?: string
+          last_contacted_at?: string | null
+          linked_client_id?: string | null
+          monthly_value?: number | null
+          name?: string
+          notes?: string | null
+          origin?: string
+          phone?: string | null
+          recovered_at?: string | null
+          server?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "former_clients_linked_client_id_fkey"
+            columns: ["linked_client_id"]
+            isOneToOne: false
             referencedRelation: "clients"
             referencedColumns: ["id"]
           },
@@ -326,6 +365,106 @@ export type Database = {
             columns: ["client_id"]
             isOneToOne: false
             referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      referral_point_movements: {
+        Row: {
+          client_id: string
+          created_at: string
+          id: string
+          kind: string
+          note: string | null
+          points: number
+          referred_client_id: string | null
+          reversed_expiration_id: string | null
+        }
+        Insert: {
+          client_id: string
+          created_at?: string
+          id?: string
+          kind: string
+          note?: string | null
+          points: number
+          referred_client_id?: string | null
+          reversed_expiration_id?: string | null
+        }
+        Update: {
+          client_id?: string
+          created_at?: string
+          id?: string
+          kind?: string
+          note?: string | null
+          points?: number
+          referred_client_id?: string | null
+          reversed_expiration_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "referral_point_movements_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "referral_point_movements_referred_client_id_fkey"
+            columns: ["referred_client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "referral_point_movements_reversed_expiration_id_fkey"
+            columns: ["reversed_expiration_id"]
+            isOneToOne: false
+            referencedRelation: "referral_point_movements"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      referral_rewards: {
+        Row: {
+          client_id: string
+          completed_at: string | null
+          created_at: string
+          id: string
+          movement_id: string
+          reward: string
+          status: string
+        }
+        Insert: {
+          client_id: string
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          movement_id: string
+          reward: string
+          status?: string
+        }
+        Update: {
+          client_id?: string
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          movement_id?: string
+          reward?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "referral_rewards_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "referral_rewards_movement_id_fkey"
+            columns: ["movement_id"]
+            isOneToOne: true
+            referencedRelation: "referral_point_movements"
             referencedColumns: ["id"]
           },
         ]
@@ -484,33 +623,69 @@ export type Database = {
         }
         Relationships: []
       }
+      whatsapp_migration_tracking: {
+        Row: {
+          agenda_updated: boolean
+          client_id: string
+          payer_name: string | null
+          phone_reviewed: boolean
+          replied_at: string | null
+          sent_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          agenda_updated?: boolean
+          client_id: string
+          payer_name?: string | null
+          phone_reviewed?: boolean
+          replied_at?: string | null
+          sent_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          agenda_updated?: boolean
+          client_id?: string
+          payer_name?: string | null
+          phone_reviewed?: boolean
+          replied_at?: string | null
+          sent_at?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_migration_tracking_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: true
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      referral_restore_expiration: {
-        Args: { p_client_id: string; p_expiration_id: string }
-        Returns: number
-      }
       referral_award: {
-        Args: { p_client_id: string; p_referred_client_id: string; p_payment_confirmed: boolean }
+        Args: {
+          p_client_id: string
+          p_payment_confirmed: boolean
+          p_referred_client_id: string
+        }
         Returns: undefined
       }
       referral_claim: {
         Args: { p_client_id: string; p_reward: string }
         Returns: string
       }
-      referral_expire_client: {
-        Args: { p_client_id: string }
-        Returns: number
-      }
+      referral_expire_client: { Args: { p_client_id: string }; Returns: number }
       referral_mark_delivered: {
         Args: { p_reward_id: string }
         Returns: undefined
       }
-      referral_reset_expired: {
-        Args: Record<PropertyKey, never>
+      referral_reset_expired: { Args: never; Returns: number }
+      referral_restore_expiration: {
+        Args: { p_client_id: string; p_expiration_id: string }
         Returns: number
       }
       referral_use_free_month: {
@@ -531,6 +706,7 @@ export type Database = {
         }
         Returns: undefined
       }
+      sync_overdue_former_clients: { Args: never; Returns: number }
     }
     Enums: {
       [_ in never]: never
