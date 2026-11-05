@@ -90,8 +90,17 @@ export function parsePanelRecargaResponse(
   if(row?.["incerto"]===true||root["incerto"]===true)
     return {...base,status:"uncertain",message:"Painel não confirmou o resultado. Verifique antes de tentar novamente."};
   if(simulated) {
-    if(httpStatus===200 && root["ok"]===true && row?.["ok"]===true && row["usuario"]===expectedLogin)
-      return {...base,status:"simulated",message:"Usuário localizado na simulação; nenhum crédito foi consumido."};
+    if(httpStatus===200 && root["ok"]===true && row?.["ok"]===true && row["usuario"]===expectedLogin){
+      // The documented "vencimento_antes" may be omitted in simulations.
+      // Never mistake vencimento_novo (projected post-renewal) for the current expiry.
+      // Only expose a real, validated date bound to the *exact* matched login.
+      const before=typeof row["vencimento_antes"]==="string"?row["vencimento_antes"]:undefined;
+      const verified=panelDateToISO(before);
+      return {...base,status:"simulated",
+        message:"Usuário localizado na simulação; nenhum crédito foi consumido.",
+        ...(verified?{previousDue:verified}:{}),
+      };
+    }
     return {...base,status:"failed",message:typeof root["erro"]==="string"?root["erro"]:"A simulação não confirmou o login exato."};
   }
   if(httpStatus===207)
