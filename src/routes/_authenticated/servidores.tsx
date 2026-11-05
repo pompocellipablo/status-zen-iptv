@@ -3,7 +3,7 @@ import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, CalendarClock, CheckCircle2, CircleAlert, FileSearch, Search, Server, ShieldCheck, Upload, Users, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { SERVERS, formatDate, getStatus, planPanelDateCorrection, type Client } from "@/lib/iptv";
+import { SERVERS, formatDate, getStatus, isPanelAuditEligible, planPanelDateCorrection, type Client } from "@/lib/iptv";
 import { auditServerAccounts, parsePanelExport, type ParsedPanelExport, type PanelAuditRow } from "@/lib/server-panel-audit";
 import {panelRouteForClient} from "@/lib/painel-recarga";
 
@@ -136,16 +136,21 @@ function ServersPage() {
     }).sort((a,b)=>a.due_date.localeCompare(b.due_date)||a.name.localeCompare(b.name,"pt-BR"));
   },[serverClients,mode,search]);
   const audit=useMemo(()=>exported?auditServerAccounts(serverClients,exported.accounts):null,[serverClients,exported]);
-  const directCandidate=serverClients.find(c=>c.login.trim()&&getStatus(c).key!=="vencido")??serverClients.find(c=>c.login.trim())??null;
+  // Exclude expired accounts only from automated requests; retain them in
+  // MaxFlix, normal server views, CSV reports and individual inspection.
+  const batchEligibleClients=serverClients.filter(c=>c.login.trim()&&isPanelAuditEligible(c));
+  const expiredExcluded=serverClients.filter(c=>!isPanelAuditEligible(c)).length;
+  const missingLoginExcluded=serverClients.filter(c=>isPanelAuditEligible(c)&&!c.login.trim()).length;
+  const directCandidate=batchEligibleClients[0]??null;
   const lastChecked=lastCheckedId?directChecks[lastCheckedId]:undefined;
   const lastClient=lastCheckedId?serverClients.find(c=>c.id===lastCheckedId):undefined;
-  const reviewedClients=serverClients.filter(c=>{
+  const reviewedClients=batchEligibleClients.filter(c=>{
     const r=directChecks[c.id];
     return r?.server===c.server&&r.login===c.login;
   });
-  const outstandingClients=serverClients.filter(c=>{
+  const outstandingClients=batchEligibleClients.filter(c=>{
     const r=directChecks[c.id];
-    return c.login.trim()&&(!r||r.server!==c.server||r.login!==c.login);
+    return !r||r.server!==c.server||r.login!==c.login;
   });
   const changedClients=reviewedClients.filter(c=>directChecks[c.id]?.status==="different");
   const sameCount=reviewedClients.filter(c=>directChecks[c.id]?.status==="same").length;
@@ -359,9 +364,13 @@ function ServersPage() {
             {simulatingId?"Consultando o servidor…":"Conferir vencimento diretamente (1 cliente)"}
           </button>
           <div className="mt-3 rounded-xl bg-panel p-3 ring-1 ring-line">
-            <p className="text-sm font-semibold">Conferência por lotes · {reviewedClients.length}/{serverClients.length}</p>
+            <p className="text-sm font-semibold">Conferência por lotes · {reviewedClients.length}/{batchEligibleClients.length}</p>
             <p className="mt-1 text-xs text-mist">
-              Sem arquivos, em lotes de até 10 consultas sequenciais. Apenas leitura; não altera vencimentos, pagamentos, créditos ou contas externas. Os resultados ficam nesta tela até ela ser recarregada.
+              Somente clientes não vencidos (incluindo quem vence hoje), em grupos de até 10 consultas sequenciais. Sem arquivo, renovações ou alterações. Os resultados são temporários até recarregar a tela.
+            </p>
+            <p className="mt-2 text-xs text-mist">
+              {expiredExcluded} vencido(s) fora da consulta automática — permanecem cadastrados e podem ser conferidos individualmente.
+              {missingLoginExcluded>0?` ${missingLoginExcluded} ativo(s) sem login válido também foram ignorados.`:""}
             </p>
             <div className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
               <span className="text-ok">Datas iguais: {sameCount}</span>
