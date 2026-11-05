@@ -25,7 +25,7 @@ const headers={
 const reply=(status:number,payload:Record<string,unknown>)=>
   new Response(JSON.stringify(payload),{status,headers});
 type Mode="simulate"|"renew"|"check";
-type ClientRow={id:string;name:string;login:string;server:string;due_date:string};
+type ClientRow={id:string;name:string;login:string;server:string;due_date:string;financial_due_date:string|null};
 type Options={months:number;dueDate:string;financialDueDate:string;cost:number;monthlyPaid:number;prevPaid:number;paymentAmount:number;paymentCost:number};
 type Job={
   id:string;client_id:string|null;login:string;server:string;expected_due_date:string;
@@ -43,6 +43,27 @@ function parseLocalOptions(input:unknown):Options|null{
     if(!safeNumber(o[key]))return null;
   }
   return o as unknown as Options;
+}
+
+/**
+ * Preserve coverage already paid in MaxFlix. Never convert a monthly server
+ * renewal into a second payment, or shift the financial date of a package.
+ */
+function financialTransitionError(client:ClientRow, values:Options):string|null {
+  const previousFinancial=client.financial_due_date??client.due_date;
+  if(previousFinancial<client.due_date)
+    return "Vencimento financeiro anterior ao técnico: conciliação manual necessária.";
+  if(previousFinancial>client.due_date){
+    if(values.financialDueDate!==previousFinancial)
+      return "Pacote já pago: o vencimento financeiro precisa ser preservado.";
+    if(values.dueDate>previousFinancial)
+      return "O próximo ciclo ultrapassa a cobertura paga; revise o novo pagamento manualmente.";
+    if(values.paymentAmount!==0 || values.monthlyPaid!==0 || values.paymentCost!==0)
+      return "Pacote já pago: não registrar outra cobrança nesta renovação.";
+  }else if(values.months===1 && values.financialDueDate!==values.dueDate){
+    return "Plano mensal: os vencimentos técnico e financeiro precisam avançar juntos.";
+  }
+  return null;
 }
 
 Deno.serve(async(request)=>{
@@ -80,7 +101,7 @@ Deno.serve(async(request)=>{
   if(typeof input.clientId!=="string"||!isDate(input.expectedDueDate))
     return reply(400,{ok:false,message:"Cliente e vencimento esperado obrigatórios."});
   const {data:client,error:clientError}=await userDb.from("clients")
-    .select("id,name,login,server,due_date")
+    .select("id,name,login,server,due_date,financial_due_date")
     .eq("id",input.clientId).maybeSingle();
   if(clientError||!client)return reply(404,{ok:false,message:"Cliente não encontrado ou sem autorização."});
   const customer=client as ClientRow;
@@ -131,6 +152,8 @@ Deno.serve(async(request)=>{
     const values=parseLocalOptions(input.options);
     if(!values||values.dueDate<=expected||values.financialDueDate<values.dueDate)
       return reply(400,{ok:false,message:"Datas, valores ou período da renovação inválidos."});
+    const financeError=financialTransitionError(customer,values);
+    if(financeError)return reply(409,{ok:false,message:financeError});
     // The API cycles are not the same as months paid to MaxFlix.
     // We must consume a single credit in the panel and local ledger per click.
     const payload={
@@ -158,6 +181,12 @@ Deno.serve(async(request)=>{
   };
   const syncLocal=async()=>{
     const values=job!.local_values;
+    const financeError=financialTransitionError(customer,values);
+    if(financeError){
+      await updateJob({state:"needs_review",external_message:financeError});
+      return reply(409,{ok:false,needsReview:true,externalConfirmed:true,message:financeError+
+        " A validade externa pode ter mudado; não renove novamente sem conciliar."});
+    }
     const {error}=await userDb.rpc("renew_client_with_credit",{
       p_client_id:customer.id,
       p_expected_due_date:expected,
