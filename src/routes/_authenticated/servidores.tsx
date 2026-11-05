@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, CalendarClock, CheckCircle2, CircleAlert, FileSearch, Search, Server, ShieldCheck, Upload, Users, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -30,6 +30,39 @@ async function fetchClients():Promise<Client[]> {
   }
   return all;
 }
+/**
+ * Read-only inspection: always sends simular:true to the owner-protected
+ * Edge Function. Never changes a provider account or local payment/credit.
+ * Never infer a date from "vencimento_novo".
+ */
+async function inspectClientOnPanel(client:Client):Promise<DirectCheck> {
+  try {
+    const {data,error}=await supabase.functions.invoke("painel-recarga-renovar",{
+      body:{mode:"simulate",clientId:client.id,expectedDueDate:client.due_date},
+    });
+    let response=data as {simulated?:boolean;dateInspectionSupported?:boolean;panelDueDate?:string|null;outcome?:{status?:string;message?:string};message?:string}|null;
+    if(error){
+      const http=(error as {context?:unknown}).context;
+      if(http instanceof Response){try{response=await http.json();}catch{response=null;}}
+      throw Error(response?.message??error.message);
+    }
+    const confirmed=response?.simulated===true&&response?.outcome?.status==="simulated";
+    const panelDue=confirmed&&/^\d{4}-\d{2}-\d{2}$/.test(response?.panelDueDate??"")
+      ?response!.panelDueDate!:null;
+    const message=response?.outcome?.message??response?.message??"O painel não retornou um resultado reconhecido.";
+    const noBackend=confirmed&&response?.dateInspectionSupported!==true;
+    return {
+      server:client.server,login:client.login,panelDue,
+      status:confirmed?(panelDue?(panelDue===client.due_date?"same":"different"):"unavailable"):"failed",
+      message:noBackend?"A conferência de datas ainda não foi publicada no servidor.":confirmed&&!panelDue
+        ?"O login foi localizado, mas o painel não informou o vencimento atual.":message,
+    };
+  }catch(error){
+    return {server:client.server,login:client.login,panelDue:null,status:"failed",
+      message:error instanceof Error?error.message:"Não foi possível consultar o painel."};
+  }
+}
+
 function AuditGroup({title,detail,rows,variant}:{title:string,detail:string,rows:PanelAuditRow[],variant?:"warn"|"normal"}) {
   if(!rows.length)return null;
   return <section className={"rounded-xl p-3 ring-1 "+(variant==="warn"?"bg-warn/5 ring-warn/30":"bg-background/50 ring-line")}>
@@ -62,6 +95,11 @@ function ServersPage() {
   const [simulation,setSimulation]=useState<{clientId:string;ok:boolean;message:string}|null>(null);
   const [directChecks,setDirectChecks]=useState<Record<string,DirectCheck>>({});
   const [lastCheckedId,setLastCheckedId]=useState<string|null>(null);
+  const [batchBusy,setBatchBusy]=useState(false);
+  const [batchProgress,setBatchProgress]=useState({done:0,total:0});
+  const [batchNotice,setBatchNotice]=useState<string|null>(null);
+  const batchStopRef=useRef(false);
+  const batchBusyRef=useRef(false);
 
   const queryClient=useQueryClient();
   const clientsQuery=useQuery({queryKey:["clients"],queryFn:fetchClients});
@@ -101,44 +139,58 @@ function ServersPage() {
   const directCandidate=serverClients.find(c=>c.login.trim()&&getStatus(c).key!=="vencido")??serverClients.find(c=>c.login.trim())??null;
   const lastChecked=lastCheckedId?directChecks[lastCheckedId]:undefined;
   const lastClient=lastCheckedId?serverClients.find(c=>c.id===lastCheckedId):undefined;
+  const reviewedClients=serverClients.filter(c=>{
+    const r=directChecks[c.id];
+    return r?.server===c.server&&r.login===c.login;
+  });
+  const outstandingClients=serverClients.filter(c=>{
+    const r=directChecks[c.id];
+    return c.login.trim()&&(!r||r.server!==c.server||r.login!==c.login);
+  });
+  const changedClients=reviewedClients.filter(c=>directChecks[c.id]?.status==="different");
+  const sameCount=reviewedClients.filter(c=>directChecks[c.id]?.status==="same").length;
+  const unavailableCount=reviewedClients.filter(c=>directChecks[c.id]?.status==="unavailable").length;
+  const failedCount=reviewedClients.filter(c=>directChecks[c.id]?.status==="failed").length;
   const runSimulation=async(client:Client)=>{
-    if(simulatingId)return;
-    if(!panelRouteForClient(client.server))return;
+    if(simulatingId||batchBusyRef.current||!panelRouteForClient(client.server))return;
     setSimulatingId(client.id);
     setSimulation(null);
     try{
-      const {data,error}=await supabase.functions.invoke("painel-recarga-renovar",{
-        body:{mode:"simulate",clientId:client.id,expectedDueDate:client.due_date},
-      });
-      let response=data as {simulated?:boolean;dateInspectionSupported?:boolean;panelDueDate?:string|null;outcome?:{status?:string;message?:string};message?:string}|null;
-      if(error){
-        const http=(error as {context?:unknown}).context;
-        if(http instanceof Response){try{response=await http.json();}catch{response=null;}}
-        throw Error(response?.message ?? error.message);
-      }
-      const status=response?.outcome?.status;
-      const confirmed=response?.simulated===true&&status==="simulated";
-      const panelDue=confirmed&&/^\d{4}-\d{2}-\d{2}$/.test(response?.panelDueDate??"")
-        ?response!.panelDueDate!:null;
-      const message=response?.outcome?.message??response?.message??"O painel não retornou um resultado reconhecido.";
-      const missingDeploy=confirmed&&response?.dateInspectionSupported!==true;
-      setSimulation({clientId:client.id,ok:confirmed,message});
-      setDirectChecks(s=>({...s,[client.id]:{
-        server:client.server,login:client.login,panelDue,
-        status:confirmed?(panelDue?(panelDue===client.due_date?"same":"different"):"unavailable"):"failed",
-        message:missingDeploy
-          ?"O login foi confirmado, mas a nova função de conferência ainda não foi publicada. Não é possível saber se a API envia datas."
-          :confirmed&&!panelDue?"O login foi localizado, mas o Painel Recarga não informou o vencimento atual nessa simulação.":message,
-      }}));
-      setLastCheckedId(client.id);
-    }catch(err){
-      const message=err instanceof Error?err.message:"Não foi possível consultar o painel. Confira o deploy da função.";
-      setSimulation({clientId:client.id,ok:false,message});
-      setDirectChecks(s=>({...s,[client.id]:{server:client.server,login:client.login,panelDue:null,status:"failed",message}}));
+      const check=await inspectClientOnPanel(client);
+      setDirectChecks(previous=>({...previous,[client.id]:check}));
+      setSimulation({clientId:client.id,ok:check.status==="same"||check.status==="different"||check.status==="unavailable",message:check.message});
       setLastCheckedId(client.id);
     }finally{setSimulatingId(null);}
   };
+  const inspectNextBatch=async()=>{
+    if(batchBusyRef.current||simulatingId||!panelRouteForClient(selected))return;
+    const targets=outstandingClients.slice(0,10);
+    if(!targets.length)return;
+    batchBusyRef.current=true;
+    batchStopRef.current=false;
+    setBatchBusy(true);
+    setBatchNotice(null);
+    setBatchProgress({done:0,total:targets.length});
+    try{
+      for(const client of targets){
+        if(batchStopRef.current)break;
+        const result=await inspectClientOnPanel(client);
+        if(batchStopRef.current)break;
+        setDirectChecks(previous=>({...previous,[client.id]:result}));
+        setBatchProgress(progress=>({...progress,done:progress.done+1}));
+        if(result.status==="failed"&&/sess[aã]o|login expirado|aguardando/i.test(result.message)){
+          setBatchNotice("Consulta interrompida: a sessão do servidor precisa ser reconectada.");
+          break;
+        }
+      }
+    }finally{
+      batchBusyRef.current=false;
+      setBatchBusy(false);
+    }
+  };
   const choose=(name:string)=>{
+    batchStopRef.current=true;
+    setBatchNotice(null);setBatchProgress({done:0,total:0});
     setLocalSelection(name);setMode("todos");setSearch("");setExpanded(false);
     setExported(null);setImportedFile(null);setImportError(null);setFullExport(false);setSimulation(null);
     setShowDateChecks(false);setCorrectionNotice(null);setLastCheckedId(null);setDirectChecks({});
@@ -301,11 +353,48 @@ function ServersPage() {
             compara a data do acesso quando o fornecedor a informar. Não renova, cobra ou consome crédito.
             A primeira consulta verifica se o servidor disponibiliza a data atual.
           </p>
-          <button type="button" disabled={!directCandidate||simulatingId!==null}
+          <button type="button" disabled={!directCandidate||simulatingId!==null||batchBusy}
             onClick={()=>{if(directCandidate)void runSimulation(directCandidate);}}
             className="mt-3 min-h-10 rounded-xl bg-cyan px-3 py-2 text-xs font-bold text-background disabled:opacity-40">
             {simulatingId?"Consultando o servidor…":"Conferir vencimento diretamente (1 cliente)"}
           </button>
+          <div className="mt-3 rounded-xl bg-panel p-3 ring-1 ring-line">
+            <p className="text-sm font-semibold">Conferência por lotes · {reviewedClients.length}/{serverClients.length}</p>
+            <p className="mt-1 text-xs text-mist">
+              Sem arquivos, em lotes de até 10 consultas sequenciais. Apenas leitura; não altera vencimentos, pagamentos, créditos ou contas externas.
+            </p>
+            <div className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+              <span className="text-ok">Datas iguais: {sameCount}</span>
+              <span className="text-warn">Datas diferentes: {changedClients.length}</span>
+              <span className="text-mist">Sem data: {unavailableCount}</span>
+              <span className="text-danger">Não consultados: {failedCount}</span>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button type="button" onClick={()=>void inspectNextBatch()}
+                disabled={batchBusy||simulatingId!==null||outstandingClients.length===0}
+                className="min-h-10 rounded-lg bg-cyan/15 px-3 text-xs font-semibold text-cyan ring-1 ring-cyan/30 disabled:opacity-40">
+                {batchBusy?`Consultando ${batchProgress.done}/${batchProgress.total}…`:`Conferir próximos ${Math.min(10,outstandingClients.length)} clientes`}
+              </button>
+              {batchBusy&&<button type="button" onClick={()=>{batchStopRef.current=true;setBatchNotice("Parada solicitada. A consulta atual pode terminar antes de interromper.");}}
+                className="min-h-10 rounded-lg bg-panel2 px-3 text-xs text-mist ring-1 ring-line">
+                Parar após a consulta atual
+              </button>}
+            </div>
+            {batchNotice&&<p role="status" className="mt-2 text-xs text-warn">{batchNotice}</p>}
+            {changedClients.length>0&&<div className="mt-3 max-h-96 space-y-2 overflow-y-auto">
+              <p className="text-xs font-semibold text-warn">Divergências encontradas — nenhuma será corrigida automaticamente</p>
+              {changedClients.map(client=>{
+                const result=directChecks[client.id]!;
+                const plan=result.panelDue?planPanelDateCorrection(client,result.panelDue):null;
+                return <div key={client.id} className="rounded-lg bg-background/80 p-3 text-xs ring-1 ring-line">
+                  <p className="break-words font-semibold">{client.name} · {client.login}</p>
+                  <p className="mt-1 text-mist">MaxFlix: {formatDate(client.due_date)} · Painel: {formatDate(result.panelDue)} · Financeiro: {formatDate(client.financial_due_date)}</p>
+                  {plan?.blockedReason&&<p className="mt-1 text-warn">{plan.blockedReason}</p>}
+                  {!plan?.blockedReason&&<p className="mt-1 text-mist">Conferir a data no painel antes de aprovar eventual correção individual.</p>}
+                </div>;
+              })}
+            </div>}
+          </div>
           {lastChecked&&lastClient&&lastChecked.server===selected&&<div role="status" aria-live="polite"
             className="mt-3 rounded-lg bg-panel p-3 text-xs ring-1 ring-line">
             <p className="font-semibold">{lastClient.name} · {lastChecked.login}</p>
@@ -343,7 +432,7 @@ function ServersPage() {
                 </p>
                 <p className="text-xs text-mist">Vence {formatDate(c.due_date)}</p>
                 {panelRouteForClient(c.server)&&<button type="button"
-                  disabled={simulatingId!==null} onClick={()=>void runSimulation(c)}
+                  disabled={simulatingId!==null||batchBusy} onClick={()=>void runSimulation(c)}
                   className="mt-1 min-h-9 rounded-lg bg-cyan/15 px-3 text-xs font-semibold text-cyan ring-1 ring-cyan/30 disabled:opacity-50">
                   {simulatingId===c.id?"Conferindo…":"Conferir no painel"}
                 </button>}
