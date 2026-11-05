@@ -1518,7 +1518,7 @@ function PreflightDialog({client,onClose}:{client:Client;onClose:()=>void}) {
       clientId:"ok"|"missing"|"different";
       expectedDueDate:"ok"|"missing"|"different";
       liveEnabled:boolean;
-    };
+    }|undefined;
   }|null>(null);
   const period=prepaid?1:months;
   const validMonths=Number.isInteger(period)&&period>=1&&period<=120;
