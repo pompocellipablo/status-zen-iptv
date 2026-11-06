@@ -246,7 +246,7 @@ describe("Supervised pilot UI safety",()=>{
   const screen=readFileSync(new URL("../routes/_authenticated/renovacoes.tsx",import.meta.url),"utf8");
   it("uses an opt-in frontend gate, with existing manual renewal preserved",()=>{
     assert.match(screen,/const PANEL_PILOT_UI_ENABLED = import\.meta\.env(?:\["VITE_MAXFLIX_PANEL_PILOT"\]|\.VITE_MAXFLIX_PANEL_PILOT) === "true";/);
-    assert.match(screen,/isFirstPilotClient\(c\)&&panelRouteForClient/);
+    assert.match(screen,/isPilotTarget\(c,pilotTargetsQuery\.data\?\?\[\]\)&&panelRouteForClient/);
     assert.match(screen,/supabase\.rpc\("renew_client_with_credit"/);
   });
   it("requires a named-client confirmation before making an external request",()=>{
