@@ -50,6 +50,46 @@ export function financialTransitionError(
 }
 
 /**
+ * Batch-pilot allowlist; configured ONCE as a private Edge secret.
+ * Strict fail-closed parsing: at most one monthly test per provider.
+ * Unknown services, duplicate IDs, malformed dates or oversized input
+ * invalidate the whole list (never fall back to an open server list).
+ */
+export type PanelPilotCase={
+  clientId:string; expectedDueDate:string; server:string;
+};
+export const PANEL_PILOT_BATCH_SERVERS=[
+  "Five","Uniplay","UniP2P","Blade","Now","All Play",
+] as const;
+
+export function parsePanelPilotBatch(raw:string|undefined|null):PanelPilotCase[]{
+  if(!raw||raw.length>4096)return [];
+  let parsed:unknown;
+  try{parsed=JSON.parse(raw);}catch{return [];}
+  if(!Array.isArray(parsed)||parsed.length<1||parsed.length>6)return [];
+  const allowed=new Set<string>(PANEL_PILOT_BATCH_SERVERS);
+  const seenServers=new Set<string>();
+  const seenClients=new Set<string>();
+  const entries:PanelPilotCase[]=[];
+  for(const entry of parsed){
+    if(!entry||typeof entry!=="object"||Array.isArray(entry))return [];
+    const p=entry as Record<string,unknown>;
+    const {clientId,expectedDueDate,server}=p;
+    if(typeof clientId!=="string"||
+       !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clientId)
+       ||typeof expectedDueDate!=="string"
+       ||!/^\d{4}-\d{2}-\d{2}$/.test(expectedDueDate)
+       ||panelDateToISO(expectedDueDate)!==expectedDueDate
+       ||typeof server!=="string"||!allowed.has(server)
+       ||seenServers.has(server)||seenClients.has(clientId))return [];
+    seenServers.add(server);
+    seenClients.add(clientId);
+    entries.push({clientId,expectedDueDate,server});
+  }
+  return entries;
+}
+
+/**
  * Preflight validation only: validates a planned renewal BEFORE any
  * external job is reserved or posted. This does not authorize payment.
  * The final confirmation is validated a second time against the actual
