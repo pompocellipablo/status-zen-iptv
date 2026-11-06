@@ -56,7 +56,7 @@ export function financialTransitionError(
  * invalidate the whole list (never fall back to an open server list).
  */
 export type PanelPilotCase={
-  clientId:string; expectedDueDate:string; server:string;
+  clientId:string; expectedDueDate:string; server:string; kind:"paid"|"unpaid";
 };
 export const PANEL_PILOT_BATCH_SERVERS=[
   "Five","Uniplay","UniP2P","Blade","Now","All Play",
@@ -74,17 +74,18 @@ export function parsePanelPilotBatch(raw:string|undefined|null):PanelPilotCase[]
   for(const entry of parsed){
     if(!entry||typeof entry!=="object"||Array.isArray(entry))return [];
     const p=entry as Record<string,unknown>;
-    const {clientId,expectedDueDate,server}=p;
+    const {clientId,expectedDueDate,server,kind}=p;
     if(typeof clientId!=="string"||
        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clientId)
        ||typeof expectedDueDate!=="string"
        ||!/^\d{4}-\d{2}-\d{2}$/.test(expectedDueDate)
        ||panelDateToISO(expectedDueDate)!==expectedDueDate
        ||typeof server!=="string"||!allowed.has(server)
+       ||(kind!=="paid"&&kind!=="unpaid")
        ||seenServers.has(server)||seenClients.has(clientId))return [];
     seenServers.add(server);
     seenClients.add(clientId);
-    entries.push({clientId,expectedDueDate,server});
+    entries.push({clientId,expectedDueDate,server,kind});
   }
   return entries;
 }
@@ -96,10 +97,10 @@ export function parsePanelPilotBatch(raw:string|undefined|null):PanelPilotCase[]
  * provider dates and inside the atomic database settlement.
  */
 export function validatePanelRenewalDraft(
-  client:{due_date:string;financial_due_date:string|null;access_type?:string|null},
+  client:{due_date:string;financial_due_date:string|null;access_type?:string|null;paid?:number},
   values:{
     months:number;dueDate:string;financialDueDate:string;
-    paymentAmount:number;monthlyPaid:number;paymentCost:number;
+    paymentAmount:number;monthlyPaid:number;paymentCost:number;pilotKind?:"unpaid";
   },
   todayISO:string,
 ):string|null {
@@ -110,7 +111,8 @@ export function validatePanelRenewalDraft(
   const today=panelDateToISO(todayISO);
   if(!due||!finance||!planned||!plannedFinance||!today)
     return "Datas técnicas ou financeiras inválidas; revise o cadastro.";
-  if(client.access_type==="gratuidade"||client.access_type==="meu_acesso")
+  if(values.pilotKind!=="unpaid"
+    &&(client.access_type==="gratuidade"||client.access_type==="meu_acesso"))
     return "Acesso gratuito exige fluxo específico de renovação.";
   if(!Number.isInteger(values.months)||values.months<1||values.months>120)
     return "Número de meses inválido para a renovação.";
@@ -129,6 +131,17 @@ export function validatePanelRenewalDraft(
      !Number.isFinite(values.paymentCost)||values.paymentCost<0)
     return "Valores financeiros inválidos.";
 
+  // Free pilot: zero revenue, exactly one technical provider cycle. The
+  // financial *date* follows the free access, but no payment is recorded.
+  // No existing prepaid coverage is allowed here.
+  if(values.pilotKind==="unpaid"){
+    if(client.paid!==0 || finance!==due || values.months!==1
+      ||values.financialDueDate!==values.dueDate
+      ||values.paymentAmount!==0 || values.monthlyPaid!==0 || values.paymentCost!==0
+      ||!["meu_acesso","padrao"].includes(client.access_type??""))
+      return "Piloto gratuito inválido: exigir acesso próprio/gratuito, um ciclo e nenhum pagamento.";
+    return null;
+  }
   if(finance>due){
     if(values.months!==1||values.financialDueDate!==finance
       ||values.paymentAmount!==0||values.monthlyPaid!==0
@@ -160,7 +173,7 @@ export function confirmedRenewalDatesFromPanel(
   client: {due_date:string;financial_due_date:string|null},
   values: {
     months:number;dueDate:string;financialDueDate:string;
-    paymentAmount:number;monthlyPaid:number;paymentCost:number;
+    paymentAmount:number;monthlyPaid:number;paymentCost:number;pilotKind?:"unpaid";
   },
   providerNextDue:string|undefined,
   providerPreviousDue:string|undefined,
@@ -197,6 +210,14 @@ export function confirmedRenewalDatesFromPanel(
       return blocked("O vencimento anterior informado pelo painel difere da MaxFlix. Revise antes de atualizar.");
   }
 
+  if(values.pilotKind==="unpaid"){
+    if(currentFinance!==client.due_date||values.months!==1
+      ||values.paymentAmount!==0||values.monthlyPaid!==0||values.paymentCost!==0
+      ||values.financialDueDate!==values.dueDate)
+      return blocked("Piloto gratuito inválido; não avance o financeiro sem validação.");
+    // Both dates advance for the free access; the ledger never gains revenue.
+    return {dueDate:newDue,financialDueDate:newDue,blockedReason:null};
+  }
   if(currentFinance>client.due_date){
     if(values.months!==1||values.financialDueDate!==currentFinance
       ||values.paymentAmount!==0||values.monthlyPaid!==0||values.paymentCost!==0)
