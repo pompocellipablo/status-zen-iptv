@@ -50,7 +50,7 @@ import {
 const PANEL_PILOT_UI_ENABLED = import.meta.env["VITE_MAXFLIX_PANEL_PILOT"] === "true";
 // Non-secret, build-time UI configuration. Backend independently checks
 // PAINEL_RECARGA_PILOT_CLIENT_ID + PAINEL_RECARGA_PILOT_EXPECTED_DUE_DATE.
-type PanelPilotTarget={clientId:string;expectedDueDate:string;server:string};
+type PanelPilotTarget={clientId:string;expectedDueDate:string;server:string;kind:"paid"|"unpaid"};
 // UX-only allowlist obtained once from the owner-authorized Edge Function.
 // The private backend validates the same list independently on every renewal.
 const isPilotTarget=(client:Client,targets:readonly PanelPilotTarget[])=>
@@ -242,7 +242,7 @@ function Painel() {
         throw Error("Lista segura de pilotos indisponível.");
       return data.targets.filter((target:PanelPilotTarget)=>
         typeof target.clientId==="string"&&typeof target.expectedDueDate==="string"
-        &&typeof target.server==="string");
+        &&typeof target.server==="string"&&(target.kind==="paid"||target.kind==="unpaid"));
     },
   });
 
@@ -525,15 +525,19 @@ function Painel() {
   )=>{
     if(!isPilotTarget(client,pilotTargetsQuery.data??[])||!panelRouteForClient(client.server))return;
     if(renewingBusy)return;
+    const target=pilotTargetsQuery.data?.find(item=>item.clientId===client.id
+      &&item.expectedDueDate===client.due_date&&item.server===client.server);
+    if(!target)return;
+    const unpaid=target.kind==="unpaid";
     if(opts.months!==1||opts.paid!==Number(client.paid)
-      ||opts.monthlyCost!==Number(client.cost)){
-      setNotice("Piloto mensal restrito a um ciclo e aos valores do cadastro: "+
+      ||opts.monthlyCost!==Number(client.cost)
+      ||(unpaid&&(opts.paid!==0||client.financial_due_date!==client.due_date
+        ||!["padrao","meu_acesso"].includes(client.access_type)))
+      ||(!unpaid&&(opts.paid<=0||client.access_type==="gratuidade"
+        ||client.access_type==="meu_acesso"))){
+      setNotice("Piloto restrito a um ciclo e ao tipo de pagamento cadastrado: "+
         formatBRL(Number(client.paid))+" recebidos, custo "+
         formatBRL(Number(client.cost))+".");
-      return;
-    }
-    if(client.access_type==="gratuidade"||client.access_type==="meu_acesso"){
-      setNotice("Acesso gratuito: o fluxo de piloto não registra mensalidade. Continue usando a renovação manual.");
       return;
     }
     const {dueDate,financialDueDate}=renewalDates(client.due_date,opts.months);
@@ -548,8 +552,10 @@ function Painel() {
       months:covered?1:opts.months,
       dueDate,financialDueDate:covered?client.financial_due_date!:financialDueDate,
       cost:opts.monthlyCost,monthlyPaid:covered?0:opts.monthlyPaid,
-      prevPaid:covered?client.prev_paid:(opts.months>1?client.prev_paid||client.paid:opts.monthlyPaid),
-      paymentAmount:covered?0:opts.paid,paymentCost:covered?0:opts.cost,
+      prevPaid:unpaid?0:(covered?client.prev_paid:(opts.months>1?client.prev_paid||client.paid:opts.monthlyPaid)),
+      paymentAmount:unpaid?0:(covered?0:opts.paid),
+      paymentCost:unpaid?0:(covered?0:opts.cost),
+      ...(unpaid?{pilotKind:"unpaid" as const}:{}),
     };
 
     // A read-only preflight MUST succeed before even offering a real renewal.
@@ -585,7 +591,8 @@ function Painel() {
       "Acesso atual: "+formatDate(client.due_date),
       "Acesso projetado: "+formatDate(dueDate)+" (a data real virá do painel)",
       "Financeiro projetado: "+formatDate(covered?client.financial_due_date:financialDueDate),
-      "Pagamento nesta renovação: "+formatBRL(covered?0:opts.paid),
+      unpaid?"Sem pagamento (teste técnico de acesso gratuito).":
+        "Pagamento nesta renovação: "+formatBRL(covered?0:opts.paid),
       "Ciclos no servidor: 1",
       "",
       "Esta confirmação pode gerar UMA RENOVAÇÃO REAL se a função estiver habilitada.",
@@ -1040,6 +1047,12 @@ function Painel() {
                       {isPilotTarget(c,pilotTargetsQuery.data??[])&&panelRouteForClient(c.server)&&(
                         <button type="button" disabled={renewingBusy}
                           onClick={()=>{
+                            const target=pilotTargetsQuery.data?.find(t=>t.clientId===c.id);
+                            if(target?.kind==="unpaid"){
+                              void confirmPanelPilot(c,{months:1,cost:0,paid:0,
+                                monthlyCost:Number(c.cost),monthlyPaid:0});
+                              return;
+                            }
                             const next=nextDueDate(c.due_date);
                             if(c.financial_due_date && c.financial_due_date>=next){
                               const monthlyCost=c.cost||c.prev_cost||SERVER_COSTS[c.server]||0;
@@ -1047,7 +1060,8 @@ function Painel() {
                             }else setRenewing(c);
                           }}
                           className="font-display min-h-11 rounded-xl bg-panel2 px-2 text-xs font-semibold text-warn ring-1 ring-warn/30 disabled:opacity-50">
-                          Painel (piloto)
+                          {pilotTargetsQuery.data?.find(t=>t.clientId===c.id)?.kind==="unpaid"
+                            ?"Painel (gratuito)":"Painel (piloto)"}
                         </button>
                       )}
                       <a
@@ -1185,7 +1199,9 @@ function Painel() {
 
       {previewClient && (
         <PreflightDialog key={previewClient.id} client={previewClient}
-          onClose={() => setPreviewClient(null)} />
+          onClose={() => setPreviewClient(null)}
+          pilotKind={pilotTargetsQuery.data?.find(t=>t.clientId===previewClient.id
+            &&t.expectedDueDate===previewClient.due_date)?.kind} />
       )}
 
       {renewing && (
@@ -1526,11 +1542,14 @@ function TemplateDialog({
  * Safe renewal preview: only calls mode=preflight.
  * It cannot create provider requests, payments, credits or date changes.
  */
-function PreflightDialog({client,onClose}:{client:Client;onClose:()=>void}) {
+function PreflightDialog({client,onClose,pilotKind}:{
+  client:Client;onClose:()=>void;pilotKind?:"paid"|"unpaid";
+}) {
   const prepaid=!!client.financial_due_date&&client.financial_due_date>client.due_date;
   const [months,setMonths]=useState(1);
   const [paid,setPaid]=useState(String(client.paid||client.prev_paid||0).replace(".",","));
-  const [cost,setCost]=useState(String(client.cost||client.prev_cost||SERVER_COSTS[client.server]||0).replace(".",","));
+  const [cost,setCost]=useState(String(pilotKind==="unpaid"?client.cost:
+    (client.cost||client.prev_cost||SERVER_COSTS[client.server]||0)).replace(".",","));
   const [busy,setBusy]=useState(false);
   const [outcome,setOutcome]=useState<{
     ok:boolean;message:string;
@@ -1556,9 +1575,10 @@ function PreflightDialog({client,onClose}:{client:Client;onClose:()=>void}) {
       months:period,dueDate:technicalDue,financialDueDate:financialDue,
       cost:monthlyCost,
       monthlyPaid:prepaid||period>1?0:charged,
-      prevPaid:prepaid?client.prev_paid:(period>1?client.prev_paid||client.paid:charged),
+      prevPaid:pilotKind==="unpaid"?0:(prepaid?client.prev_paid:(period>1?client.prev_paid||client.paid:charged)),
       paymentAmount:charged,
-      paymentCost:prepaid?0:monthlyCost*period,
+      paymentCost:prepaid||pilotKind==="unpaid"?0:monthlyCost*period,
+      ...(pilotKind==="unpaid"?{pilotKind:"unpaid" as const}:{}),
     };
     try {
       const {data,error}=await supabase.functions.invoke("painel-recarga-renovar",{
