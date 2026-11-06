@@ -360,7 +360,7 @@ describe("Per-client preview button (safe by default)",()=>{
     assert.match(body,/const period=prepaid\?1:months/);
     assert.match(body,/const charged=prepaid\?0:num\(paid\)/);
     assert.match(body,/financialDue=prepaid\?/);
-    assert.match(body,/paymentCost:prepaid\?0:/);
+    assert.match(body,/paymentCost:prepaid\|\|pilotKind==="unpaid"\?0:/);
   });
 });
 
@@ -368,8 +368,8 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
   const a="11111111-1111-4111-8111-111111111111";
   const b="22222222-2222-4222-8222-222222222222";
   const c="33333333-3333-4333-8333-333333333333";
-  const first={clientId:a,expectedDueDate:"2026-11-08",server:"Five"};
-  const second={clientId:b,expectedDueDate:"2026-11-20",server:"Uniplay"};
+  const first={clientId:a,expectedDueDate:"2026-11-08",server:"Five",kind:"paid"};
+  const second={clientId:b,expectedDueDate:"2026-11-20",server:"Uniplay",kind:"paid"};
   it("parses exact authorized client, server, and due-date pairs",()=>{
     assert.deepEqual(parsePanelPilotBatch(JSON.stringify([first,second])),[first,second]);
   });
@@ -390,11 +390,40 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
       [{...first,clientId:"bad"}],
     ])assert.deepEqual(parsePanelPilotBatch(JSON.stringify(cases)),[]);
   });
+  it("denies any batch entry without an explicit paid/unpaid type",()=>{
+    assert.deepEqual(parsePanelPilotBatch(JSON.stringify([{clientId:a,expectedDueDate:"2026-11-08",server:"Five"}])),[]);
+    assert.deepEqual(parsePanelPilotBatch(JSON.stringify([{...first,kind:"admin"}])),[]);
+  });
+  it("unpaid technical pilots allow one zero-revenue month and preserve date safety",()=>{
+    const freeClient={due_date:"2026-11-30",financial_due_date:"2026-11-30",access_type:"meu_acesso",paid:0};
+    const freeValues={months:1,dueDate:"2026-12-30",financialDueDate:"2026-12-30",
+      paymentAmount:0,paymentCost:0,monthlyPaid:0,pilotKind:"unpaid" as const};
+    assert.equal(validatePanelRenewalDraft(freeClient,freeValues,"2026-11-06"),null);
+    assert.deepEqual(confirmedRenewalDatesFromPanel(freeClient,freeValues,"2026-12-30","2026-11-30","2026-11-06"),
+      {dueDate:"2026-12-30",financialDueDate:"2026-12-30",blockedReason:null});
+    assert.match(String(validatePanelRenewalDraft(freeClient,{...freeValues,paymentAmount:30},"2026-11-06")),/gratuito/i);
+    assert.match(String(validatePanelRenewalDraft({...freeClient,paid:30},freeValues,"2026-11-06")),/gratuito/i);
+    assert.match(String(validatePanelRenewalDraft({...freeClient,financial_due_date:"2027-01-30"},freeValues,"2026-11-06")),/gratuito/i);
+    assert.equal(confirmedRenewalDatesFromPanel(freeClient,freeValues,"2027-02-02","2026-11-30","2026-11-06").dueDate,null);
+    assert.equal(confirmedRenewalDatesFromPanel(freeClient,freeValues,"2026-12-30","2026-12-01","2026-11-06").dueDate,null);
+  });
+  it("free settlement uses isolated owner-only function, not a paid payment ledger",()=>{
+    const db=readFileSync(new URL("../../supabase/migrations/20261106190000_free_panel_pilot_settlement.sql",import.meta.url),"utf8");
+    assert.match(db,/CREATE OR REPLACE FUNCTION public\.sync_external_free_pilot_job/);
+    assert.match(db,/SECURITY INVOKER/);
+    assert.match(db,/v_job\.state<>'external_confirmed'/);
+    assert.match(db,/v_client\.paid<>0/);
+    assert.match(db,/v_values->>'pilotKind' IS DISTINCT FROM 'unpaid'/);
+    assert.match(db,/INSERT INTO public\.server_credit_movements/);
+    assert.doesNotMatch(db,/INSERT INTO public\.payments/);
+    const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
+    assert.match(edge,/freePilot\?"sync_external_free_pilot_job":"sync_external_renewal_job"/);
+  });
   it("limits to six distinct supported providers",()=>{
     const all=["Five","Uniplay","UniP2P","Blade","Now","All Play"].map((server,i)=>({
       clientId:String(i+1).repeat(8)+"-"+String(i+1).repeat(4)+"-4"+String(i+1).repeat(3)
         +"-8"+String(i+1).repeat(3)+"-"+String(i+1).repeat(12),
-      expectedDueDate:"2026-11-08",server,
+      expectedDueDate:"2026-11-08",server,kind:i>=3?"unpaid":"paid",
     }));
     assert.equal(parsePanelPilotBatch(JSON.stringify(all)).length,6);
     assert.deepEqual(parsePanelPilotBatch(JSON.stringify([...all,first])),[]);
@@ -417,8 +446,10 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
     const block=edge.slice(edge.indexOf('if(mode==="renew"&&!job){'),
       edge.indexOf('// The API cycles are not the same as months'));
     assert.match(block,/values\.months!==1/);
-    assert.match(block,/values\.paymentAmount!==Number\(customer\.paid\)/);
-    assert.match(block,/values\.paymentCost!==Number\(customer\.cost\)/);
+    assert.match(block,/values\.paymentAmount===Number\(customer\.paid\)/);
+    assert.match(block,/values\.paymentCost===Number\(customer\.cost\)/);
+    assert.match(block,/values\.pilotKind==="unpaid"/);
+    assert.match(block,/values\.paymentAmount===0/);
   });
   it("read-only authorized targets do not call providers or mutate ledger",()=>{
     const begin=edge.indexOf('if(mode==="pilot_targets")');
@@ -436,6 +467,7 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
     assert.match(screen,/if\(!isPilotTarget\(client,pilotTargetsQuery\.data\?\?\[\]\)/);
     assert.match(screen,/\{!onConfirmPilot && <Button/);
     assert.match(screen,/opts\.months!==1\|\|opts\.paid!==Number\(client\.paid\)/);
+    assert.match(screen,/target\.kind==="unpaid"/);
   });
   it("pilot requires preflight before an individual human approval",()=>{
     const pilot=screen.slice(screen.indexOf("const confirmPanelPilot=async"),
