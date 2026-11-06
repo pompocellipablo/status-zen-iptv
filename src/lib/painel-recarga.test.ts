@@ -476,6 +476,13 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
     assert.ok(pilot.indexOf('window.confirm(summary)')>pilot.indexOf('mode:"preflight"'));
     assert.ok(pilot.indexOf('mode:"renew"')>pilot.indexOf('window.confirm(summary)'));
   });
+  it("keeps ordinary read-only preflight available to every client",()=>{
+    const start=edge.indexOf('if(mode==="preflight"){');
+    const end=edge.indexOf('// SIMULATIONS ONLY:',start);
+    const preview=edge.slice(start,end);
+    assert.match(preview,/if\(values\.pilotKind==="unpaid"&&selectedCase\?\.kind!=="unpaid"\)/);
+    assert.doesNotMatch(preview,/if\(!selectedCase/);
+  });
   it("read-only diagnosis never discloses raw secret, login password or token",()=>{
     const from=edge.indexOf('if(mode==="preflight"){');
     const until=edge.indexOf('// SIMULATIONS ONLY:',from);
