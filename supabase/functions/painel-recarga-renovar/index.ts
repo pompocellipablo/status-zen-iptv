@@ -115,9 +115,11 @@ Deno.serve(async(request)=>{
     const selectedCase=batchPilotCases.find(item=>
       item.clientId===customer.id&&item.server===customer.server
       &&item.expectedDueDate===expected);
-    if(!selectedCase||((selectedCase.kind==="unpaid")!==(values.pilotKind==="unpaid")))
+    // The normal read-only calculator remains available to every customer.
+    // Only the new zero-revenue pilot must be in the strict allowlist.
+    if(values.pilotKind==="unpaid"&&selectedCase?.kind!=="unpaid")
       return reply(403,{ok:false,previewOnly:true,pilotRestricted:true,
-        message:"O cliente não corresponde a um piloto autorizado do mesmo tipo."});
+        message:"Piloto gratuito não autorizado para este cliente e ciclo."});
     const issue=validatePanelRenewalDraft(customer,values,
       new Date().toLocaleDateString("sv-SE",{timeZone:"America/Sao_Paulo"}));
     if(issue)
