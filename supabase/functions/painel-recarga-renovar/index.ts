@@ -297,17 +297,15 @@ Deno.serve(async(request)=>{
     const isUnpaid=authorizedCase.kind==="unpaid";
     const amountsMatch=values.months===1
       &&values.cost===Number(customer.cost)
-      &&values.prevPaid===0&&isUnpaid
-        ? values.paymentAmount===0 && values.monthlyPaid===0
-          && values.paymentCost===0 && Number(customer.paid)===0
-          && values.pilotKind==="unpaid"
-        : values.months===1 && !isUnpaid
-          &&values.paymentAmount>0
+      &&(isUnpaid
+        ? values.prevPaid===0 && values.paymentAmount===0
+          &&values.monthlyPaid===0 &&values.paymentCost===0
+          &&Number(customer.paid)===0 &&values.pilotKind==="unpaid"
+        : values.paymentAmount>0
           &&values.paymentAmount===Number(customer.paid)
           &&values.monthlyPaid===Number(customer.paid)
-          &&values.cost===Number(customer.cost)
           &&values.paymentCost===Number(customer.cost)
-          &&values.pilotKind===undefined;
+          &&values.pilotKind===undefined);
     if(!amountsMatch)
       return reply(403,{ok:false,pilotRestricted:true,
         message:"Lote piloto: tipo de pagamento ou valores diferentes do cadastro. Nenhum pedido enviado."});
