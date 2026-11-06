@@ -266,10 +266,13 @@ Deno.serve(async(request)=>{
   // exact client + due date per supported provider. The public UI has
   // no authority; disabled or invalid batch configuration fails closed.
   // Existing 'check' requests remain able to reconcile already-issued jobs.
+  // Keep the exact authorized case in scope for the subsequent real-renewal
+  // financial guards. Previously it was declared inside the if block, causing
+  // ReferenceError before reserving the job and contacting the provider.
+  const authorizedCase=batchPilotCases.find(item=>
+    item.clientId===customer.id&&item.server===customer.server
+    &&item.expectedDueDate===expected);
   if(mode==="renew"){
-    const authorizedCase=batchPilotCases.find(item=>
-      item.clientId===customer.id&&item.server===customer.server
-      &&item.expectedDueDate===expected);
     if(!authorizedCase)
       return reply(403,{ok:false,pilotRestricted:true,
         message:"Lote piloto não autoriza este cliente, servidor ou ciclo. Nenhum pedido enviado."});
@@ -296,6 +299,9 @@ Deno.serve(async(request)=>{
     // The first production pilot has exactly one paid MONTH and one provider
     // cycle; expansion to prepaid packages requires a separately reviewed
     // release. This prevents a wrong frontend plan from broadening the pilot.
+    if(!authorizedCase)
+      return reply(403,{ok:false,pilotRestricted:true,
+        message:"Lote piloto sem autorização válida. Nenhum pedido foi enviado."});
     const isUnpaid=authorizedCase.kind==="unpaid";
     const amountsMatch=values.months===1
       &&values.cost===Number(customer.cost)
