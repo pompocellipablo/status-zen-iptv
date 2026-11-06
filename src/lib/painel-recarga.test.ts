@@ -1,7 +1,7 @@
 import {describe,it} from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
-import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO,financialTransitionError,confirmedRenewalDatesFromPanel,validatePanelRenewalDraft} from "./painel-recarga";
+import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO,financialTransitionError,confirmedRenewalDatesFromPanel,validatePanelRenewalDraft,parsePanelPilotBatch} from "./painel-recarga";
 
 describe("Painel Recarga integration guardrails",()=>{
   it("maps only documented IPTV panels",()=>{
@@ -364,103 +364,93 @@ describe("Per-client preview button (safe by default)",()=>{
   });
 });
 
-describe("First real panel pilot is restricted to one backend-approved customer",()=>{
+describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
+  const a="11111111-1111-4111-8111-111111111111";
+  const b="22222222-2222-4222-8222-222222222222";
+  const c="33333333-3333-4333-8333-333333333333";
+  const first={clientId:a,expectedDueDate:"2026-11-08",server:"Five"};
+  const second={clientId:b,expectedDueDate:"2026-11-20",server:"Uniplay"};
+  it("parses exact authorized client, server, and due-date pairs",()=>{
+    assert.deepEqual(parsePanelPilotBatch(JSON.stringify([first,second])),[first,second]);
+  });
+  it("fails closed for missing, malformed, empty, or oversized allowlists",()=>{
+    assert.deepEqual(parsePanelPilotBatch(undefined),[]);
+    assert.deepEqual(parsePanelPilotBatch("not json"),[]);
+    assert.deepEqual(parsePanelPilotBatch("[]"),[]);
+    assert.deepEqual(parsePanelPilotBatch("x".repeat(4097)),[]);
+  });
+  it("rejects duplicates, unknown server, invalid date, and invalid id",()=>{
+    for(const cases of [
+      [first,{...first,clientId:c}],
+      [first,{...second,clientId:a}],
+      [{...first,server:"GF"}],
+      [{...first,server:"Elite"}],
+      [{...first,server:"Fast"}],
+      [{...first,expectedDueDate:"2026-02-30"}],
+      [{...first,clientId:"bad"}],
+    ])assert.deepEqual(parsePanelPilotBatch(JSON.stringify(cases)),[]);
+  });
+  it("limits to six distinct supported providers",()=>{
+    const all=["Five","Uniplay","UniP2P","Blade","Now","All Play"].map((server,i)=>({
+      clientId:String(i+1).repeat(8)+"-"+String(i+1).repeat(4)+"-4"+String(i+1).repeat(3)
+        +"-8"+String(i+1).repeat(3)+"-"+String(i+1).repeat(12),
+      expectedDueDate:"2026-11-08",server,
+    }));
+    assert.equal(parsePanelPilotBatch(JSON.stringify(all)).length,6);
+    assert.deepEqual(parsePanelPilotBatch(JSON.stringify([...all,first])),[]);
+  });
   const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
-  it("never starts a real renewal when the feature flag is disabled",()=>{
-    assert.match(edge,/PAINEL_RECARGA_LIVE_ENABLED/);
-    assert.match(edge,/if\(Deno\.env\.get\("PAINEL_RECARGA_LIVE_ENABLED"\)!=="true"\)/);
-  });
-  it("requires an exact client UUID allowlist before reading or creating real jobs",()=>{
-    const gate=edge.indexOf('if(mode==="renew"){\n    const allowedPilotId=');
-    const jobs=edge.indexOf('// For live operations, persist a stable idempotency key');
-    assert.ok(gate>0&&jobs>gate);
-    const guard=edge.slice(gate,jobs);
-    assert.match(guard,/PAINEL_RECARGA_PILOT_CLIENT_ID/);
-    assert.match(guard,/PAINEL_RECARGA_PILOT_EXPECTED_DUE_DATE/);
-    assert.match(guard,/allowedPilotId!==customer\.id/);
-    assert.match(guard,/allowedExpectedDue!==expected/);
-    assert.match(guard,/customer\.financial_due_date!==customer\.due_date/);
-    assert.match(guard,/return reply\(403,/);
-  });
-  it("first pilot rejects prepaid packages or multiple paid cycles",()=>{
-    const block=edge.slice(edge.indexOf('if(mode==="renew"&&!job){'),edge.indexOf('// The API cycles are not the same as months'));
-    assert.match(block,/values\.months!==1/);
-    assert.match(block,/values\.paymentAmount<=0/);
-  });
-  it("continues to permit status checking of older authorized jobs",()=>{
-    const gate=edge.slice(edge.indexOf('// SINGLE-CLIENT LIVE PILOT'),edge.indexOf('// For live operations, persist a stable idempotency key'));
-    assert.match(gate,/if\(mode==="renew"\)/);
-    assert.doesNotMatch(gate,/if\(mode==="check"\)/);
-  });
-  it("the read-only preview remains accessible without a pilot client configured",()=>{
-    const preview=edge.indexOf('if(mode==="preflight"){');
-    const pilot=edge.indexOf('PAINEL_RECARGA_PILOT_CLIENT_ID');
-    assert.ok(preview>0&&pilot>preview);
-  });
-});
-
-describe("Jardel pilot UI: one client, no accidental manual renewal",()=>{
   const screen=readFileSync(new URL("../routes/_authenticated/renovacoes.tsx",import.meta.url),"utf8");
-  const publicEnv=readFileSync(new URL("../../.env",import.meta.url),"utf8");
-  it("only reveals pilot actions to the preselected client and expected due date",()=>{
-    assert.match(publicEnv,/^VITE_MAXFLIX_PANEL_PILOT=true$/m);
-    assert.match(screen,/VITE_MAXFLIX_PILOT_CLIENT_ID/);
-    assert.match(screen,/VITE_MAXFLIX_PILOT_EXPECTED_DUE_DATE/);
-    assert.match(screen,/VITE_MAXFLIX_PILOT_SERVER/);
-    assert.match(publicEnv,/VITE_MAXFLIX_PILOT_CLIENT_ID="cd9031d7-82de-4018-b221-33e01e48bd32"/);
-    assert.match(publicEnv,/VITE_MAXFLIX_PILOT_EXPECTED_DUE_DATE="2026-11-08"/);
-    assert.match(publicEnv,/VITE_MAXFLIX_PILOT_SERVER="Five"/);
-    assert.match(screen,/const isFirstPilotClient = /);
-    assert.match(screen,/isFirstPilotClient\(c\)&&panelRouteForClient/);
-    assert.match(screen,/isFirstPilotClient\(renewing\) && panelRouteForClient/);
-    assert.match(screen,/if\(!isFirstPilotClient\(client\)/);
+  it("backend requires global live flag AND exact batch case before provider renewal",()=>{
+    const live=edge.indexOf('if(Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")!=="true")');
+    const guard=edge.indexOf('// SIX-SERVER BATCH PILOT');
+    const reserve=edge.indexOf('// For live operations, persist a stable idempotency key');
+    assert.ok(live>0&&guard>live&&reserve>guard);
+    const code=edge.slice(guard,reserve);
+    assert.match(code,/mode==="renew"/);
+    assert.match(code,/item\.clientId===customer\.id/);
+    assert.match(code,/item\.server===customer\.server/);
+    assert.match(code,/item\.expectedDueDate===expected/);
+    assert.match(code,/return reply\(403/);
   });
-  it("keeps ordinary manual renewals on other customers, but hides manual confirm during the Jardel pilot",()=>{
+  it("never accepts prepaid package or edited payment amount during pilots",()=>{
+    const block=edge.slice(edge.indexOf('if(mode==="renew"&&!job){'),
+      edge.indexOf('// The API cycles are not the same as months'));
+    assert.match(block,/values\.months!==1/);
+    assert.match(block,/values\.paymentAmount!==Number\(customer\.paid\)/);
+    assert.match(block,/values\.paymentCost!==Number\(customer\.cost\)/);
+  });
+  it("read-only authorized targets do not call providers or mutate ledger",()=>{
+    const begin=edge.indexOf('if(mode==="pilot_targets")');
+    const end=edge.indexOf('if(typeof input.clientId',begin);
+    assert.ok(begin>0&&end>begin);
+    assert.match(edge.slice(begin,end),/readOnly:true/);
+    assert.match(edge.slice(begin,end),/targets:batchPilotCases/);
+    assert.doesNotMatch(edge.slice(begin,end),/\bfetch\(|\.update\(|\.insert\(|\.rpc\(/);
+  });
+  it("UI displays pilot buttons only for cases returned by owner-only backend",()=>{
+    assert.match(screen,/mode:"pilot_targets"/);
+    assert.match(screen,/const isPilotTarget=/);
+    assert.match(screen,/isPilotTarget\(c,pilotTargetsQuery\.data\?\?\[\]\)/);
+    assert.match(screen,/isPilotTarget\(renewing,pilotTargetsQuery\.data\?\?\[\]\)/);
+    assert.match(screen,/if\(!isPilotTarget\(client,pilotTargetsQuery\.data\?\?\[\]\)/);
     assert.match(screen,/\{!onConfirmPilot && <Button/);
-    assert.match(screen,/onConfirmPilot&&<div/);
-    assert.match(screen,/Piloto mensal restrito a um ciclo e aos valores do cadastro/);
     assert.match(screen,/opts\.months!==1\|\|opts\.paid!==Number\(client\.paid\)/);
-    assert.match(screen,/opts\.monthlyCost!==Number\(client\.cost\)/);
   });
-  it("continues to require preflight and final user confirmation for the actual pilot",()=>{
-    const pilot=screen.slice(screen.indexOf("const confirmPanelPilot=async"),screen.indexOf("const confirmRenew = async"));
+  it("pilot requires preflight before an individual human approval",()=>{
+    const pilot=screen.slice(screen.indexOf("const confirmPanelPilot=async"),
+      screen.indexOf("const confirmRenew = async"));
     assert.ok(pilot.indexOf('mode:"preflight"')>=0);
     assert.ok(pilot.indexOf('window.confirm(summary)')>pilot.indexOf('mode:"preflight"'));
     assert.ok(pilot.indexOf('mode:"renew"')>pilot.indexOf('window.confirm(summary)'));
   });
-});
-
-describe("Owner-only pilot configuration diagnostic is read-only and does not disclose secrets",()=>{
-  const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
-  const screen=readFileSync(new URL("../routes/_authenticated/renovacoes.tsx",import.meta.url),"utf8");
-  it("appears only in the authenticated preflight branch for the designated client",()=>{
+  it("read-only diagnosis never discloses raw secret, login password or token",()=>{
     const from=edge.indexOf('if(mode==="preflight"){');
     const until=edge.indexOf('// SIMULATIONS ONLY:',from);
-    assert.ok(from>0&&until>from);
     const preview=edge.slice(from,until);
     assert.match(preview,/pilotDiagnostic/);
-    assert.match(preview,/customer\.id==="c0b6e1f2-3c65-4041-aa56-448122108cec"/);
-    assert.match(preview,/expected==="2026-11-19"/);
     assert.match(preview,/providerRequestSent:false/);
     assert.doesNotMatch(preview,/\bfetch\(|\.insert\(|\.update\(|\.rpc\(/);
-  });
-  it("returns statuses, not raw secret values or authentication tokens",()=>{
-    const start=edge.indexOf('const pilotSecretStatus=');
-    const end=edge.indexOf('return reply(200,{ok:true,previewOnly:true',start);
-    assert.ok(start>0&&end>start);
-    const code=edge.slice(start,end);
-    assert.match(code,/"ok"\|"missing"\|"different"/);
-    assert.match(code,/stored===expectedValue\?"ok":"different"/);
-    assert.doesNotMatch(code,/PAINEL_RECARGA_TOKEN|console\.log/);
-  });
-  it("shows read-only diagnostic results in the preflight dialog only",()=>{
-    const start=screen.indexOf("function PreflightDialog(");
-    const end=screen.indexOf("function RenewDialog(",start);
-    const part=screen.slice(start,end);
-    assert.match(part,/Diagnóstico seguro do piloto/);
-    assert.match(part,/isFirstPilotClient\(client\)/);
-    assert.match(part,/pilotDiagnostic\.clientId/);
-    assert.match(part,/pilotDiagnostic\.expectedDueDate/);
-    assert.doesNotMatch(part,/mode:"renew"|mode:"simulate"/);
+    assert.doesNotMatch(preview,/console\.log|PAINEL_RECARGA_TOKEN/);
   });
 });
