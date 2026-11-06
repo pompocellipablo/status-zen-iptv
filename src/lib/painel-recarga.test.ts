@@ -442,6 +442,18 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
     assert.match(code,/item\.expectedDueDate===expected/);
     assert.match(code,/return reply\(403/);
   });
+  it("keeps authorizedCase in function scope before both renewal guards",()=>{
+    // Regression: a const inside if(mode==="renew") caused HTTP 500
+    // ReferenceError in the later if(mode==="renew"&&!job) block.
+    const index=edge.indexOf("const authorizedCase=batchPilotCases.find");
+    const guard=edge.indexOf('if(mode==="renew"){',index);
+    const job=edge.indexOf('if(mode==="renew"&&!job){',guard);
+    const use=edge.indexOf('const isUnpaid=authorizedCase.kind==="unpaid"',job);
+    assert.ok(index>0 && guard>index && job>guard && use>job);
+    assert.match(edge.slice(index,guard),/const authorizedCase=batchPilotCases\.find/);
+    assert.match(edge.slice(job,use),/if\(!authorizedCase\)/);
+    assert.doesNotMatch(edge.slice(guard,job),/const authorizedCase=/);
+  });
   it("never accepts prepaid package or edited payment amount during pilots",()=>{
     const block=edge.slice(edge.indexOf('if(mode==="renew"&&!job){'),
       edge.indexOf('// The API cycles are not the same as months'));
