@@ -11,7 +11,7 @@
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
-  buildPanelRecargaBody, confirmedRenewalDatesFromPanel, financialTransitionError, panelRouteForClient, parsePanelRecargaResponse, validatePanelRenewalDraft,
+  buildPanelRecargaBody, confirmedRenewalDatesFromPanel, financialTransitionError, panelRouteForClient, parsePanelRecargaResponse, validatePanelRenewalDraft, parsePanelPilotBatch,
   RECARGA_BASE_URL, type ExternalOutcome,
 } from "../_shared/painel-recarga.ts";
 
@@ -24,8 +24,8 @@ const headers={
 };
 const reply=(status:number,payload:Record<string,unknown>)=>
   new Response(JSON.stringify(payload),{status,headers});
-type Mode="simulate"|"check_simulation"|"preflight"|"renew"|"check";
-type ClientRow={id:string;name:string;login:string;server:string;due_date:string;financial_due_date:string|null;access_type:string|null};
+type Mode="simulate"|"check_simulation"|"preflight"|"renew"|"check"|"pilot_targets";
+type ClientRow={id:string;name:string;login:string;server:string;due_date:string;financial_due_date:string|null;access_type:string|null;paid:number;cost:number};
 type Options={months:number;dueDate:string;financialDueDate:string;cost:number;monthlyPaid:number;prevPaid:number;paymentAmount:number;paymentCost:number};
 type Job={
   id:string;client_id:string|null;login:string;server:string;expected_due_date:string;
@@ -81,12 +81,17 @@ Deno.serve(async(request)=>{
     return reply(400,{ok:false,message:"Corpo JSON inválido."});
   }
   const mode=input.mode as Mode;
-  if(!["simulate","check_simulation","preflight","renew","check"].includes(mode))
+  if(!["simulate","check_simulation","preflight","renew","check","pilot_targets"].includes(mode))
     return reply(400,{ok:false,message:"Modo inválido."});
+  // Batch list is owner-only, read-only and does not call the provider.
+  // Empty or malformed secret => no permitted cases (fail closed).
+  const batchPilotCases=parsePanelPilotBatch(Deno.env.get("PAINEL_RECARGA_PILOT_BATCH"));
+  if(mode==="pilot_targets")
+    return reply(200,{ok:true,readOnly:true,targets:batchPilotCases});
   if(typeof input.clientId!=="string"||!isDate(input.expectedDueDate))
     return reply(400,{ok:false,message:"Cliente e vencimento esperado obrigatórios."});
   const {data:client,error:clientError}=await userDb.from("clients")
-    .select("id,name,login,server,due_date,financial_due_date,access_type")
+    .select("id,name,login,server,due_date,financial_due_date,access_type,paid,cost")
     .eq("id",input.clientId).maybeSingle();
   if(clientError||!client)return reply(404,{ok:false,message:"Cliente não encontrado ou sem autorização."});
   const customer=client as ClientRow;
@@ -119,21 +124,15 @@ Deno.serve(async(request)=>{
     if(existing)
       return reply(409,{ok:false,previewOnly:true,existingJob:true,jobState:existing.state,
         message:"Já existe pedido externo para este cliente e ciclo. Confira o pedido existente."});
-    // Owner-only, read-only diagnostic for the preselected pilot customer.
-    // Report only match/missing/mismatch, NEVER secret values or token data.
-    // Works while live renewals are disabled and makes NO provider requests.
-    const pilotSecretStatus=(name:string,expectedValue:string):
-      "ok"|"missing"|"different"=>{
-      const stored=Deno.env.get(name)?.trim();
-      return !stored?"missing":stored===expectedValue?"ok":"different";
-    };
-    const pilotDiagnostic=customer.id==="c0b6e1f2-3c65-4041-aa56-448122108cec"
-      &&expected==="2026-11-19"
-      ?{
-        clientId:pilotSecretStatus("PAINEL_RECARGA_PILOT_CLIENT_ID",customer.id),
-        expectedDueDate:pilotSecretStatus("PAINEL_RECARGA_PILOT_EXPECTED_DUE_DATE",expected),
-        liveEnabled:Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")==="true",
-      }:undefined;
+    // For a selected test, show only configuration match status and live switch.
+    // This is read-only and never exposes raw configuration.
+    const pilotCase=batchPilotCases.find(item=>
+      item.clientId===customer.id&&item.server===customer.server
+      &&item.expectedDueDate===expected);
+    const pilotDiagnostic=pilotCase?{
+      clientId:"ok",expectedDueDate:"ok",
+      liveEnabled:Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")==="true",
+    }:undefined;
     return reply(200,{ok:true,previewOnly:true,providerRequestSent:false,
       pilotDiagnostic,
       clientName:customer.name,server:customer.server,
@@ -254,21 +253,20 @@ Deno.serve(async(request)=>{
   if(Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")!=="true")
     return reply(503,{ok:false,disabled:true,message:"Renovação real ainda bloqueada. Use apenas o modo simulação."});
 
-  // SINGLE-CLIENT LIVE PILOT, fail closed. This is an ADDITIONAL backend
-  // safeguard after the existing live switch and owner JWT check. A VITE_
-  // flag in the browser is NOT authorization to renew other customers.
-  // Only 'renew' is constrained; 'check' must stay available to reconcile
-  // an already-issued job even if the pilot configuration changes later.
+  // SIX-SERVER BATCH PILOT. The single private secret grants at most ONE
+  // exact client + due date per supported provider. The public UI has
+  // no authority; disabled or invalid batch configuration fails closed.
+  // Existing 'check' requests remain able to reconcile already-issued jobs.
   if(mode==="renew"){
-    const allowedPilotId=Deno.env.get("PAINEL_RECARGA_PILOT_CLIENT_ID")?.trim();
-    const allowedExpectedDue=Deno.env.get("PAINEL_RECARGA_PILOT_EXPECTED_DUE_DATE")?.trim();
-    if(!allowedPilotId||allowedPilotId!==customer.id
-      ||!allowedExpectedDue||allowedExpectedDue!==expected)
+    const authorized=batchPilotCases.some(item=>
+      item.clientId===customer.id&&item.server===customer.server
+      &&item.expectedDueDate===expected);
+    if(!authorized)
       return reply(403,{ok:false,pilotRestricted:true,
-        message:"Piloto real restrito ao cliente e ciclo autorizados no backend. Nenhuma renovação enviada."});
+        message:"Lote piloto não autoriza este cliente, servidor ou ciclo. Nenhum pedido enviado."});
     if(customer.financial_due_date!==customer.due_date)
       return reply(409,{ok:false,pilotRestricted:true,
-        message:"Piloto inicial restrito a mensalidade sem pacote ativo."});
+        message:"Lote piloto inicial apenas para clientes mensais sem pacote ativo."});
   }
 
   // For live operations, persist a stable idempotency key BEFORE the provider call.
@@ -289,9 +287,13 @@ Deno.serve(async(request)=>{
     // The first production pilot has exactly one paid MONTH and one provider
     // cycle; expansion to prepaid packages requires a separately reviewed
     // release. This prevents a wrong frontend plan from broadening the pilot.
-    if(values.months!==1||values.paymentAmount<=0)
+    if(values.months!==1||values.paymentAmount<=0
+      ||values.paymentAmount!==Number(customer.paid)
+      ||values.monthlyPaid!==Number(customer.paid)
+      ||values.cost!==Number(customer.cost)
+      ||values.paymentCost!==Number(customer.cost))
       return reply(403,{ok:false,pilotRestricted:true,
-        message:"Piloto inicial limitado a um ciclo mensal pago. Nenhuma renovação enviada."});
+        message:"Lote piloto: somente um mês pago, com valores idênticos ao cadastro. Nenhum pedido enviado."});
     const draftIssue=validatePanelRenewalDraft(customer,values,
       new Date().toLocaleDateString("sv-SE",{timeZone:"America/Sao_Paulo"}));
     if(draftIssue)return reply(409,{ok:false,message:draftIssue});
