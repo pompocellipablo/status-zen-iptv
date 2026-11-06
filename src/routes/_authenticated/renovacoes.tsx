@@ -532,7 +532,7 @@ function Painel() {
     if(opts.months!==1||opts.paid!==Number(client.paid)
       ||opts.monthlyCost!==Number(client.cost)
       ||(unpaid&&(opts.paid!==0||client.financial_due_date!==client.due_date
-        ||!["padrao","meu_acesso"].includes(client.access_type)))
+        ||!["padrao","meu_acesso"].includes(client.access_type??"")))
       ||(!unpaid&&(opts.paid<=0||client.access_type==="gratuidade"
         ||client.access_type==="meu_acesso"))){
       setNotice("Piloto restrito a um ciclo e ao tipo de pagamento cadastrado: "+
@@ -1540,7 +1540,7 @@ function TemplateDialog({
  * It cannot create provider requests, payments, credits or date changes.
  */
 function PreflightDialog({client,onClose,pilotKind}:{
-  client:Client;onClose:()=>void;pilotKind?:"paid"|"unpaid";
+  client:Client;onClose:()=>void;pilotKind?:"paid"|"unpaid"|undefined;
 }) {
   const prepaid=!!client.financial_due_date&&client.financial_due_date>client.due_date;
   const [months,setMonths]=useState(1);
