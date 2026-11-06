@@ -50,19 +50,13 @@ import {
 const PANEL_PILOT_UI_ENABLED = import.meta.env["VITE_MAXFLIX_PANEL_PILOT"] === "true";
 // Non-secret, build-time UI configuration. Backend independently checks
 // PAINEL_RECARGA_PILOT_CLIENT_ID + PAINEL_RECARGA_PILOT_EXPECTED_DUE_DATE.
-const PILOT_CLIENT_ID = import.meta.env["VITE_MAXFLIX_PILOT_CLIENT_ID"] ?? "";
-const PILOT_EXPECTED_DUE = import.meta.env["VITE_MAXFLIX_PILOT_EXPECTED_DUE_DATE"] ?? "";
-const PILOT_SERVER = import.meta.env["VITE_MAXFLIX_PILOT_SERVER"] ?? "";
-// UX-only guard: the backend independently enforces private allowed-client
-// and expected-cycle secrets, even if this public UI is tampered with.
-const isFirstPilotClient = (client:Client) =>
-  PANEL_PILOT_UI_ENABLED
-  && !!PILOT_CLIENT_ID
-  && !!PILOT_EXPECTED_DUE
-  && !!PILOT_SERVER
-  && client.id===PILOT_CLIENT_ID
-  && client.due_date===PILOT_EXPECTED_DUE
-  && client.server===PILOT_SERVER;
+type PanelPilotTarget={clientId:string;expectedDueDate:string;server:string};
+// UX-only allowlist obtained once from the owner-authorized Edge Function.
+// The private backend validates the same list independently on every renewal.
+const isPilotTarget=(client:Client,targets:readonly PanelPilotTarget[])=>
+  PANEL_PILOT_UI_ENABLED&&targets.some(item=>
+    item.clientId===client.id&&item.expectedDueDate===client.due_date
+    &&item.server===client.server);
 
 export const Route = createFileRoute("/_authenticated/renovacoes")({
   validateSearch: (search: Record<string, unknown>): { tab: Tab; access?: string; server?: string } => {
@@ -235,6 +229,23 @@ function Painel() {
 
   // This monitor is completely inactive unless an owner explicitly enables
   // the supervised provider pilot UI. It is read-only; no provider calls.
+  const pilotTargetsQuery=useQuery({
+    queryKey:["panel-pilot-targets"],
+    enabled:PANEL_PILOT_UI_ENABLED,
+    staleTime:60_000,
+    refetchOnWindowFocus:false,
+    queryFn:async():Promise<PanelPilotTarget[]>=>{
+      const {data,error}=await supabase.functions.invoke("painel-recarga-renovar",{
+        body:{mode:"pilot_targets"},
+      });
+      if(error||data?.ok!==true||data?.readOnly!==true||!Array.isArray(data.targets))
+        throw Error("Lista segura de pilotos indisponível.");
+      return data.targets.filter((target:PanelPilotTarget)=>
+        typeof target.clientId==="string"&&typeof target.expectedDueDate==="string"
+        &&typeof target.server==="string");
+    },
+  });
+
   const externalJobsQuery=useQuery({
     queryKey:["external-renewal-jobs"],
     enabled:PANEL_PILOT_UI_ENABLED,
@@ -512,7 +523,7 @@ function Painel() {
     client:Client,
     opts:{months:number;cost:number;paid:number;monthlyCost:number;monthlyPaid:number},
   )=>{
-    if(!isFirstPilotClient(client)||!panelRouteForClient(client.server))return;
+    if(!isPilotTarget(client,pilotTargetsQuery.data??[])||!panelRouteForClient(client.server))return;
     if(renewingBusy)return;
     if(opts.months!==1||opts.paid!==Number(client.paid)
       ||opts.monthlyCost!==Number(client.cost)){
@@ -1017,7 +1028,7 @@ function Painel() {
                     <div className="mt-3 flex flex-wrap items-stretch gap-2 xl:mt-0">
                       <button
                         type="button"
-                        disabled={isFirstPilotClient(c)&&(externalJobsQuery.isLoading||externalJobsQuery.isError||
+                        disabled={isPilotTarget(c,pilotTargetsQuery.data??[])&&(externalJobsQuery.isLoading||externalJobsQuery.isError||
                           (externalJobsQuery.data??[]).some(job=>job.client_id===c.id
                             &&job.expected_due_date===c.due_date
                             &&["created","waiting","uncertain","external_confirmed","needs_review"].includes(job.state)))}
@@ -1026,7 +1037,7 @@ function Painel() {
                       >
                         <RefreshCw size={15} aria-hidden="true" /> Renovar
                       </button>
-                      {isFirstPilotClient(c)&&panelRouteForClient(c.server)&&(
+                      {isPilotTarget(c,pilotTargetsQuery.data??[])&&panelRouteForClient(c.server)&&(
                         <button type="button" disabled={renewingBusy}
                           onClick={()=>{
                             const next=nextDueDate(c.due_date);
@@ -1183,7 +1194,7 @@ function Painel() {
           saving={renewingBusy}
           onCancel={() => setRenewing(null)}
           onConfirm={(opts) => confirmRenew(renewing, opts)}
-          {...(isFirstPilotClient(renewing) && panelRouteForClient(renewing.server)
+          {...(isPilotTarget(renewing,pilotTargetsQuery.data??[]) && panelRouteForClient(renewing.server)
             ? { onConfirmPilot: (opts: { months: number; cost: number; paid: number; monthlyCost: number; monthlyPaid: number }) => confirmPanelPilot(renewing, opts) }
             : {})}
         />
@@ -1645,7 +1656,7 @@ function PreflightDialog({client,onClose}:{client:Client;onClose:()=>void}) {
           :"mt-3 rounded-lg bg-warn/10 px-3 py-2 text-sm text-warn"}>
           {outcome.ok?"Aprovado: ":"Revisão necessária: "}{outcome.message}
         </p>}
-        {outcome?.pilotDiagnostic&&isFirstPilotClient(client)&&
+        {outcome?.pilotDiagnostic&&
           <div role="status" className="mt-3 rounded-lg bg-panel px-3 py-3 text-xs ring-1 ring-line">
             <p className="font-semibold">Diagnóstico seguro do piloto</p>
             <p className="mt-1 text-mist">Somente resultado das comparações. Nenhum valor secreto foi exibido.</p>
