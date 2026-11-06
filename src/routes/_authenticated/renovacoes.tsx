@@ -1035,10 +1035,7 @@ function Painel() {
                     <div className="mt-3 flex flex-wrap items-stretch gap-2 xl:mt-0">
                       <button
                         type="button"
-                        disabled={isPilotTarget(c,pilotTargetsQuery.data??[])&&(externalJobsQuery.isLoading||externalJobsQuery.isError||
-                          (externalJobsQuery.data??[]).some(job=>job.client_id===c.id
-                            &&job.expected_due_date===c.due_date
-                            &&["created","waiting","uncertain","external_confirmed","needs_review"].includes(job.state)))}
+                        disabled={isPilotTarget(c,pilotTargetsQuery.data??[])}
                         onClick={() => renew(c)}
                         className="font-display flex min-h-11 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl bg-cyan/15 px-2 text-sm font-semibold text-cyan ring-1 ring-cyan/30 hover:bg-cyan/25"
                       >
