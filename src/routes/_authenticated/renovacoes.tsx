@@ -609,9 +609,24 @@ function Painel() {
         renewed?:boolean;pending?:boolean;needsReview?:boolean;
         disabled?:boolean;message?:string;dueDate?:string;financialDueDate?:string;
       }|null;
+      let failureHttpCode:number|undefined;
       if(error){
-        const context=(error as {context?:unknown}).context;
-        if(context instanceof Response){try{result=await context.json();}catch{/* No JSON */}}
+        // A FunctionsHttpError contains the actual HTTP response in .context.
+        // Read it by interface, not instanceof Response: in some environments
+        // the Response comes from a different JS realm. Show the server's safe
+        // message instead of the generic "Edge Function returned non-2xx".
+        const context=(error as {
+          context?:{status?:number;json?:()=>Promise<unknown>};
+        }).context;
+        if(typeof context?.status==="number")failureHttpCode=context.status;
+        if(typeof context?.json==="function"){
+          try{
+            const body=await context.json();
+            if(body&&typeof body==="object"&&!Array.isArray(body)){
+              result=body as typeof result;
+            }
+          }catch{/* A gateway error can be HTML or empty. */}
+        }
       }
       if(result?.renewed){
         await Promise.all([
@@ -625,7 +640,11 @@ function Painel() {
       }else if(result?.disabled){
         setNotice("Piloto permanece bloqueado no servidor. Nenhum pedido real enviado.");
       }else{
-        setNotice(client.name+": "+(result?.message??error?.message??"Resposta não conclusiva")
+        const specificMessage=result?.message&&result.message!=="Edge Function returned a non-2xx status code"
+          ?result.message:null;
+        const httpHint=failureHttpCode? "HTTP "+failureHttpCode+": ": "";
+        setNotice(client.name+": "+httpHint
+          +(specificMessage??error?.message??"Resposta não conclusiva")
           +" — confira o mesmo pedido no Painel Recarga antes de qualquer novo clique.");
       }
       setRenewing(null);
