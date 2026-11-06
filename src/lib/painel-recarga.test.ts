@@ -211,7 +211,7 @@ describe("Atomic settlement of confirmed external renewal (contract guards)",()=
   });
   it("syncs by job ID instead of re-sending browser-provided financial values",()=>{
     const sync=edge.slice(edge.indexOf("  const syncLocal=async()=>{"),edge.indexOf('  if(job.state==="synced")'));
-    assert.match(sync,/userDb\.rpc\("sync_external_renewal_job"/);
+    assert.match(sync,/freePilot\?"sync_external_free_pilot_job":"sync_external_renewal_job"/);
     assert.match(sync,/p_job_id:jobId/);
     assert.doesNotMatch(sync,/renew_client_with_credit/);
     assert.doesNotMatch(sync,/p_payment_amount:/);
@@ -445,7 +445,7 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
   it("never accepts prepaid package or edited payment amount during pilots",()=>{
     const block=edge.slice(edge.indexOf('if(mode==="renew"&&!job){'),
       edge.indexOf('// The API cycles are not the same as months'));
-    assert.match(block,/values\.months!==1/);
+    assert.match(block,/values\.months===1/);
     assert.match(block,/values\.paymentAmount===Number\(customer\.paid\)/);
     assert.match(block,/values\.paymentCost===Number\(customer\.cost\)/);
     assert.match(block,/values\.pilotKind==="unpaid"/);
