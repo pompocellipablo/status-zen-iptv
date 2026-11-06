@@ -26,7 +26,7 @@ const reply=(status:number,payload:Record<string,unknown>)=>
   new Response(JSON.stringify(payload),{status,headers});
 type Mode="simulate"|"check_simulation"|"preflight"|"renew"|"check"|"pilot_targets";
 type ClientRow={id:string;name:string;login:string;server:string;due_date:string;financial_due_date:string|null;access_type:string|null;paid:number;cost:number};
-type Options={months:number;dueDate:string;financialDueDate:string;cost:number;monthlyPaid:number;prevPaid:number;paymentAmount:number;paymentCost:number};
+type Options={months:number;dueDate:string;financialDueDate:string;cost:number;monthlyPaid:number;prevPaid:number;paymentAmount:number;paymentCost:number;pilotKind?:"unpaid"};
 type Job={
   id:string;client_id:string|null;login:string;server:string;expected_due_date:string;
   new_due_date:string;financial_due_date:string;idempotency_key:string;
@@ -48,6 +48,7 @@ function parseLocalOptions(input:unknown):Options|null{
   for(const key of ["cost","monthlyPaid","prevPaid","paymentAmount","paymentCost"]){
     if(!safeNumber(o[key]))return null;
   }
+  if(o.pilotKind!==undefined&&o.pilotKind!=="unpaid")return null;
   return o as unknown as Options;
 }
 
@@ -111,6 +112,12 @@ Deno.serve(async(request)=>{
     const values=parseLocalOptions(input.options);
     if(!values)
       return reply(400,{ok:false,previewOnly:true,message:"Plano, valores ou vencimentos inválidos."});
+    const selectedCase=batchPilotCases.find(item=>
+      item.clientId===customer.id&&item.server===customer.server
+      &&item.expectedDueDate===expected);
+    if(!selectedCase||((selectedCase.kind==="unpaid")!==(values.pilotKind==="unpaid")))
+      return reply(403,{ok:false,previewOnly:true,pilotRestricted:true,
+        message:"O cliente não corresponde a um piloto autorizado do mesmo tipo."});
     const issue=validatePanelRenewalDraft(customer,values,
       new Date().toLocaleDateString("sv-SE",{timeZone:"America/Sao_Paulo"}));
     if(issue)
@@ -258,10 +265,10 @@ Deno.serve(async(request)=>{
   // no authority; disabled or invalid batch configuration fails closed.
   // Existing 'check' requests remain able to reconcile already-issued jobs.
   if(mode==="renew"){
-    const authorized=batchPilotCases.some(item=>
+    const authorizedCase=batchPilotCases.find(item=>
       item.clientId===customer.id&&item.server===customer.server
       &&item.expectedDueDate===expected);
-    if(!authorized)
+    if(!authorizedCase)
       return reply(403,{ok:false,pilotRestricted:true,
         message:"Lote piloto não autoriza este cliente, servidor ou ciclo. Nenhum pedido enviado."});
     if(customer.financial_due_date!==customer.due_date)
@@ -287,13 +294,23 @@ Deno.serve(async(request)=>{
     // The first production pilot has exactly one paid MONTH and one provider
     // cycle; expansion to prepaid packages requires a separately reviewed
     // release. This prevents a wrong frontend plan from broadening the pilot.
-    if(values.months!==1||values.paymentAmount<=0
-      ||values.paymentAmount!==Number(customer.paid)
-      ||values.monthlyPaid!==Number(customer.paid)
-      ||values.cost!==Number(customer.cost)
-      ||values.paymentCost!==Number(customer.cost))
+    const isUnpaid=authorizedCase.kind==="unpaid";
+    const amountsMatch=values.months===1
+      &&values.cost===Number(customer.cost)
+      &&values.prevPaid===0&&isUnpaid
+        ? values.paymentAmount===0 && values.monthlyPaid===0
+          && values.paymentCost===0 && Number(customer.paid)===0
+          && values.pilotKind==="unpaid"
+        : values.months===1 && !isUnpaid
+          &&values.paymentAmount>0
+          &&values.paymentAmount===Number(customer.paid)
+          &&values.monthlyPaid===Number(customer.paid)
+          &&values.cost===Number(customer.cost)
+          &&values.paymentCost===Number(customer.cost)
+          &&values.pilotKind===undefined;
+    if(!amountsMatch)
       return reply(403,{ok:false,pilotRestricted:true,
-        message:"Lote piloto: somente um mês pago, com valores idênticos ao cadastro. Nenhum pedido enviado."});
+        message:"Lote piloto: tipo de pagamento ou valores diferentes do cadastro. Nenhum pedido enviado."});
     const draftIssue=validatePanelRenewalDraft(customer,values,
       new Date().toLocaleDateString("sv-SE",{timeZone:"America/Sao_Paulo"}));
     if(draftIssue)return reply(409,{ok:false,message:draftIssue});
@@ -330,7 +347,9 @@ Deno.serve(async(request)=>{
     //   -> debit exactly one credit -> mark job synced.
     // The job ID is the only RPC argument. The client cannot inject payment
     // details a second time or race this transaction with another browser.
-    const {data:result,error}=await userDb.rpc("sync_external_renewal_job",{
+    const freePilot=job!.local_values?.pilotKind==="unpaid";
+    const {data:result,error}=await userDb.rpc(
+      freePilot?"sync_external_free_pilot_job":"sync_external_renewal_job",{
       p_job_id:jobId,
     });
     if(error){
