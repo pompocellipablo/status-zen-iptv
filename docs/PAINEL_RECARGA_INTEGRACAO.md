@@ -152,3 +152,38 @@ uma consulta em espera na versão antiga sem conferir a fila.
 **Pendências antes do uso geral:** publicar a Edge Function, homologar um pagamento real no AllPlay, revalidar um novo contrato mensal, um pacote de 6/12 meses e um ciclo técnico pré-pago; após isso, habilitar os dois switches com consentimento explícito. Não habilitar em massa durante a homologação.
 
 **Recuperação:** código versionado em GitHub, banco contém audit log; alterações ao esquema são aditivas, e nenhum vencimento de cliente foi modificado ao criar a funcionalidade.
+
+## 07/11/2026 — piloto isolado LealPaulo, pacote de 6 meses (preparado, não executado)
+
+Objetivo da homologação: registrar **um único pagamento de R$ 150,00** pelo novo
+pacote de 6 meses e **um único crédito técnico no Five**; os cinco ciclos
+restantes deverão ser consumidos mensalmente, sem novo pagamento.
+
+As condições deste piloto são deliberadamente mais restritas que as do rollout geral:
+- Identificação EXATA do cliente LealPaulo (UUID fixo no módulo servidor),
+  servidor Five e vencimento prévio técnico/financeiro 19/11/2026.
+- Cadastro esperado: acesso padrão, `paid=0`, `prev_paid=150`, `cost=6.50`.
+- Período de 6 meses, receita total R$ 150,00, custo por ciclo R$ 6,50,
+  custo financeiro total previsto R$ 39,00.
+- Prévia: próximo vencimento técnico 19/12/2026; financeiro 19/05/2027.
+  A confirmação real do Five prevalece quanto à data técnica; divergências
+  no vencimento anterior ou projeções improváveis impedem sincronização automática.
+- A ação real continua exigindo pré-validação, segundo clique de confirmação,
+  permissão do proprietário, registro de job idempotente e
+  `PAINEL_RECARGA_LIVE_ENABLED=true`.
+- Chave **separada**, por padrão ausente/desligada:
+  `PAINEL_RECARGA_LEALPAULO_6M_ENABLED=true`. Sem ela, esta autorização
+  NÃO é exposta por `pilot_targets` nem aceita pela Edge Function.
+- `PAINEL_RECARGA_ROLLOUT_ENABLED` permanece desligada. Não usar esse
+  switch geral para executar o piloto individual.
+- A chave nova é apenas uma permissão para o cliente específico e
+  não contém token do fornecedor; não incluí-la como `VITE_*`.
+- Para homologar, publicar exclusivamente a Edge Function com o código e o
+  módulo compartilhado, configurar somente a chave individual e manter o
+  switch live desligado até autorização explícita para uma operação real.
+- **Não registrar pagamento manual antes da conclusão**, para evitar duplicidade.
+  A RPC `sync_external_renewal_job` registra uma única receita após confirmação
+  do fornecedor, debita um crédito local e preserva a cobertura financeira.
+- Se o fornecedor retornar 202, 207, timeout, outra data de início ou resultado
+  incerto, não abrir novo pedido: acompanhar a **mesma idempotency key** e
+  conciliar antes de retentar ou registrar pagamento.
