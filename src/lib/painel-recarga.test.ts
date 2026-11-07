@@ -1,7 +1,7 @@
 import {describe,it} from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
-import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO,financialTransitionError,confirmedRenewalDatesFromPanel,validatePanelRenewalDraft,parsePanelPilotBatch,rolloutRenewalIssue,lealPauloPackage6Issue,LEAL_PAULO_PACKAGE6} from "./painel-recarga";
+import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO,financialTransitionError,confirmedRenewalDatesFromPanel,validatePanelRenewalDraft,parsePanelPilotBatch,rolloutRenewalIssue,lealPauloPackage6Issue,LEAL_PAULO_PACKAGE6,lealPauloPrepaidSecondIssue,LEAL_PAULO_PREPAID_SECOND} from "./painel-recarga";
 
 describe("Rollout opt-in guards (no real requests)",()=>{
   const client={due_date:"2026-11-11",financial_due_date:"2026-11-11",
@@ -680,10 +680,10 @@ describe("Exact LealPaulo six-month pilot (no provider calls)",()=>{
   it("requires a separate private default-off switch and never enables bulk rollout",()=>{
     const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
     const screen=readFileSync(new URL("../routes/_authenticated/renovacoes.tsx",import.meta.url),"utf8");
-    assert.match(edge,/PAINEL_RECARGA_LEALPAULO_6M_ENABLED/);
-    assert.match(edge,/packagePilotOn&&/);
-    assert.match(edge,/authorizedCase\.kind==="package6"/);
-    assert.match(edge,/lealPauloPackage6Issue\(customer,values\)/);
+    assert.doesNotMatch(edge,/const packagePilot=packagePilotOn \? \[LEAL_PAULO_PACKAGE6\]/);
+    assert.match(edge,/const packagePilot=packagePilotOn \? \[LEAL_PAULO_PREPAID_SECOND\]/);
+    assert.match(edge,/authorizedCase\.kind==="prepaid2"/);
+    assert.match(edge,/lealPauloPrepaidSecondIssue\(customer,values\)/);
     assert.match(edge,/PAINEL_RECARGA_LIVE_ENABLED/);
     assert.match(edge,/!authorizedCase&&!rolloutEnabled/);
     assert.match(screen,/pilotPackage6\s*\?\s*6\s*:\s*1/);
@@ -712,10 +712,10 @@ describe("Temporary exclusive LealPaulo access (static backend security)",()=>{
     assert.ok(gate>0&&gate<jobs&&jobs<provider);
     const check=edge.slice(gate,jobs);
     assert.match(check,/!packagePilotOn/);
-    assert.match(check,/customer\.id!==LEAL_PAULO_PACKAGE6\.clientId/);
+    assert.match(check,/customer\.id!==LEAL_PAULO_PREPAID_SECOND\.clientId/);
     assert.match(check,/customer\.login!=="LealPaulo"/);
-    assert.match(check,/customer\.server!==LEAL_PAULO_PACKAGE6\.server/);
-    assert.match(check,/expected!==LEAL_PAULO_PACKAGE6\.expectedDueDate/);
+    assert.match(check,/customer\.server!==LEAL_PAULO_PREPAID_SECOND\.server/);
+    assert.match(check,/expected!==LEAL_PAULO_PREPAID_SECOND\.expectedDueDate/);
     assert.match(check,/return reply\(403/);
     assert.match(check,/mode==="renew"&&!exclusiveWindowOpen/);
   });
@@ -724,7 +724,7 @@ describe("Temporary exclusive LealPaulo access (static backend security)",()=>{
     const scoped=edge.indexOf('const exclusivePilotLive=packagePilotOn');
     const request=edge.indexOf('const {data:stored,error:queryError}');
     assert.ok(gate>0 && scoped>gate && request>scoped);
-    assert.match(edge,/PAINEL_RECARGA_LEALPAULO_6M_LIVE_ENABLED/);
+    assert.match(edge,/PAINEL_RECARGA_LEALPAULO_PREPAID2_LIVE_ENABLED/);
     assert.match(edge,/if\(Deno\.env\.get\("PAINEL_RECARGA_LIVE_ENABLED"\)!=="true"&&!exclusivePilotLive\)/);
     assert.match(edge,/liveEnabled:packagePilotOn&&exclusiveWindowOpen/);
     assert.match(edge,/const authorizedCase=packagePilot\.find/);
@@ -736,5 +736,66 @@ describe("Temporary exclusive LealPaulo access (static backend security)",()=>{
     assert.doesNotMatch(edge,/mode==="check"&&!exclusiveWindowOpen/);
     assert.match(edge,/liveEnabled:packagePilotOn&&exclusiveWindowOpen/);
     assert.match(edge,/mode==="check"&&!job/);
+  });
+});
+
+describe("LealPaulo already-paid second technical cycle (no provider calls)",()=>{
+  const c={
+    id:LEAL_PAULO_PREPAID_SECOND.clientId,login:"LealPaulo",server:"Five",
+    due_date:"2026-12-19",financial_due_date:"2027-05-19",
+    access_type:"padrao",paid:0,prev_paid:150,cost:6.5,
+  };
+  const v={
+    months:1,dueDate:"2027-01-19",financialDueDate:"2027-05-19",
+    cost:6.5,monthlyPaid:0,prevPaid:150,paymentAmount:0,paymentCost:0,
+  };
+  it("moves only the technical due date and uses one credit with no second payment",()=>{
+    assert.equal(lealPauloPrepaidSecondIssue(c,v),null);
+    assert.equal(validatePanelRenewalDraft(c,v,"2026-11-07"),null);
+    assert.equal(financialTransitionError(c,v),null);
+    assert.deepEqual(confirmedRenewalDatesFromPanel(c,v,
+      "19/01/2027 00:00:00","19/12/2026 00:00:00","2026-11-07"),{
+      dueDate:"2027-01-19",financialDueDate:"2027-05-19",blockedReason:null,
+    });
+    assert.deepEqual(buildPanelRecargaBody(c.login,false),
+      {usuario:"LealPaulo",ciclos:1});
+  });
+  it("rejects the old first-cycle due date, another account, and changed financial coverage",()=>{
+    for(const altered of [
+      {...c,due_date:"2026-11-19"},
+      {...c,due_date:"2027-01-19"},
+      {...c,id:"00000000-0000-0000-0000-000000000000"},
+      {...c,login:"LealPaulo2"},
+      {...c,server:"Club"},
+      {...c,financial_due_date:"2027-06-19"},
+      {...c,paid:35},
+      {...c,prev_paid:0},
+      {...c,cost:7},
+      {...c,access_type:"gratuidade"},
+    ]) assert.ok(lealPauloPrepaidSecondIssue(altered,v));
+  });
+  it("refuses new revenue, future prepaid extension, wrong credit cost and months",()=>{
+    for(const altered of [
+      {...v,paymentAmount:150},{...v,paymentAmount:35},
+      {...v,paymentCost:6.5},{...v,monthlyPaid:35},
+      {...v,months:2},{...v,months:6},
+      {...v,financialDueDate:"2027-06-19"},
+      {...v,dueDate:"2027-02-19"},
+      {...v,cost:13},{...v,prevPaid:0},
+      {...v,pilotKind:"unpaid"},
+    ]) assert.ok(lealPauloPrepaidSecondIssue(c,altered));
+  });
+  it("can be confirmed in UI only through scoped pilot and accepts zero payment",()=>{
+    const screen=readFileSync(new URL("../routes/_authenticated/renovacoes.tsx",import.meta.url),"utf8");
+    const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
+    assert.match(screen,/target\?\.kind==="prepaid2"/);
+    assert.match(screen,/pilotPrepaid2/);
+    assert.match(screen,/\(!pilotPrepaid2&&paidValue<=0\)/);
+    assert.match(screen,/opts\.months!==1\|\|opts\.paid!==0/);
+    assert.match(edge,/PAINEL_RECARGA_LEALPAULO_PREPAID2_ENABLED/);
+    assert.match(edge,/PAINEL_RECARGA_LEALPAULO_PREPAID2_LIVE_ENABLED/);
+    assert.match(edge,/if\(authorizedCase\?\.kind!=="prepaid2"/);
+    assert.match(edge,/const authorizedCase=packagePilot\.find/);
+    assert.doesNotMatch(edge,/const packagePilot=packagePilotOn \? \[LEAL_PAULO_PACKAGE6\]/);
   });
 });
