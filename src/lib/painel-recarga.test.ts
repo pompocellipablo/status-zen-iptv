@@ -789,7 +789,13 @@ describe("LealPaulo already-paid second technical cycle (no provider calls)",()=
     assert.match(screen,/target\?\.kind==="prepaid2"/);
     assert.match(screen,/pilotPrepaid2/);
     assert.match(screen,/\(!pilotPrepaid2&&paidValue<=0\)/);
-    assert.match(screen,/opts\.months!==1\|\|opts\.paid!==0/);
+    assert.match(screen,/opts=\{months:1,cost:6\.5,paid:0,monthlyCost:6\.5,monthlyPaid:0\}/);
+    assert.match(screen,/const paidValue = pilotPrepaid2 \? 0 : num\(paid\)/);
+    assert.match(screen,/const effectiveMonths = pilotPrepaid2 \? 1 : months/);
+    assert.match(screen,/disabled=\{pilotPrepaid2\}/);
+    assert.match(screen,/value=\{pilotPrepaid2 \? "0" : paid\}/);
+    assert.match(screen,/onConfirmPilot\(\{months:effectiveMonths/);
+    assert.match(screen,/displayedFinancialDue/);
     assert.match(edge,/PAINEL_RECARGA_LEALPAULO_PREPAID2_ENABLED/);
     assert.match(edge,/PAINEL_RECARGA_LEALPAULO_PREPAID2_LIVE_ENABLED/);
     assert.match(edge,/if\(authorizedCase\?\.kind!=="prepaid2"/);
