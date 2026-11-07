@@ -129,3 +129,26 @@ nem altera a Edge Function em produção. Até a implantação, a tela de audito
 tem somente bloqueios de pendência temporários e solicitações de simulação
 podem seguir gerando novas chaves após recarga. Não repetir manualmente
 uma consulta em espera na versão antiga sem conferir a fila.
+
+
+## 07/11/2026 — preparação do botão único e auditoria aprovada
+
+**Estado:** código e SQL implementados; ativação geral de renovações permanece desabilitada por padrão.
+
+- `Renovar` continua manual para GF, Elite, Fast e para qualquer cliente sem autorização da integração.
+- Somente com **ambos** os Secrets privados `PAINEL_RECARGA_LIVE_ENABLED=true` **e** `PAINEL_RECARGA_ROLLOUT_ENABLED=true` o botão único encaminha contas comuns suportadas ao Painel Recarga.
+- Publicar a nova Edge Function **não habilita a renovação geral**. Não cadastrar ou ativar o Secret do rollout sem autorização separada.
+- O proprietário confirma explicitamente cada operação no navegador; a Edge valida novamente cliente, login, servidor, vencimento esperado, plano, valor e cobertura financeira antes de reservar o pedido.
+- Mensal: valor exatamente igual ao cadastro, um crédito/ciclo externo e datas financeiras/técnicas acompanhando a validade do fornecedor.
+- Contratação de 6 ou 12 meses: registra um pagamento do pacote, envia somente **um** ciclo técnico externo e calcula a cobertura financeira sem conceder ciclos adicionais no servidor.
+- Plano já pago: apenas um ciclo técnico, **zero** pagamento novo, conserva a data financeira; recusa se o acesso técnico superar a cobertura.
+- Acessos gratuitos e meses grátis por indicação **não entram no rollout geral**; exigem fluxo próprio, mantendo o piloto gratuito estritamente autorizado separado.
+- Pedidos externos criados, pendentes, incertos ou em revisão impedem a renovação manual concorrente. Reconciliar com a mesma chave ou manualmente após evidência do provedor.
+- A função já existente de comparação de vencimentos continua usando simulação com login exato e sem alterar cliente automaticamente.
+- A aprovação de correção manual agora usa `approve_panel_date_correction`, função de banco com transação e RLS de proprietário, que **preserva o financeiro** e não registra pagamento nem crédito. O histórico permanente fica em `panel_due_date_corrections`, com antiga/nova data, operador e fonte.
+- Para fonte de simulação, a função valida a data contra uma consulta autenticada registrada há no máximo 24 horas; para exportação CSV/TXT exige confirmação do proprietário. Em ambos os casos, bloqueia se existir pedido de renovação externo em aberto.
+- A correção manual só pode ser aplicada dentro da cobertura financeira já existente. Se o servidor informar validade posterior ao financeiro, exigir revisão financeira separada; não aumentar a cobrança nem a cobertura silenciosamente.
+
+**Pendências antes do uso geral:** publicar a Edge Function, homologar um pagamento real no AllPlay, revalidar um novo contrato mensal, um pacote de 6/12 meses e um ciclo técnico pré-pago; após isso, habilitar os dois switches com consentimento explícito. Não habilitar em massa durante a homologação.
+
+**Recuperação:** código versionado em GitHub, banco contém audit log; alterações ao esquema são aditivas, e nenhum vencimento de cliente foi modificado ao criar a funcionalidade.
