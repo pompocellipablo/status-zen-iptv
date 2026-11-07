@@ -195,6 +195,72 @@ describe("Provider-authoritative renewal dates (no actual payments)",()=>{
   });
 });
 
+describe("Safe package preflight - no provider calls",()=>{
+  const client={due_date:"2026-11-10",financial_due_date:"2026-11-10",access_type:"padrao",paid:35};
+  const month={months:1,dueDate:"2026-12-10",financialDueDate:"2026-12-10",
+    paymentAmount:35,monthlyPaid:35,paymentCost:6};
+  it("6 months: charge once, send ONE technical cycle, preserve 6-month coverage",()=>{
+    const plan={...month,months:6,financialDueDate:"2027-05-10",
+      paymentAmount:175,monthlyPaid:0,paymentCost:36};
+    assert.equal(validatePanelRenewalDraft(client,plan,"2026-11-06"),null);
+    assert.deepEqual(confirmedRenewalDatesFromPanel(client,plan,
+      "10/12/2026 12:00:00","10/11/2026 12:00:00","2026-11-06"),
+      {dueDate:"2026-12-10",financialDueDate:"2027-05-10",blockedReason:null});
+    assert.deepEqual(buildPanelRecargaBody("cliente_pacote",false),
+      {usuario:"cliente_pacote",ciclos:1});
+  });
+  it("12 months: financial paid-through moves a year, server only one month",()=>{
+    const plan={...month,months:12,financialDueDate:"2027-11-10",
+      paymentAmount:320,monthlyPaid:0,paymentCost:72};
+    assert.equal(validatePanelRenewalDraft(client,plan,"2026-11-06"),null);
+    assert.deepEqual(confirmedRenewalDatesFromPanel(client,plan,
+      "10/12/2026 12:00:00","10/11/2026 12:00:00","2026-11-06"),
+      {dueDate:"2026-12-10",financialDueDate:"2027-11-10",blockedReason:null});
+    assert.deepEqual(buildPanelRecargaBody("cliente_anual",false),
+      {usuario:"cliente_anual",ciclos:1});
+  });
+  it("already-paid package: renew technical cycle with no new money",()=>{
+    const existing={...client,financial_due_date:"2027-05-10"};
+    const paidThrough={...month,monthlyPaid:0,paymentAmount:0,paymentCost:0,
+      financialDueDate:"2027-05-10"};
+    assert.equal(validatePanelRenewalDraft(existing,paidThrough,"2026-11-06"),null);
+    assert.deepEqual(confirmedRenewalDatesFromPanel(existing,paidThrough,
+      "10/12/2026 12:00:00","10/11/2026 12:00:00","2026-11-06"),
+      {dueDate:"2026-12-10",financialDueDate:"2027-05-10",blockedReason:null});
+    assert.match(validatePanelRenewalDraft(existing,{...paidThrough,
+      paymentAmount:35},"2026-11-06")??"",/Pacote já pago/);
+  });
+  it("rejects provider next-cycle beyond prepaid financial end",()=>{
+    const existing={...client,financial_due_date:"2026-11-20"};
+    const plan={...month,monthlyPaid:0,paymentAmount:0,paymentCost:0,
+      financialDueDate:"2026-11-20"};
+    assert.match(validatePanelRenewalDraft(existing,plan,"2026-11-06")??"",
+      /não cobre|financeiro/i);
+    assert.ok(confirmedRenewalDatesFromPanel(existing,plan,
+      "10/12/2026 12:00:00","10/11/2026 12:00:00","2026-11-06").blockedReason);
+  });
+});
+
+describe("Brazil business date posting, regression",()=>{
+  const migration=readFileSync(new URL("../../supabase/migrations/20261106230000_renewal_business_date_sao_paulo.sql",import.meta.url),"utf8");
+  it("patches all three renewal transactions and guards against schema drift",()=>{
+    for(const fn of ["renew_client_with_credit","sync_external_renewal_job","sync_external_free_pilot_job"]){
+      assert.match(migration,new RegExp(fn));
+    }
+    assert.match(migration,/America\/Sao_Paulo/);
+    assert.match(migration,/v_occurrences<>v_expected/);
+    assert.match(migration,/EXECUTE replace\(v_definition,'CURRENT_DATE'/);
+  });
+  it("limits historic date correction to audited exact payment and credit IDs",()=>{
+    assert.match(migration,/f94201af-21ac-4763-b4c5-c224b96de125/);
+    assert.match(migration,/38e6aae7-dc43-432e-8002-1d449a81cf82/);
+    assert.match(migration,/67563f4b-9cf7-40a2-8e3f-aee26ec88ea8/);
+    assert.match(migration,/GET DIAGNOSTICS v_count=ROW_COUNT/);
+    assert.doesNotMatch(migration,/UPDATE public\.clients\b/);
+    assert.doesNotMatch(migration,/INSERT INTO public\.payments\b/);
+  });
+});
+
 describe("Atomic settlement of confirmed external renewal (contract guards)",()=>{
   const sql=readFileSync(new URL("../../supabase/migrations/20261105152000_atomic_external_renewal_sync.sql",import.meta.url),"utf8");
   const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
