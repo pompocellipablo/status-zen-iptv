@@ -162,8 +162,9 @@ Deno.serve(async(request)=>{
       &&item.expectedDueDate===expected);
     const pilotDiagnostic=pilotCase?{
       clientId:"ok",expectedDueDate:"ok",
-      liveEnabled:packagePilotOn&&exclusiveWindowOpen
-        &&Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")==="true",
+      liveEnabled:packagePilotOn&&exclusiveWindowOpen&&(
+        Deno.env.get("PAINEL_RECARGA_LEALPAULO_6M_LIVE_ENABLED")==="true" ||
+        Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")==="true"),
     }:undefined;
     return reply(200,{ok:true,previewOnly:true,providerRequestSent:false,
       pilotDiagnostic,
@@ -297,7 +298,12 @@ Deno.serve(async(request)=>{
   if(mode==="renew"&&!exclusiveWindowOpen)
     return reply(403,{ok:false,disabled:true,pilotRestricted:true,
       message:"A janela temporária do piloto LealPaulo terminou. Nenhuma nova renovação enviada."});
-  if(Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")!=="true")
+  // Existing global live switch remains OFF. This NEW separately revocable
+  // secret enables ONLY the exact six-month LealPaulo case; the scoped owner,
+  // server, due date and automatic expiry guards above must pass first.
+  const exclusivePilotLive=packagePilotOn
+    &&Deno.env.get("PAINEL_RECARGA_LEALPAULO_6M_LIVE_ENABLED")==="true";
+  if(Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")!=="true"&&!exclusivePilotLive)
     return reply(503,{ok:false,disabled:true,message:"Renovação real ainda bloqueada. Use apenas o modo simulação."});
 
   // SIX-SERVER BATCH PILOT. The single private secret grants at most ONE
