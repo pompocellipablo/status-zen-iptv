@@ -1,7 +1,7 @@
 import {describe,it} from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
-import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO,financialTransitionError,confirmedRenewalDatesFromPanel,validatePanelRenewalDraft,parsePanelPilotBatch,rolloutRenewalIssue} from "./painel-recarga";
+import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO,financialTransitionError,confirmedRenewalDatesFromPanel,validatePanelRenewalDraft,parsePanelPilotBatch,rolloutRenewalIssue,lealPauloPackage6Issue,LEAL_PAULO_PACKAGE6} from "./painel-recarga";
 
 describe("Rollout opt-in guards (no real requests)",()=>{
   const client={due_date:"2026-11-11",financial_due_date:"2026-11-11",
@@ -388,7 +388,7 @@ describe("Supervised pilot UI safety",()=>{
     const check=screen.slice(screen.indexOf("const verifyExternalPilotJob=async"),screen.indexOf("const confirmPanelPilot=async"));
     assert.match(check,/mode:"check"/);
     assert.doesNotMatch(check,/confirm:true/);
-    assert.match(screen,/enabled:PANEL_PILOT_UI_ENABLED/);
+    assert.match(screen,/queryKey:\["external-renewal-jobs"\],[\s\S]*?enabled:true/);
   });
 });
 
@@ -630,5 +630,64 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
     assert.match(preview,/providerRequestSent:false/);
     assert.doesNotMatch(preview,/\bfetch\(|\.insert\(|\.update\(|\.rpc\(/);
     assert.doesNotMatch(preview,/console\.log|PAINEL_RECARGA_TOKEN/);
+  });
+});
+
+describe("Exact LealPaulo six-month pilot (no provider calls)",()=>{
+  const client={
+    id:LEAL_PAULO_PACKAGE6.clientId,login:"LealPaulo",server:"Five",
+    due_date:"2026-11-19",financial_due_date:"2026-11-19",
+    access_type:"padrao",paid:0,prev_paid:150,cost:6.50,
+  };
+  const values={
+    months:6,dueDate:"2026-12-19",financialDueDate:"2027-05-19",
+    cost:6.50,monthlyPaid:0,prevPaid:150,paymentAmount:150,paymentCost:39,
+  };
+  it("accepts only this exact 6-month R$150 case, one Five provider cycle",()=>{
+    assert.equal(lealPauloPackage6Issue(client,values),null);
+    assert.deepEqual(buildPanelRecargaBody("LealPaulo",false),
+      {usuario:"LealPaulo",ciclos:1});
+    assert.equal(validatePanelRenewalDraft(client,values,"2026-11-06"),null);
+    assert.deepEqual(confirmedRenewalDatesFromPanel(client,values,
+      "19/12/2026 00:00:00","19/11/2026 00:00:00","2026-11-06"),{
+      dueDate:"2026-12-19",financialDueDate:"2027-05-19",blockedReason:null,
+    });
+  });
+  it("fails closed for other clients, costs, packages, dates, access and money",()=>{
+    const invalidClients=[
+      {...client,id:"00000000-0000-0000-0000-000000000000"},
+      {...client,login:"other"},
+      {...client,server:"Club"},
+      {...client,due_date:"2026-11-20"},
+      {...client,financial_due_date:"2027-05-19"},
+      {...client,paid:35},
+      {...client,prev_paid:35},
+      {...client,cost:7},
+      {...client,access_type:"meu_acesso"},
+    ];
+    for(const c of invalidClients)assert.ok(lealPauloPackage6Issue(c,values));
+    const invalidOptions=[
+      {...values,months:1}, {...values,months:12},
+      {...values,paymentAmount:35},{...values,paymentAmount:175},
+      {...values,paymentCost:6.5},{...values,paymentCost:0},
+      {...values,monthlyPaid:150},{...values,prevPaid:0},
+      {...values,cost:7},{...values,dueDate:"2027-05-19"},
+      {...values,financialDueDate:"2026-12-19"},
+      {...values,pilotKind:"unpaid"},
+    ];
+    for(const opts of invalidOptions)assert.ok(lealPauloPackage6Issue(client,opts));
+  });
+  it("requires a separate private default-off switch and never enables bulk rollout",()=>{
+    const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
+    const screen=readFileSync(new URL("../routes/_authenticated/renovacoes.tsx",import.meta.url),"utf8");
+    assert.match(edge,/PAINEL_RECARGA_LEALPAULO_6M_ENABLED/);
+    assert.match(edge,/packagePilotOn&&/);
+    assert.match(edge,/authorizedCase\.kind==="package6"/);
+    assert.match(edge,/lealPauloPackage6Issue\(customer,values\)/);
+    assert.match(edge,/PAINEL_RECARGA_LIVE_ENABLED/);
+    assert.match(edge,/!authorizedCase&&!rolloutEnabled/);
+    assert.match(screen,/pilotPackage6\?6:1/);
+    assert.match(screen,/opts\.months!==6\|\|opts\.paid!==150/);
+    assert.match(screen,/mode:"preflight"/);
   });
 });
