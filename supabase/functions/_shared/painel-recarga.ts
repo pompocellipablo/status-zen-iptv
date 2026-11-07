@@ -137,7 +137,7 @@ export function rolloutRenewalIssue(
   if(values.months!==6&&values.months!==12)
     return "Lote geral aceita apenas planos de 1, 6 ou 12 meses.";
   if(values.monthlyPaid!==0||values.prevPaid!==previousPaid||
-     values.paymentAmount<client.paid||
+     values.paymentAmount<=client.paid||
      values.paymentCost!==client.cost*values.months)
     return "Pacote: valores, meses ou custo total diferentes da contratação.";
   const minFinance=addMonthsISO(values.dueDate,values.months-1);
