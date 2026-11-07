@@ -575,7 +575,7 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
     const index=edge.indexOf("const authorizedCase=packagePilot.find");
     const guard=edge.indexOf('if(mode==="renew"){',index);
     const job=edge.indexOf('if(mode==="renew"&&!job){',guard);
-    const use=edge.indexOf('const isUnpaid=authorizedCase.kind==="unpaid"',job);
+    const use=edge.indexOf('const amountsMatch=lealPauloPrepaidSecondIssue(customer,values)===null;',job);
     assert.ok(index>0 && guard>index && job>guard && use>job);
     assert.match(edge.slice(index,guard),/const authorizedCase=packagePilot\.find/);
     assert.match(edge.slice(job,use),/if\(authorizedCase\)/);
@@ -584,11 +584,9 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
   it("never accepts prepaid package or edited payment amount during pilots",()=>{
     const block=edge.slice(edge.indexOf('if(mode==="renew"&&!job){'),
       edge.indexOf('// The API cycles are not the same as months'));
-    assert.match(block,/values\.months===1/);
-    assert.match(block,/values\.paymentAmount===Number\(customer\.paid\)/);
-    assert.match(block,/values\.paymentCost===Number\(customer\.cost\)/);
-    assert.match(block,/values\.pilotKind==="unpaid"/);
-    assert.match(block,/values\.paymentAmount===0/);
+    assert.match(block,/const amountsMatch=lealPauloPrepaidSecondIssue\(customer,values\)===null/);
+    assert.match(block,/if\(!amountsMatch\)/);
+    assert.match(block,/if\(!authorizedCase\)/);
   });
   it("read-only authorized targets do not call providers or mutate ledger",()=>{
     const begin=edge.indexOf('if(mode==="pilot_targets")');
@@ -682,7 +680,7 @@ describe("Exact LealPaulo six-month pilot (no provider calls)",()=>{
     const screen=readFileSync(new URL("../routes/_authenticated/renovacoes.tsx",import.meta.url),"utf8");
     assert.doesNotMatch(edge,/const packagePilot=packagePilotOn \? \[LEAL_PAULO_PACKAGE6\]/);
     assert.match(edge,/const packagePilot=packagePilotOn \? \[LEAL_PAULO_PREPAID_SECOND\]/);
-    assert.match(edge,/authorizedCase\.kind==="prepaid2"/);
+    assert.match(edge,/const amountsMatch=lealPauloPrepaidSecondIssue\(customer,values\)===null/);
     assert.match(edge,/lealPauloPrepaidSecondIssue\(customer,values\)/);
     assert.match(edge,/PAINEL_RECARGA_LIVE_ENABLED/);
     assert.match(edge,/if\(!authorizedCase\)/);
