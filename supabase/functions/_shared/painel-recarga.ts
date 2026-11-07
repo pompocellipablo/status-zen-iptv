@@ -56,11 +56,51 @@ export function financialTransitionError(
  * invalidate the whole list (never fall back to an open server list).
  */
 export type PanelPilotCase={
-  clientId:string; expectedDueDate:string; server:string; kind:"paid"|"unpaid";
+  clientId:string; expectedDueDate:string; server:string; kind:"paid"|"unpaid"|"package6";
 };
 export const PANEL_PILOT_BATCH_SERVERS=[
   "Five","Uniplay","UniP2P","Blade","Now","All Play",
 ] as const;
+
+/**
+ * Dedicated, fail-closed package test. Only the owner can enable its private
+ * Edge Function flag; this identifier is not a credential or a client-side
+ * authorization. It never enables the general rollout.
+ */
+export const LEAL_PAULO_PACKAGE6 = {
+  clientId:"7666f0e4-9dbe-47cb-bb90-8a67a2a0a822",
+  expectedDueDate:"2026-11-19",
+  server:"Five",
+  kind:"package6",
+} as const;
+
+export function lealPauloPackage6Issue(
+  client:{id:string;login:string;server:string;due_date:string;
+    financial_due_date:string|null;access_type:string|null;
+    paid:number;prev_paid:number;cost:number},
+  values:{months:number;dueDate:string;financialDueDate:string;
+    cost:number;monthlyPaid:number;prevPaid:number;
+    paymentAmount:number;paymentCost:number;pilotKind?:string},
+):string|null {
+  if(client.id!==LEAL_PAULO_PACKAGE6.clientId ||
+     client.login!=="LealPaulo" ||
+     client.server!==LEAL_PAULO_PACKAGE6.server ||
+     client.due_date!==LEAL_PAULO_PACKAGE6.expectedDueDate)
+    return "Piloto semestral não corresponde ao cliente, servidor ou vencimento autorizado.";
+  if(client.financial_due_date!==client.due_date ||
+     client.access_type!=="padrao" || Number(client.paid)!==0 ||
+     Number(client.prev_paid)!==150 || Number(client.cost)!==6.50)
+    return "Cadastro financeiro do piloto mudou; revise antes da renovação.";
+  const technical=addMonthsISO(client.due_date,1);
+  const financial=addMonthsISO(client.due_date,6);
+  if(values.pilotKind!==undefined || values.months!==6 ||
+     values.dueDate!==technical || values.financialDueDate!==financial ||
+     values.cost!==6.50 || values.monthlyPaid!==0 ||
+     values.prevPaid!==150 || values.paymentAmount!==150 ||
+     values.paymentCost!==39)
+    return "Piloto LealPaulo: apenas 6 meses por R$ 150,00 e um ciclo técnico a R$ 6,50.";
+  return null;
+}
 
 export function parsePanelPilotBatch(raw:string|undefined|null):PanelPilotCase[]{
   if(!raw||raw.length>4096)return [];
