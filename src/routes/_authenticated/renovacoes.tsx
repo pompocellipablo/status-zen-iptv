@@ -584,22 +584,38 @@ function Painel() {
     client:Client,
     opts:{months:number;cost:number;paid:number;monthlyCost:number;monthlyPaid:number},
   )=>{
-    if(!isPilotTarget(client,pilotTargetsQuery.data?.targets??[])||!panelRouteForClient(client.server))return;
+    if(!isExternalTarget(client,pilotTargetsQuery.data)||!panelRouteForClient(client.server))return;
     if(renewingBusy)return;
     const target=pilotTargetsQuery.data?.targets.find(item=>item.clientId===client.id
       &&item.expectedDueDate===client.due_date&&item.server===client.server);
-    if(!target)return;
-    const unpaid=target.kind==="unpaid";
-    if(opts.months!==1||opts.paid!==Number(client.paid)
-      ||opts.monthlyCost!==Number(client.cost)
-      ||(unpaid&&(opts.paid!==0||client.financial_due_date!==client.due_date
-        ||!["padrao","meu_acesso"].includes(client.access_type??"")))
-      ||(!unpaid&&(opts.paid<=0||client.access_type==="gratuidade"
-        ||client.access_type==="meu_acesso"))){
-      setNotice("Piloto restrito a um ciclo e ao tipo de pagamento cadastrado: "+
-        formatBRL(Number(client.paid))+" recebidos, custo "+
-        formatBRL(Number(client.cost))+".");
-      return;
+    const unpaid=target?.kind==="unpaid";
+    if(target){
+      // Legacy exact-person pilots remain monthly and do not authorize new
+      // plan amounts or free accounts outside the original one-cycle scope.
+      if(opts.months!==1||opts.paid!==Number(client.paid)
+        ||opts.monthlyCost!==Number(client.cost)
+        ||(unpaid&&(opts.paid!==0||client.financial_due_date!==client.due_date
+          ||!["padrao","meu_acesso"].includes(client.access_type??"")))
+        ||(!unpaid&&(opts.paid<=0||client.access_type==="gratuidade"
+          ||client.access_type==="meu_acesso"))){
+        setNotice("Piloto restrito ao ciclo e valores autorizados; nenhum pedido enviado.");
+        return;
+      }
+    }else{
+      // Production rollout requires the separate server switch (checked
+      // again by the Edge Function) and only paid standard accounts.
+      const prepaid=!!client.financial_due_date&&client.financial_due_date>client.due_date;
+      const paidMonth=opts.months===1&&opts.paid===client.paid&&opts.monthlyPaid===client.paid;
+      const paidPackage=[6,12].includes(opts.months)&&opts.paid>client.paid&&opts.monthlyPaid===0;
+      const covered=prepaid&&opts.months===1&&opts.paid===0&&opts.monthlyPaid===0;
+      if(!isRolloutTarget(client,pilotTargetsQuery.data)
+        ||opts.monthlyCost!==client.cost
+        ||(!prepaid&&!paidMonth&&!paidPackage)
+        ||(prepaid&&!covered)){
+        setNotice("O plano não passou pela validação da renovação integrada. "
+          +"Confira valores e cobertura antes de renovar.");
+        return;
+      }
     }
     const {dueDate,financialDueDate}=renewalDates(client.due_date,opts.months);
     const hasPrepaidCoverage=!!client.financial_due_date&&client.financial_due_date>client.due_date;
@@ -646,7 +662,7 @@ function Painel() {
     }
 
     const summary=[
-      "PILOTO SUPERVISIONADO — Painel Recarga",
+      target?"PILOTO SUPERVISIONADO — Painel Recarga":"RENOVAÇÃO INTEGRADA — Painel Recarga",
       "Cliente: "+client.name+" ("+client.login+")",
       "Servidor: "+client.server,
       "Acesso atual: "+formatDate(client.due_date),
@@ -656,7 +672,7 @@ function Painel() {
         "Pagamento nesta renovação: "+formatBRL(covered?0:opts.paid),
       "Ciclos no servidor: 1",
       "",
-      "Esta confirmação pode gerar UMA RENOVAÇÃO REAL se a função estiver habilitada.",
+      "Esta confirmação pode gerar UM ciclo técnico real se a função estiver habilitada.",
       "Confirma o envio deste cliente específico?",
     ].join("\n");
     if(!window.confirm(summary))return;
