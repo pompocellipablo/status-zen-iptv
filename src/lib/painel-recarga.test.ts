@@ -14,7 +14,7 @@ describe("Rollout opt-in guards (no real requests)",()=>{
     assert.match(edge,/PAINEL_RECARGA_LIVE_ENABLED/);
     assert.match(edge,/!authorizedCase&&!rolloutEnabled/);
     assert.match(edge,/rolloutRenewalIssue\(customer,values\)/);
-    assert.match(edge,/rolloutEnabled\}\)/);
+    assert.match(edge,/rolloutEnabled:false/);
   });
   it("permits one paid monthly cycle only at exact price and cost",()=>{
     assert.equal(rolloutRenewalIssue(client,monthly),null);
@@ -572,12 +572,12 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
   it("keeps authorizedCase in function scope before both renewal guards",()=>{
     // Regression: a const inside if(mode==="renew") caused HTTP 500
     // ReferenceError in the later if(mode==="renew"&&!job) block.
-    const index=edge.indexOf("const authorizedCase=authorizedPilots.find");
+    const index=edge.indexOf("const authorizedCase=packagePilot.find");
     const guard=edge.indexOf('if(mode==="renew"){',index);
     const job=edge.indexOf('if(mode==="renew"&&!job){',guard);
     const use=edge.indexOf('const isUnpaid=authorizedCase.kind==="unpaid"',job);
     assert.ok(index>0 && guard>index && job>guard && use>job);
-    assert.match(edge.slice(index,guard),/const authorizedCase=authorizedPilots\.find/);
+    assert.match(edge.slice(index,guard),/const authorizedCase=packagePilot\.find/);
     assert.match(edge.slice(job,use),/if\(authorizedCase\)/);
     assert.doesNotMatch(edge.slice(guard,job),/const authorizedCase=/);
   });
@@ -595,7 +595,7 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
     const end=edge.indexOf('if(typeof input.clientId',begin);
     assert.ok(begin>0&&end>begin);
     assert.match(edge.slice(begin,end),/readOnly:true/);
-    assert.match(edge.slice(begin,end),/targets:authorizedPilots/);
+    assert.match(edge.slice(begin,end),/targets:packagePilot/);
     assert.doesNotMatch(edge.slice(begin,end),/\bfetch\(|\.update\(|\.insert\(|\.rpc\(/);
   });
   it("UI displays pilot buttons only for cases returned by owner-only backend",()=>{
@@ -691,5 +691,40 @@ describe("Exact LealPaulo six-month pilot (no provider calls)",()=>{
     assert.match(screen,/PANEL_PILOT_UI_ENABLED\|\|isScopedPackageCandidate\(c\)/);
     assert.match(screen,/opts\.months!==6\|\|opts\.paid!==150/);
     assert.match(screen,/mode:"preflight"/);
+  });
+});
+
+describe("Temporary exclusive LealPaulo access (static backend security)",()=>{
+  const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
+  it("hides old batch pilots and mass rollout from real-use discovery",()=>{
+    const begin=edge.indexOf('if(mode==="pilot_targets")');
+    const end=edge.indexOf('if(typeof input.clientId',begin);
+    assert.ok(begin>0&&end>begin);
+    const body=edge.slice(begin,end);
+    assert.match(body,/targets:packagePilot/);
+    assert.match(body,/rolloutEnabled:false/);
+    assert.doesNotMatch(body,/targets:authorizedPilots/);
+  });
+  it("blocks every other client and old pilot before job access/provider POST",()=>{
+    const gate=edge.indexOf('if((mode==="renew"||mode==="check")&&(');
+    const jobs=edge.indexOf('const {data:stored,error:queryError}');
+    const provider=edge.indexOf('response=await fetch(base+route.path');
+    assert.ok(gate>0&&gate<jobs&&jobs<provider);
+    const check=edge.slice(gate,jobs);
+    assert.match(check,/!packagePilotOn/);
+    assert.match(check,/customer\.id!==LEAL_PAULO_PACKAGE6\.clientId/);
+    assert.match(check,/customer\.login!=="LealPaulo"/);
+    assert.match(check,/customer\.server!==LEAL_PAULO_PACKAGE6\.server/);
+    assert.match(check,/expected!==LEAL_PAULO_PACKAGE6\.expectedDueDate/);
+    assert.match(check,/return reply\(403/);
+    assert.match(check,/mode==="renew"&&!exclusiveWindowOpen/);
+  });
+  it("closes new renewals at 03:00 BRT, while allowing same-job check reconciliation",()=>{
+    assert.match(edge,/Date\.parse\("2026-11-07T06:00:00Z"\)/);
+    assert.match(edge,/const exclusiveWindowOpen=Date\.now\(\)<exclusiveLiveUntilMs/);
+    assert.match(edge,/if\(mode==="renew"&&!exclusiveWindowOpen\)/);
+    assert.doesNotMatch(edge,/mode==="check"&&!exclusiveWindowOpen/);
+    assert.match(edge,/liveEnabled:packagePilotOn&&exclusiveWindowOpen/);
+    assert.match(edge,/mode==="check"&&!job/);
   });
 });
