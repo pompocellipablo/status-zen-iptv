@@ -558,7 +558,7 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
   const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
   const screen=readFileSync(new URL("../routes/_authenticated/renovacoes.tsx",import.meta.url),"utf8");
   it("backend requires global live flag AND exact batch case before provider renewal",()=>{
-    const live=edge.indexOf('if(Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")!=="true")');
+    const live=edge.indexOf('if(Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")!=="true"&&!exclusivePilotLive)');
     const guard=edge.indexOf('// SIX-SERVER BATCH PILOT');
     const reserve=edge.indexOf('// For live operations, persist a stable idempotency key');
     assert.ok(live>0&&guard>live&&reserve>guard);
@@ -718,6 +718,16 @@ describe("Temporary exclusive LealPaulo access (static backend security)",()=>{
     assert.match(check,/expected!==LEAL_PAULO_PACKAGE6\.expectedDueDate/);
     assert.match(check,/return reply\(403/);
     assert.match(check,/mode==="renew"&&!exclusiveWindowOpen/);
+  });
+  it("enables only a new scoped secret without changing the old global live flag",()=>{
+    const gate=edge.indexOf('if((mode==="renew"||mode==="check")&&(');
+    const scoped=edge.indexOf('const exclusivePilotLive=packagePilotOn');
+    const request=edge.indexOf('const {data:stored,error:queryError}');
+    assert.ok(gate>0 && scoped>gate && request>scoped);
+    assert.match(edge,/PAINEL_RECARGA_LEALPAULO_6M_LIVE_ENABLED/);
+    assert.match(edge,/if\(Deno\.env\.get\("PAINEL_RECARGA_LIVE_ENABLED"\)!=="true"&&!exclusivePilotLive\)/);
+    assert.match(edge,/liveEnabled:packagePilotOn&&exclusiveWindowOpen/);
+    assert.match(edge,/const authorizedCase=packagePilot\.find/);
   });
   it("closes new renewals at 03:00 BRT, while allowing same-job check reconciliation",()=>{
     assert.match(edge,/Date\.parse\("2026-11-07T06:00:00Z"\)/);
