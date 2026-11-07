@@ -12,7 +12,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   buildPanelRecargaBody, confirmedRenewalDatesFromPanel, financialTransitionError, panelRouteForClient, parsePanelRecargaResponse, validatePanelRenewalDraft, parsePanelPilotBatch,
-  RECARGA_BASE_URL, rolloutRenewalIssue, LEAL_PAULO_PACKAGE6, lealPauloPackage6Issue, type ExternalOutcome,
+  RECARGA_BASE_URL, rolloutRenewalIssue, LEAL_PAULO_PREPAID_SECOND, lealPauloPrepaidSecondIssue, type ExternalOutcome,
 } from "../_shared/painel-recarga.ts";
 
 const ownerId="c70b3e1f-e5d2-4caf-ae09-019964dbf30e";
@@ -87,9 +87,10 @@ Deno.serve(async(request)=>{
   // Batch list is owner-only, read-only and does not call the provider.
   // Empty or malformed secret => no permitted cases (fail closed).
   const batchPilotCases=parsePanelPilotBatch(Deno.env.get("PAINEL_RECARGA_PILOT_BATCH"));
-  // Explicit single-client switch. Default OFF; never inferred from live/rollout.
-  const packagePilotOn=Deno.env.get("PAINEL_RECARGA_LEALPAULO_6M_ENABLED")==="true";
-  const packagePilot=packagePilotOn ? [LEAL_PAULO_PACKAGE6] : [];
+  // New authorization for only the already-paid SECOND cycle. Old package
+  // and batch flags cannot authorize another provider request by themselves.
+  const packagePilotOn=Deno.env.get("PAINEL_RECARGA_LEALPAULO_PREPAID2_ENABLED")==="true";
+  const packagePilot=packagePilotOn ? [LEAL_PAULO_PREPAID_SECOND] : [];
   // Temporary, exclusively scoped live window: 03:00 Brasília on 07/11/2026.
   // The expiry stops NEW renewals automatically. Existing LealPaulo jobs may
   // still be reconciled via check with their saved idempotency key.
@@ -132,8 +133,8 @@ Deno.serve(async(request)=>{
     const selectedCase=authorizedPilots.find(item=>
       item.clientId===customer.id&&item.server===customer.server
       &&item.expectedDueDate===expected);
-    if(selectedCase?.kind==="package6"){
-      const issue=lealPauloPackage6Issue(customer,values);
+    if(selectedCase?.kind==="prepaid2"){
+      const issue=lealPauloPrepaidSecondIssue(customer,values);
       if(issue)return reply(409,{ok:false,previewOnly:true,pilotRestricted:true,
         message:issue+" Nenhum pedido enviado."});
     }
@@ -163,7 +164,7 @@ Deno.serve(async(request)=>{
     const pilotDiagnostic=pilotCase?{
       clientId:"ok",expectedDueDate:"ok",
       liveEnabled:packagePilotOn&&exclusiveWindowOpen&&(
-        Deno.env.get("PAINEL_RECARGA_LEALPAULO_6M_LIVE_ENABLED")==="true" ||
+        Deno.env.get("PAINEL_RECARGA_LEALPAULO_PREPAID2_LIVE_ENABLED")==="true" ||
         Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")==="true"),
     }:undefined;
     return reply(200,{ok:true,previewOnly:true,providerRequestSent:false,
@@ -289,10 +290,10 @@ Deno.serve(async(request)=>{
   // previously created job; renew is not.
   if((mode==="renew"||mode==="check")&&(
     !packagePilotOn ||
-    customer.id!==LEAL_PAULO_PACKAGE6.clientId ||
+    customer.id!==LEAL_PAULO_PREPAID_SECOND.clientId ||
     customer.login!=="LealPaulo" ||
-    customer.server!==LEAL_PAULO_PACKAGE6.server ||
-    expected!==LEAL_PAULO_PACKAGE6.expectedDueDate))
+    customer.server!==LEAL_PAULO_PREPAID_SECOND.server ||
+    expected!==LEAL_PAULO_PREPAID_SECOND.expectedDueDate))
     return reply(403,{ok:false,disabled:true,pilotRestricted:true,
       message:"Modo exclusivo: somente o ciclo autorizado de LealPaulo pode acessar renovações reais. Nenhum pedido enviado."});
   if(mode==="renew"&&!exclusiveWindowOpen)
@@ -302,7 +303,7 @@ Deno.serve(async(request)=>{
   // secret enables ONLY the exact six-month LealPaulo case; the scoped owner,
   // server, due date and automatic expiry guards above must pass first.
   const exclusivePilotLive=packagePilotOn
-    &&Deno.env.get("PAINEL_RECARGA_LEALPAULO_6M_LIVE_ENABLED")==="true";
+    &&Deno.env.get("PAINEL_RECARGA_LEALPAULO_PREPAID2_LIVE_ENABLED")==="true";
   if(Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")!=="true"&&!exclusivePilotLive)
     return reply(503,{ok:false,disabled:true,message:"Renovação real ainda bloqueada. Use apenas o modo simulação."});
 
@@ -320,7 +321,8 @@ Deno.serve(async(request)=>{
     if(!authorizedCase&&!rolloutEnabled)
       return reply(403,{ok:false,pilotRestricted:true,
         message:"Renovação geral desativada; lote piloto não autoriza este cliente e ciclo. Nenhum pedido enviado."});
-    if(authorizedCase&&customer.financial_due_date!==customer.due_date)
+    if(authorizedCase?.kind!=="prepaid2" &&
+       authorizedCase&&customer.financial_due_date!==customer.due_date)
       return reply(409,{ok:false,pilotRestricted:true,
         message:"Lote piloto inicial apenas para clientes mensais sem pacote ativo."});
   }
@@ -343,8 +345,8 @@ Deno.serve(async(request)=>{
     if(authorizedCase){
       // Exact pilot cases retain their original stricter single-cycle rules.
       const isUnpaid=authorizedCase.kind==="unpaid";
-      const amountsMatch=authorizedCase.kind==="package6"
-        ? lealPauloPackage6Issue(customer,values)===null
+      const amountsMatch=authorizedCase.kind==="prepaid2"
+        ? lealPauloPrepaidSecondIssue(customer,values)===null
         : values.months===1
         &&values.cost===Number(customer.cost)
         &&(isUnpaid
