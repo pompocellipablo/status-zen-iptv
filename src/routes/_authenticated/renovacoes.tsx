@@ -597,6 +597,11 @@ function Painel() {
     const unpaid=target?.kind==="unpaid";
     const package6=target?.kind==="package6";
     const prepaid2=target?.kind==="prepaid2";
+    if(prepaid2){
+      // The second technical cycle is already paid. Never trust retained
+      // form values from a previous renewal or a late pilot-target fetch.
+      opts={months:1,cost:6.5,paid:0,monthlyCost:6.5,monthlyPaid:0};
+    }
     if(target){
       // Special case: one exact pre-paid six-month package; no other amount
       // or duration can be submitted, even before backend revalidation.
@@ -608,12 +613,18 @@ function Painel() {
           return;
         }
       }else if(prepaid2){
-        if(opts.months!==1||opts.paid!==0||opts.monthlyPaid!==0
-          ||opts.monthlyCost!==6.5||opts.cost!==6.5
-          ||Number(client.paid)!==0||Number(client.prev_paid)!==150
-          ||client.due_date!=="2026-12-19"
-          ||client.financial_due_date!=="2027-05-19"){
-          setNotice("Segundo ciclo já pago: 1 mês no Five, R$ 0 novo e financeiro preservado. Nenhum pedido enviado.");
+        const mismatch=[
+          Number(client.paid)!==0?"pagamento mensal atual":""
+          ,Number(client.prev_paid)!==150?"valor já recebido":""
+          ,Number(client.cost)!==6.5?"custo de crédito":""
+          ,client.due_date!=="2026-12-19"?"vencimento técnico":""
+          ,client.financial_due_date!=="2027-05-19"?"vencimento financeiro":""
+          ,client.access_type!=="padrao"?"tipo de acesso":""
+          ,client.id!=="7666f0e4-9dbe-47cb-bb90-8a67a2a0a822"?"cliente autorizado":""
+        ].filter(Boolean);
+        if(mismatch.length){
+          setNotice("Segundo ciclo já pago bloqueado: confira "+mismatch.join(", ")
+            +". Nenhum pedido enviado. Atualize a página antes de tentar novamente.");
           return;
         }
       }else if(opts.months!==1||opts.paid!==Number(client.paid)
@@ -1848,12 +1859,13 @@ function RenewDialog({
   const [cost, setCost] = useState(String(defaultCost).replace(".", ","));
   const [paid, setPaid] = useState(String(defaultPaid).replace(".", ","));
 
-  const monthlyCost = num(cost);
-  const paidValue = num(paid);
-  const validMonths = Number.isInteger(months) && months >= 1 && months <= 120;
-  const totalCost = monthlyCost * (validMonths ? months : 0);
-  const monthlyPaid = months > 1 ? 0 : paidValue;
-  const { dueDate: newDue, financialDueDate } = renewalDates(client.due_date, validMonths ? months : 1);
+  const monthlyCost = pilotPrepaid2 ? 6.5 : num(cost);
+  const paidValue = pilotPrepaid2 ? 0 : num(paid);
+  const effectiveMonths = pilotPrepaid2 ? 1 : months;
+  const validMonths = Number.isInteger(effectiveMonths) && effectiveMonths >= 1 && effectiveMonths <= 120;
+  const totalCost = monthlyCost * (validMonths ? effectiveMonths : 0);
+  const monthlyPaid = effectiveMonths > 1 ? 0 : paidValue;
+  const { dueDate: newDue, financialDueDate } = renewalDates(client.due_date, validMonths ? effectiveMonths : 1);
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-background/80 p-4 backdrop-blur-sm">
@@ -1876,9 +1888,10 @@ function RenewDialog({
               key={m}
               type="button"
               variant="outline"
-              onClick={() => setMonths(m)}
+              disabled={pilotPrepaid2}
+              onClick={() => { if(!pilotPrepaid2) setMonths(m); }}
               className={`font-display min-w-0 flex-1 rounded-xl px-1 py-2 text-sm font-medium ring-1 ${
-                months === m
+                effectiveMonths === m
                   ? "bg-cyan/15 text-cyan ring-cyan/30"
                   : "bg-panel text-mist ring-line hover:bg-frost/5"
               }`}
@@ -1893,7 +1906,8 @@ function RenewDialog({
           min={1}
           max={120}
           step={1}
-          value={months}
+          disabled={pilotPrepaid2}
+          value={effectiveMonths}
           onChange={(event) => {
             const value = Number(event.target.value);
             setMonths(value);
@@ -1908,7 +1922,8 @@ function RenewDialog({
               Custo do crédito (mês)
             </label>
             <input
-              value={cost}
+              value={pilotPrepaid2 ? "6,5" : cost}
+              disabled={pilotPrepaid2}
               onChange={(e) => setCost(e.target.value)}
               inputMode="decimal"
               className="mt-2 w-full rounded-xl bg-panel px-3 py-2.5 text-sm text-frost ring-1 ring-line outline-none focus:ring-cyan/50"
@@ -1916,10 +1931,11 @@ function RenewDialog({
           </div>
           <div>
             <label className="block text-xs tracking-wide text-mist uppercase">
-              {months > 1 ? "Valor do pacote" : "Valor pago"}
+              {pilotPrepaid2 ? "Novo pagamento (já pago)" : effectiveMonths > 1 ? "Valor do pacote" : "Valor pago"}
             </label>
             <input
-              value={paid}
+              value={pilotPrepaid2 ? "0" : paid}
+              disabled={pilotPrepaid2}
               onChange={(e) => setPaid(e.target.value)}
               inputMode="decimal"
               className="mt-2 w-full rounded-xl bg-panel px-3 py-2.5 text-sm text-frost ring-1 ring-line outline-none focus:ring-cyan/50"
@@ -1928,10 +1944,10 @@ function RenewDialog({
         </div>
 
         <div className="mt-4 rounded-xl bg-panel p-4 text-sm ring-1 ring-line">
-          {months > 1 ? (
+          {effectiveMonths > 1 ? (
             <p className="text-mist">
               O valor de <span className="text-frost">{formatBRL(paidValue)}</span> entra uma vez no
-              faturamento. Nos {months - 1} meses seguintes o valor pago fica R$ 0,00 e só o custo do
+              faturamento. Nos {effectiveMonths - 1} meses seguintes o valor pago fica R$ 0,00 e só o custo do
               crédito ({formatBRL(monthlyCost)}/mês) é descontado.
             </p>
           ) : (
@@ -1947,9 +1963,9 @@ function RenewDialog({
         {onConfirmPilot&&<div className="mt-4 rounded-xl bg-warn/10 p-3 text-xs text-warn ring-1 ring-warn/25">
           <p>Envia apenas 1 ciclo técnico ao Painel Recarga. O técnico usa a data confirmada pelo servidor, e a cobertura financeira segue o período contratado. Exige sua confirmação.</p>
           <Button type="button" variant="outline" disabled={!validMonths||saving||(!pilotPrepaid2&&paidValue<=0)
-              ||(pilotPackage6&&(months!==6||paidValue!==150||monthlyCost!==6.5))
-              ||(pilotPrepaid2&&(months!==1||paidValue!==0||monthlyCost!==6.5))}
-            onClick={()=>void onConfirmPilot({months,cost:totalCost,paid:paidValue,monthlyCost,monthlyPaid})}
+              ||(pilotPackage6&&(effectiveMonths!==6||paidValue!==150||monthlyCost!==6.5))
+              ||(pilotPrepaid2&&(effectiveMonths!==1||paidValue!==0||monthlyCost!==6.5))}
+            onClick={()=>void onConfirmPilot({months:effectiveMonths,cost:totalCost,paid:paidValue,monthlyCost,monthlyPaid})}
             className="mt-3 w-full rounded-xl text-warn ring-1 ring-warn/30">
             Confirmar renovação no Painel Recarga
           </Button>
@@ -1959,7 +1975,7 @@ function RenewDialog({
             type="button"
             disabled={!validMonths || saving}
             onClick={() =>
-              onConfirm({ months, cost: totalCost, paid: paidValue, monthlyCost, monthlyPaid })
+              onConfirm({ months: effectiveMonths, cost: totalCost, paid: paidValue, monthlyCost, monthlyPaid })
             }
             className="font-display rounded-xl bg-cyan px-4 py-2.5 text-sm font-semibold text-background ring-1 ring-cyan/40"
           >
