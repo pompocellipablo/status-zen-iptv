@@ -96,6 +96,58 @@ export function parsePanelPilotBatch(raw:string|undefined|null):PanelPilotCase[]
  * The final confirmation is validated a second time against the actual
  * provider dates and inside the atomic database settlement.
  */
+/**
+ * Explicit opt-in daily rollout. The server never trusts browser-supplied
+ * payment/cost numbers for a provider renewal. Only monthly, 6/12-month
+ * paid contracts, or an already-paid technical cycle are eligible.
+ * Free accounts remain a separate, narrowly authorized pilot.
+ */
+export function rolloutRenewalIssue(
+  client:{due_date:string;financial_due_date:string|null;access_type?:string|null;
+    paid:number;cost:number;prev_paid:number},
+  values:{months:number;dueDate:string;financialDueDate:string;cost:number;
+    monthlyPaid:number;prevPaid:number;paymentAmount:number;paymentCost:number;pilotKind?:string},
+):string|null {
+  if(!["padrao","pacote_pago"].includes(client.access_type??""))
+    return "Acesso gratuito ou especial exige aprovação separada; não pode usar renovação geral.";
+  if(values.pilotKind!==undefined)
+    return "A renovação geral não aceita autorização de piloto gratuito.";
+  if(!Number.isFinite(values.cost)||values.cost!==client.cost||client.cost<0)
+    return "Custo do ciclo diferente do cadastro; revise antes de renovar.";
+  const finance=client.financial_due_date;
+  if(!finance||finance<client.due_date)
+    return "Cobertura financeira ausente ou anterior ao vencimento técnico.";
+  const previousPaid=client.prev_paid||client.paid;
+  if(finance>client.due_date){
+    if(values.months!==1||values.financialDueDate!==finance||
+       values.dueDate>finance||values.paymentAmount!==0||values.paymentCost!==0||
+       values.monthlyPaid!==0||values.prevPaid!==client.prev_paid)
+      return "Pacote ativo: somente um ciclo técnico dentro da cobertura, sem outro pagamento.";
+    return null;
+  }
+  if(client.paid<=0||values.paymentAmount<=0)
+    return "Período financeiro novo exige pagamento positivo registrado.";
+  if(values.months===1){
+    if(values.paymentAmount!==client.paid||values.monthlyPaid!==client.paid||
+       values.prevPaid!==client.paid||values.paymentCost!==client.cost||
+       values.financialDueDate!==values.dueDate)
+      return "Plano mensal: valor e custo devem coincidir com o cadastro, avançando as duas datas.";
+    return null;
+  }
+  if(values.months!==6&&values.months!==12)
+    return "Lote geral aceita apenas planos de 1, 6 ou 12 meses.";
+  if(values.monthlyPaid!==0||values.prevPaid!==previousPaid||
+     values.paymentAmount<client.paid||
+     values.paymentCost!==client.cost*values.months)
+    return "Pacote: valores, meses ou custo total diferentes da contratação.";
+  const minFinance=addMonthsISO(values.dueDate,values.months-1);
+  const maxFinance=minFinance?addDaysISO(minFinance,4):null;
+  if(!minFinance||!maxFinance||values.financialDueDate<minFinance||
+     values.financialDueDate>maxFinance)
+    return "A cobertura do pacote não corresponde à quantidade de meses contratados.";
+  return null;
+}
+
 export function validatePanelRenewalDraft(
   client:{due_date:string;financial_due_date:string|null;access_type?:string|null;paid?:number},
   values:{
