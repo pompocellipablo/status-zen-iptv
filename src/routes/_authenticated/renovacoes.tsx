@@ -1038,7 +1038,7 @@ function Painel() {
         )}
 
         {PANEL_PILOT_UI_ENABLED&&<section className="mt-4 rounded-xl bg-panel p-3 text-sm ring-1 ring-warn/25" aria-label="Acompanhamento do piloto Painel Recarga">
-          <p className="font-semibold text-warn">Painel Recarga — piloto supervisionado</p>
+          <p className="font-semibold text-warn">Painel Recarga — {pilotTargetsQuery.data?.rolloutEnabled?"integração supervisionada":"piloto supervisionado"}</p>
           <p className="mt-1 text-xs text-mist">Somente pedidos externos já autorizados. Verificar andamento usa a mesma chave do pedido; não cria nova autorização.</p>
           {externalJobsQuery.isError&&<p className="mt-2 text-danger">Histórico externo indisponível. Consulte o painel antes de qualquer nova renovação.</p>}
           {externalJobsQuery.isLoading&&<p className="mt-2 text-mist">Verificando pedidos…</p>}
@@ -1131,32 +1131,17 @@ function Painel() {
                     <div className="mt-3 flex flex-wrap items-stretch gap-2 xl:mt-0">
                       <button
                         type="button"
-                        disabled={isPilotTarget(c,pilotTargetsQuery.data?.targets??[])}
-                        onClick={() => renew(c)}
+                        disabled={renewingBusy||
+                          (PANEL_PILOT_UI_ENABLED&&!!panelRouteForClient(c.server)
+                            &&(pilotTargetsQuery.isLoading||pilotTargetsQuery.isError))||
+                          (isExternalTarget(c,pilotTargetsQuery.data)
+                            &&(externalJobsQuery.isLoading||externalJobsQuery.isError||
+                              (externalJobsQuery.data??[]).some(j=>j.client_id===c.id&&j.expected_due_date===c.due_date)))}
+                        onClick={() => void renew(c)}
                         className="font-display flex min-h-11 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl bg-cyan/15 px-2 text-sm font-semibold text-cyan ring-1 ring-cyan/30 hover:bg-cyan/25"
                       >
-                        <RefreshCw size={15} aria-hidden="true" /> Renovar
+                        <RefreshCw size={15} aria-hidden="true" /> {isExternalTarget(c,pilotTargetsQuery.data)?"Renovar no painel":"Renovar"}
                       </button>
-                      {isPilotTarget(c,pilotTargetsQuery.data?.targets??[])&&panelRouteForClient(c.server)&&(
-                        <button type="button" disabled={renewingBusy}
-                          onClick={()=>{
-                            const target=pilotTargetsQuery.data?.targets.find(t=>t.clientId===c.id);
-                            if(target?.kind==="unpaid"){
-                              void confirmPanelPilot(c,{months:1,cost:0,paid:0,
-                                monthlyCost:Number(c.cost),monthlyPaid:0});
-                              return;
-                            }
-                            const next=nextDueDate(c.due_date);
-                            if(c.financial_due_date && c.financial_due_date>=next){
-                              const monthlyCost=c.cost||c.prev_cost||SERVER_COSTS[c.server]||0;
-                              void confirmPanelPilot(c,{months:1,cost:0,paid:0,monthlyCost,monthlyPaid:0});
-                            }else setRenewing(c);
-                          }}
-                          className="font-display min-h-11 rounded-xl bg-panel2 px-2 text-xs font-semibold text-warn ring-1 ring-warn/30 disabled:opacity-50">
-                          {pilotTargetsQuery.data?.targets.find(t=>t.clientId===c.id)?.kind==="unpaid"
-                            ?"Painel (gratuito)":"Painel (piloto)"}
-                        </button>
-                      )}
                       <a
                         href={renewalMessageLink(c, template, overdueTemplate)}
                         target="_blank"
@@ -1303,7 +1288,7 @@ function Painel() {
           saving={renewingBusy}
           onCancel={() => setRenewing(null)}
           onConfirm={(opts) => confirmRenew(renewing, opts)}
-          {...(isPilotTarget(renewing,pilotTargetsQuery.data?.targets??[]) && panelRouteForClient(renewing.server)
+          {...(isExternalTarget(renewing,pilotTargetsQuery.data)
             ? { onConfirmPilot: (opts: { months: number; cost: number; paid: number; monthlyCost: number; monthlyPaid: number }) => confirmPanelPilot(renewing, opts) }
             : {})}
         />
@@ -1919,11 +1904,11 @@ function RenewDialog({
         </div>
 
         {onConfirmPilot&&<div className="mt-4 rounded-xl bg-warn/10 p-3 text-xs text-warn ring-1 ring-warn/25">
-          <p>O piloto envia somente 1 ciclo ao Painel Recarga e usa o vencimento real confirmado. O financeiro segue o período pago. Exige sua confirmação.</p>
+          <p>Envia apenas 1 ciclo técnico ao Painel Recarga. O técnico usa a data confirmada pelo servidor, e a cobertura financeira segue o período contratado. Exige sua confirmação.</p>
           <Button type="button" variant="outline" disabled={!validMonths||saving||paidValue<=0}
             onClick={()=>void onConfirmPilot({months,cost:totalCost,paid:paidValue,monthlyCost,monthlyPaid})}
             className="mt-3 w-full rounded-xl text-warn ring-1 ring-warn/30">
-            Renovar também no Painel Recarga (piloto)
+            Confirmar renovação no Painel Recarga
           </Button>
         </div>}
         <div className="mt-5 flex gap-3">
