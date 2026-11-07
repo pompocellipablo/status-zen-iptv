@@ -50,13 +50,13 @@ import {
 const PANEL_PILOT_UI_ENABLED = import.meta.env["VITE_MAXFLIX_PANEL_PILOT"] === "true";
 // Non-secret, build-time UI configuration. Backend independently checks
 // PAINEL_RECARGA_PILOT_CLIENT_ID + PAINEL_RECARGA_PILOT_EXPECTED_DUE_DATE.
-type PanelPilotTarget={clientId:string;expectedDueDate:string;server:string;kind:"paid"|"unpaid"|"package6"};
+type PanelPilotTarget={clientId:string;expectedDueDate:string;server:string;kind:"paid"|"unpaid"|"package6"|"prepaid2"};
 type PanelPilotConfig={targets:PanelPilotTarget[];rolloutEnabled:boolean};
 // UX-only allowlist obtained once from the owner-authorized Edge Function.
 // The private backend validates the same list independently on every renewal.
 const isPilotTarget=(client:Client,targets:readonly PanelPilotTarget[])=>
   targets.some(item=>
-    (PANEL_PILOT_UI_ENABLED||item.kind==="package6")
+    (PANEL_PILOT_UI_ENABLED||item.kind==="package6"||item.kind==="prepaid2")
     &&item.clientId===client.id&&item.expectedDueDate===client.due_date
     &&item.server===client.server);
 
@@ -72,7 +72,7 @@ const isExternalTarget=(client:Client,config:PanelPilotConfig|undefined)=>
 // this exact paid pilot before the owner-only configuration has been fetched.
 const isScopedPackageCandidate=(client:Client)=>
   client.id==="7666f0e4-9dbe-47cb-bb90-8a67a2a0a822"
-  &&client.server==="Five"&&client.due_date==="2026-11-19";
+  &&client.server==="Five"&&client.due_date==="2026-12-19";
 
 export const Route = createFileRoute("/_authenticated/renovacoes")({
   validateSearch: (search: Record<string, unknown>): { tab: Tab; access?: string; server?: string } => {
@@ -259,7 +259,7 @@ function Painel() {
       return {
         targets:data.targets.filter((target:PanelPilotTarget)=>
           typeof target.clientId==="string"&&typeof target.expectedDueDate==="string"
-          &&typeof target.server==="string"&&(target.kind==="paid"||target.kind==="unpaid"||target.kind==="package6")),
+          &&typeof target.server==="string"&&(target.kind==="paid"||target.kind==="unpaid"||target.kind==="package6"||target.kind==="prepaid2")),
         rolloutEnabled:data.rolloutEnabled===true,
       };
     },
@@ -596,6 +596,7 @@ function Painel() {
       &&item.expectedDueDate===client.due_date&&item.server===client.server);
     const unpaid=target?.kind==="unpaid";
     const package6=target?.kind==="package6";
+    const prepaid2=target?.kind==="prepaid2";
     if(target){
       // Special case: one exact pre-paid six-month package; no other amount
       // or duration can be submitted, even before backend revalidation.
@@ -604,6 +605,15 @@ function Painel() {
           ||opts.monthlyCost!==6.5||opts.cost!==39
           ||Number(client.paid)!==0||client.financial_due_date!==client.due_date){
           setNotice("Piloto LealPaulo: somente 6 meses por R$ 150,00 e um ciclo Five. Nenhum pedido enviado.");
+          return;
+        }
+      }else if(prepaid2){
+        if(opts.months!==1||opts.paid!==0||opts.monthlyPaid!==0
+          ||opts.monthlyCost!==6.5||opts.cost!==6.5
+          ||Number(client.paid)!==0||Number(client.prev_paid)!==150
+          ||client.due_date!=="2026-12-19"
+          ||client.financial_due_date!=="2027-05-19"){
+          setNotice("Segundo ciclo já pago: 1 mês no Five, R$ 0 novo e financeiro preservado. Nenhum pedido enviado.");
           return;
         }
       }else if(opts.months!==1||opts.paid!==Number(client.paid)
@@ -1306,6 +1316,9 @@ function Painel() {
           pilotPackage6={pilotTargetsQuery.data?.targets.some(t=>
             t.clientId===renewing.id&&t.server===renewing.server
             &&t.expectedDueDate===renewing.due_date&&t.kind==="package6")===true}
+          pilotPrepaid2={pilotTargetsQuery.data?.targets.some(t=>
+            t.clientId===renewing.id&&t.server===renewing.server
+            &&t.expectedDueDate===renewing.due_date&&t.kind==="prepaid2")===true}
           {...(isExternalTarget(renewing,pilotTargetsQuery.data)
             ? { onConfirmPilot: (opts: { months: number; cost: number; paid: number; monthlyCost: number; monthlyPaid: number }) => confirmPanelPilot(renewing, opts) }
             : {})}
@@ -1639,7 +1652,7 @@ function TemplateDialog({
  * It cannot create provider requests, payments, credits or date changes.
  */
 function PreflightDialog({client,onClose,pilotKind}:{
-  client:Client;onClose:()=>void;pilotKind?:"paid"|"unpaid"|"package6"|undefined;
+  client:Client;onClose:()=>void;pilotKind?:"paid"|"unpaid"|"package6"|"prepaid2"|undefined;
 }) {
   const prepaid=!!client.financial_due_date&&client.financial_due_date>client.due_date;
   const [months,setMonths]=useState(1);
@@ -1811,9 +1824,11 @@ function RenewDialog({
   onConfirm,
   onConfirmPilot,
   pilotPackage6,
+  pilotPrepaid2,
 }: {
   client: Client;
   pilotPackage6: boolean;
+  pilotPrepaid2: boolean;
   saving: boolean;
   onCancel: () => void;
   onConfirm: (opts: {
@@ -1828,7 +1843,7 @@ function RenewDialog({
   })=>void|Promise<void>;
 }) {
   const defaultCost = client.cost || client.prev_cost || SERVER_COSTS[client.server] || 0;
-  const defaultPaid = client.paid || client.prev_paid || 0;
+  const defaultPaid = pilotPrepaid2 ? 0 : client.paid || client.prev_paid || 0;
   const [months, setMonths] = useState(pilotPackage6 ? 6 : 1);
   const [cost, setCost] = useState(String(defaultCost).replace(".", ","));
   const [paid, setPaid] = useState(String(defaultPaid).replace(".", ","));
@@ -1846,6 +1861,9 @@ function RenewDialog({
         <h2 className="font-display text-xl font-semibold">Renovar {client.name}</h2>
         {pilotPackage6&&<p className="mt-2 text-xs font-semibold text-cyan">
           PILOTO EXCLUSIVO: 6 meses, R$ 150,00, apenas 1 ciclo técnico no Five.
+        </p>}
+        {pilotPrepaid2&&<p className="mt-2 text-xs font-semibold text-cyan">
+          SEGUNDO CICLO JÁ PAGO: renovar 1 mês técnico no Five, R$ 0 de novo pagamento, cobertura financeira até 19/05/2027.
         </p>}
         <p className="mt-1 text-sm text-mist">
           Novo vencimento em {formatDate(newDue)} · servidor {client.server}
@@ -1928,8 +1946,9 @@ function RenewDialog({
 
         {onConfirmPilot&&<div className="mt-4 rounded-xl bg-warn/10 p-3 text-xs text-warn ring-1 ring-warn/25">
           <p>Envia apenas 1 ciclo técnico ao Painel Recarga. O técnico usa a data confirmada pelo servidor, e a cobertura financeira segue o período contratado. Exige sua confirmação.</p>
-          <Button type="button" variant="outline" disabled={!validMonths||saving||paidValue<=0
-              ||(pilotPackage6&&(months!==6||paidValue!==150||monthlyCost!==6.5))}
+          <Button type="button" variant="outline" disabled={!validMonths||saving||(!pilotPrepaid2&&paidValue<=0)
+              ||(pilotPackage6&&(months!==6||paidValue!==150||monthlyCost!==6.5))
+              ||(pilotPrepaid2&&(months!==1||paidValue!==0||monthlyCost!==6.5))}
             onClick={()=>void onConfirmPilot({months,cost:totalCost,paid:paidValue,monthlyCost,monthlyPaid})}
             className="mt-3 w-full rounded-xl text-warn ring-1 ring-warn/30">
             Confirmar renovação no Painel Recarga
