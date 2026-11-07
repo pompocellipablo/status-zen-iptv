@@ -343,21 +343,8 @@ Deno.serve(async(request)=>{
     if(!values||values.dueDate<=expected||values.financialDueDate<values.dueDate)
       return reply(400,{ok:false,message:"Datas, valores ou período da renovação inválidos."});
     if(authorizedCase){
-      // Exact pilot cases retain their original stricter single-cycle rules.
-      const isUnpaid=authorizedCase.kind==="unpaid";
-      const amountsMatch=authorizedCase.kind==="prepaid2"
-        ? lealPauloPrepaidSecondIssue(customer,values)===null
-        : values.months===1
-        &&values.cost===Number(customer.cost)
-        &&(isUnpaid
-          ? values.prevPaid===0 &&values.paymentAmount===0
-            &&values.monthlyPaid===0&&values.paymentCost===0
-            &&Number(customer.paid)===0&&values.pilotKind==="unpaid"
-          : values.paymentAmount>0
-            &&values.paymentAmount===Number(customer.paid)
-            &&values.monthlyPaid===Number(customer.paid)
-            &&values.paymentCost===Number(customer.cost)
-            &&values.pilotKind===undefined);
+      // The exclusive allowlist contains only the already-paid second cycle.
+      const amountsMatch=lealPauloPrepaidSecondIssue(customer,values)===null;
       if(!amountsMatch)
         return reply(403,{ok:false,pilotRestricted:true,
           message:"Lote piloto: tipo de pagamento ou valores diferentes do cadastro. Nenhum pedido enviado."});
