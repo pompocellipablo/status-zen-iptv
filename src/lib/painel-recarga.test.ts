@@ -12,7 +12,7 @@ describe("Rollout opt-in guards (no real requests)",()=>{
     const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
     assert.match(edge,/PAINEL_RECARGA_ROLLOUT_ENABLED/);
     assert.match(edge,/PAINEL_RECARGA_LIVE_ENABLED/);
-    assert.match(edge,/!authorizedCase&&!rolloutEnabled/);
+    assert.match(edge,/if\(!authorizedCase\)/);
     assert.match(edge,/rolloutRenewalIssue\(customer,values\)/);
     assert.match(edge,/rolloutEnabled:false/);
   });
@@ -685,7 +685,7 @@ describe("Exact LealPaulo six-month pilot (no provider calls)",()=>{
     assert.match(edge,/authorizedCase\.kind==="prepaid2"/);
     assert.match(edge,/lealPauloPrepaidSecondIssue\(customer,values\)/);
     assert.match(edge,/PAINEL_RECARGA_LIVE_ENABLED/);
-    assert.match(edge,/!authorizedCase&&!rolloutEnabled/);
+    assert.match(edge,/if\(!authorizedCase\)/);
     assert.match(screen,/pilotPackage6\s*\?\s*6\s*:\s*1/);
     assert.match(screen,/const isScopedPackageCandidate=/);
     assert.match(screen,/PANEL_PILOT_UI_ENABLED\|\|isScopedPackageCandidate\(c\)/);
