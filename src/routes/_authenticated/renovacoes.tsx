@@ -471,6 +471,54 @@ function Painel() {
   };
 
   const renew = async (client: Client) => {
+    // The ordinary Renew button uses the provider only when the backend has
+    // explicitly enabled its separate rollout switch, or for exact pilots.
+    // No new provider order is triggered without a second confirmation.
+    if(isExternalTarget(client,pilotTargetsQuery.data)){
+      if(externalJobsQuery.isLoading||externalJobsQuery.isError){
+        setNotice("Não foi possível conferir os pedidos externos. Aguarde o histórico antes de renovar.");
+        return;
+      }
+      const previousJob=(externalJobsQuery.data??[]).find(j=>
+        j.client_id===client.id&&j.expected_due_date===client.due_date);
+      if(previousJob){
+        setNotice(client.name+": já existe pedido externo em andamento. "
+          +"Verifique o mesmo pedido antes de outra renovação.");
+        return;
+      }
+      const target=pilotTargetsQuery.data?.targets.find(t=>t.clientId===client.id
+        &&t.server===client.server&&t.expectedDueDate===client.due_date);
+      if(target?.kind==="unpaid"){
+        void confirmPanelPilot(client,{months:1,cost:0,paid:0,
+          monthlyCost:Number(client.cost),monthlyPaid:0});
+        return;
+      }
+      const next=nextDueDate(client.due_date);
+      if(client.financial_due_date&&client.financial_due_date>client.due_date){
+        if(client.financial_due_date<next){
+          setNotice("Pacote com cobertura insuficiente para mais um ciclo técnico. "
+            +"Revise o financeiro sem renovar no servidor.");
+          return;
+        }
+        void confirmPanelPilot(client,{months:1,cost:0,paid:0,
+          monthlyCost:Number(client.cost),monthlyPaid:0});
+        return;
+      }
+      const {data:rewards,error:rewardError}=await supabase.from("referral_rewards")
+        .select("id").eq("client_id",client.id).eq("reward","mes_gratis")
+        .eq("status","pendente").limit(1);
+      if(rewardError){
+        setNotice("Não foi possível conferir benefícios gratuitos. Nenhuma renovação enviada.");
+        return;
+      }
+      if(rewards?.length){
+        setNotice(client.name+": existe um mês grátis de indicação pendente. "
+          +"Esse fluxo precisa de conferência específica antes de utilizar o Painel Recarga.");
+        return;
+      }
+      setRenewing(client);
+      return;
+    }
     const newDue = nextDueDate(client.due_date);
     const coveredByPackage = client.financial_due_date && client.financial_due_date >= newDue;
     if (coveredByPackage) {
