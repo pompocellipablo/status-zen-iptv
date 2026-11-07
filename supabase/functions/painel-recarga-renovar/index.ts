@@ -12,7 +12,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   buildPanelRecargaBody, confirmedRenewalDatesFromPanel, financialTransitionError, panelRouteForClient, parsePanelRecargaResponse, validatePanelRenewalDraft, parsePanelPilotBatch,
-  RECARGA_BASE_URL, type ExternalOutcome,
+  RECARGA_BASE_URL, rolloutRenewalIssue, type ExternalOutcome,
 } from "../_shared/painel-recarga.ts";
 
 const ownerId="c70b3e1f-e5d2-4caf-ae09-019964dbf30e";
@@ -25,7 +25,7 @@ const headers={
 const reply=(status:number,payload:Record<string,unknown>)=>
   new Response(JSON.stringify(payload),{status,headers});
 type Mode="simulate"|"check_simulation"|"preflight"|"renew"|"check"|"pilot_targets";
-type ClientRow={id:string;name:string;login:string;server:string;due_date:string;financial_due_date:string|null;access_type:string|null;paid:number;cost:number};
+type ClientRow={id:string;name:string;login:string;server:string;due_date:string;financial_due_date:string|null;access_type:string|null;paid:number;cost:number;prev_paid:number};
 type Options={months:number;dueDate:string;financialDueDate:string;cost:number;monthlyPaid:number;prevPaid:number;paymentAmount:number;paymentCost:number;pilotKind?:"unpaid"};
 type Job={
   id:string;client_id:string|null;login:string;server:string;expected_due_date:string;
@@ -87,12 +87,16 @@ Deno.serve(async(request)=>{
   // Batch list is owner-only, read-only and does not call the provider.
   // Empty or malformed secret => no permitted cases (fail closed).
   const batchPilotCases=parsePanelPilotBatch(Deno.env.get("PAINEL_RECARGA_PILOT_BATCH"));
+  // A separate, default-off rollout switch is required in addition to the
+  // global live switch. Publishing this code cannot authorize mass renewal.
+  const rolloutEnabled=Deno.env.get("PAINEL_RECARGA_ROLLOUT_ENABLED")==="true"
+    &&Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")==="true";
   if(mode==="pilot_targets")
-    return reply(200,{ok:true,readOnly:true,targets:batchPilotCases});
+    return reply(200,{ok:true,readOnly:true,targets:batchPilotCases,rolloutEnabled});
   if(typeof input.clientId!=="string"||!isDate(input.expectedDueDate))
     return reply(400,{ok:false,message:"Cliente e vencimento esperado obrigatórios."});
   const {data:client,error:clientError}=await userDb.from("clients")
-    .select("id,name,login,server,due_date,financial_due_date,access_type,paid,cost")
+    .select("id,name,login,server,due_date,financial_due_date,access_type,paid,cost,prev_paid")
     .eq("id",input.clientId).maybeSingle();
   if(clientError||!client)return reply(404,{ok:false,message:"Cliente não encontrado ou sem autorização."});
   const customer=client as ClientRow;
@@ -273,10 +277,10 @@ Deno.serve(async(request)=>{
     item.clientId===customer.id&&item.server===customer.server
     &&item.expectedDueDate===expected);
   if(mode==="renew"){
-    if(!authorizedCase)
+    if(!authorizedCase&&!rolloutEnabled)
       return reply(403,{ok:false,pilotRestricted:true,
-        message:"Lote piloto não autoriza este cliente, servidor ou ciclo. Nenhum pedido enviado."});
-    if(customer.financial_due_date!==customer.due_date)
+        message:"Renovação geral desativada; lote piloto não autoriza este cliente e ciclo. Nenhum pedido enviado."});
+    if(authorizedCase&&customer.financial_due_date!==customer.due_date)
       return reply(409,{ok:false,pilotRestricted:true,
         message:"Lote piloto inicial apenas para clientes mensais sem pacote ativo."});
   }
@@ -296,27 +300,32 @@ Deno.serve(async(request)=>{
     const values=parseLocalOptions(input.options);
     if(!values||values.dueDate<=expected||values.financialDueDate<values.dueDate)
       return reply(400,{ok:false,message:"Datas, valores ou período da renovação inválidos."});
-    // The first production pilot has exactly one paid MONTH and one provider
-    // cycle; expansion to prepaid packages requires a separately reviewed
-    // release. This prevents a wrong frontend plan from broadening the pilot.
-    if(!authorizedCase)
-      return reply(403,{ok:false,pilotRestricted:true,
-        message:"Lote piloto sem autorização válida. Nenhum pedido foi enviado."});
-    const isUnpaid=authorizedCase.kind==="unpaid";
-    const amountsMatch=values.months===1
-      &&values.cost===Number(customer.cost)
-      &&(isUnpaid
-        ? values.prevPaid===0 && values.paymentAmount===0
-          &&values.monthlyPaid===0 &&values.paymentCost===0
-          &&Number(customer.paid)===0 &&values.pilotKind==="unpaid"
-        : values.paymentAmount>0
-          &&values.paymentAmount===Number(customer.paid)
-          &&values.monthlyPaid===Number(customer.paid)
-          &&values.paymentCost===Number(customer.cost)
-          &&values.pilotKind===undefined);
-    if(!amountsMatch)
-      return reply(403,{ok:false,pilotRestricted:true,
-        message:"Lote piloto: tipo de pagamento ou valores diferentes do cadastro. Nenhum pedido enviado."});
+    if(authorizedCase){
+      // Exact pilot cases retain their original stricter single-cycle rules.
+      const isUnpaid=authorizedCase.kind==="unpaid";
+      const amountsMatch=values.months===1
+        &&values.cost===Number(customer.cost)
+        &&(isUnpaid
+          ? values.prevPaid===0 &&values.paymentAmount===0
+            &&values.monthlyPaid===0&&values.paymentCost===0
+            &&Number(customer.paid)===0&&values.pilotKind==="unpaid"
+          : values.paymentAmount>0
+            &&values.paymentAmount===Number(customer.paid)
+            &&values.monthlyPaid===Number(customer.paid)
+            &&values.paymentCost===Number(customer.cost)
+            &&values.pilotKind===undefined);
+      if(!amountsMatch)
+        return reply(403,{ok:false,pilotRestricted:true,
+          message:"Lote piloto: tipo de pagamento ou valores diferentes do cadastro. Nenhum pedido enviado."});
+    } else {
+      // General monthly/package renewals require a SECOND private switch.
+      // Never authorize free/owner access or adjusted prices from a browser.
+      if(!rolloutEnabled)
+        return reply(403,{ok:false,message:"Renovação geral ainda não habilitada."});
+      const rolloutIssue=rolloutRenewalIssue(customer,values);
+      if(rolloutIssue)
+        return reply(409,{ok:false,message:rolloutIssue+" Nenhum pedido enviado."});
+    }
     const draftIssue=validatePanelRenewalDraft(customer,values,
       new Date().toLocaleDateString("sv-SE",{timeZone:"America/Sao_Paulo"}));
     if(draftIssue)return reply(409,{ok:false,message:draftIssue});
