@@ -14,56 +14,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      panel_due_date_corrections: {
-        Row: {
-          authorized_by: string
-          client_id: string | null
-          client_login: string
-          client_name: string
-          corrected_due_date: string
-          created_at: string
-          id: string
-          preserved_financial_due_date: string
-          previous_due_date: string
-          server: string
-          source: string
-        }
-        Insert: {
-          authorized_by: string
-          client_id?: string | null
-          client_login: string
-          client_name: string
-          corrected_due_date: string
-          created_at?: string
-          id?: string
-          preserved_financial_due_date: string
-          previous_due_date: string
-          server: string
-          source: string
-        }
-        Update: {
-          authorized_by?: string
-          client_id?: string | null
-          client_login?: string
-          client_name?: string
-          corrected_due_date?: string
-          created_at?: string
-          id?: string
-          preserved_financial_due_date?: string
-          previous_due_date?: string
-          server?: string
-          source?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "panel_due_date_corrections_client_id_fkey"
-            columns: ["client_id"]
-            isOneToOne: false
-            referencedRelation: "clients"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       box_sale_clients: {
         Row: {
           client_id: string
@@ -437,6 +387,56 @@ export type Database = {
           },
         ]
       }
+      panel_due_date_corrections: {
+        Row: {
+          authorized_by: string
+          client_id: string | null
+          client_login: string
+          client_name: string
+          corrected_due_date: string
+          created_at: string
+          id: string
+          preserved_financial_due_date: string
+          previous_due_date: string
+          server: string
+          source: string
+        }
+        Insert: {
+          authorized_by: string
+          client_id?: string | null
+          client_login: string
+          client_name: string
+          corrected_due_date: string
+          created_at?: string
+          id?: string
+          preserved_financial_due_date: string
+          previous_due_date: string
+          server: string
+          source: string
+        }
+        Update: {
+          authorized_by?: string
+          client_id?: string | null
+          client_login?: string
+          client_name?: string
+          corrected_due_date?: string
+          created_at?: string
+          id?: string
+          preserved_financial_due_date?: string
+          previous_due_date?: string
+          server?: string
+          source?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "panel_due_date_corrections_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payments: {
         Row: {
           amount: number
@@ -778,13 +778,13 @@ export type Database = {
       approve_panel_date_correction: {
         Args: {
           p_client_id: string
-          p_expected_login: string
-          p_expected_server: string
+          p_confirmed: boolean
           p_expected_due_date: string
           p_expected_financial_due_date: string
+          p_expected_login: string
+          p_expected_server: string
           p_panel_due_date: string
           p_source: string
-          p_confirmed: boolean
         }
         Returns: Json
       }
