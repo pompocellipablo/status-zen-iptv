@@ -56,7 +56,7 @@ export function financialTransitionError(
  * invalidate the whole list (never fall back to an open server list).
  */
 export type PanelPilotCase={
-  clientId:string; expectedDueDate:string; server:string; kind:"paid"|"unpaid"|"package6";
+  clientId:string; expectedDueDate:string; server:string; kind:"paid"|"unpaid"|"package6"|"prepaid2";
 };
 export const PANEL_PILOT_BATCH_SERVERS=[
   "Five","Uniplay","UniP2P","Blade","Now","All Play",
@@ -99,6 +99,45 @@ export function lealPauloPackage6Issue(
      values.prevPaid!==150 || values.paymentAmount!==150 ||
      values.paymentCost!==39)
     return "Piloto LealPaulo: apenas 6 meses por R$ 150,00 e um ciclo técnico a R$ 6,50.";
+  return null;
+}
+
+/**
+ * Only the SECOND technical cycle of the already-paid LealPaulo six-month
+ * package. No new payment, no change to its existing financial paid-through
+ * date. The first package authorization never applies to this new cycle.
+ */
+export const LEAL_PAULO_PREPAID_SECOND = {
+  clientId:LEAL_PAULO_PACKAGE6.clientId,
+  expectedDueDate:"2026-12-19",
+  server:"Five",
+  kind:"prepaid2",
+} as const;
+
+export function lealPauloPrepaidSecondIssue(
+  client:{id:string;login:string;server:string;due_date:string;
+    financial_due_date:string|null;access_type:string|null;
+    paid:number;prev_paid:number;cost:number},
+  values:{months:number;dueDate:string;financialDueDate:string;
+    cost:number;monthlyPaid:number;prevPaid:number;
+    paymentAmount:number;paymentCost:number;pilotKind?:string},
+):string|null {
+  if(client.id!==LEAL_PAULO_PREPAID_SECOND.clientId ||
+     client.login!=="LealPaulo" ||
+     client.server!==LEAL_PAULO_PREPAID_SECOND.server ||
+     client.due_date!==LEAL_PAULO_PREPAID_SECOND.expectedDueDate)
+    return "Piloto de segundo ciclo não corresponde ao cliente, servidor ou vencimento autorizado.";
+  if(client.financial_due_date!=="2027-05-19" ||
+     client.access_type!=="padrao" || Number(client.paid)!==0 ||
+     Number(client.prev_paid)!==150 || Number(client.cost)!==6.50)
+    return "Cobertura já paga ou cadastro do LealPaulo mudou; não renovar sem conciliação.";
+  if(values.pilotKind!==undefined || values.months!==1 ||
+     values.dueDate!=="2027-01-19" ||
+     values.financialDueDate!=="2027-05-19" ||
+     values.cost!==6.50 || values.monthlyPaid!==0 ||
+     values.prevPaid!==150 || values.paymentAmount!==0 ||
+     values.paymentCost!==0)
+    return "Segundo ciclo já pago: somente 1 crédito Five, R$ 0,00 novo e financeiro até 19/05/2027.";
   return null;
 }
 
