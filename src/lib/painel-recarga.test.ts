@@ -572,12 +572,12 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
   it("keeps authorizedCase in function scope before both renewal guards",()=>{
     // Regression: a const inside if(mode==="renew") caused HTTP 500
     // ReferenceError in the later if(mode==="renew"&&!job) block.
-    const index=edge.indexOf("const authorizedCase=batchPilotCases.find");
+    const index=edge.indexOf("const authorizedCase=authorizedPilots.find");
     const guard=edge.indexOf('if(mode==="renew"){',index);
     const job=edge.indexOf('if(mode==="renew"&&!job){',guard);
     const use=edge.indexOf('const isUnpaid=authorizedCase.kind==="unpaid"',job);
     assert.ok(index>0 && guard>index && job>guard && use>job);
-    assert.match(edge.slice(index,guard),/const authorizedCase=batchPilotCases\.find/);
+    assert.match(edge.slice(index,guard),/const authorizedCase=authorizedPilots\.find/);
     assert.match(edge.slice(job,use),/if\(authorizedCase\)/);
     assert.doesNotMatch(edge.slice(guard,job),/const authorizedCase=/);
   });
@@ -595,7 +595,7 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
     const end=edge.indexOf('if(typeof input.clientId',begin);
     assert.ok(begin>0&&end>begin);
     assert.match(edge.slice(begin,end),/readOnly:true/);
-    assert.match(edge.slice(begin,end),/targets:batchPilotCases/);
+    assert.match(edge.slice(begin,end),/targets:authorizedPilots/);
     assert.doesNotMatch(edge.slice(begin,end),/\bfetch\(|\.update\(|\.insert\(|\.rpc\(/);
   });
   it("UI displays pilot buttons only for cases returned by owner-only backend",()=>{
@@ -686,7 +686,7 @@ describe("Exact LealPaulo six-month pilot (no provider calls)",()=>{
     assert.match(edge,/lealPauloPackage6Issue\(customer,values\)/);
     assert.match(edge,/PAINEL_RECARGA_LIVE_ENABLED/);
     assert.match(edge,/!authorizedCase&&!rolloutEnabled/);
-    assert.match(screen,/pilotPackage6\?6:1/);
+    assert.match(screen,/pilotPackage6\s*\?\s*6\s*:\s*1/);
     assert.match(screen,/opts\.months!==6\|\|opts\.paid!==150/);
     assert.match(screen,/mode:"preflight"/);
   });
