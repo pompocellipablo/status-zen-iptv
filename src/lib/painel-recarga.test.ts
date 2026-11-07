@@ -708,7 +708,7 @@ describe("Temporary exclusive LealPaulo access (static backend security)",()=>{
   it("blocks every other client and old pilot before job access/provider POST",()=>{
     const gate=edge.indexOf('if((mode==="renew"||mode==="check")&&(');
     const jobs=edge.indexOf('const {data:stored,error:queryError}');
-    const provider=edge.indexOf('response=await fetch(base+route.path');
+    const provider=edge.indexOf('response=await fetch(base+route.path',jobs);
     assert.ok(gate>0&&gate<jobs&&jobs<provider);
     const check=edge.slice(gate,jobs);
     assert.match(check,/!packagePilotOn/);
