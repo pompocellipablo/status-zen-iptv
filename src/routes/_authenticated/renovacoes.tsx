@@ -68,6 +68,11 @@ const isRolloutTarget=(client:Client,config:PanelPilotConfig|undefined)=>
   &&(client.paid>0||client.financial_due_date>client.due_date);
 const isExternalTarget=(client:Client,config:PanelPilotConfig|undefined)=>
   isPilotTarget(client,config?.targets??[])||isRolloutTarget(client,config);
+// If target loading fails, never silently fall back to manual renewal for
+// this exact paid pilot before the owner-only configuration has been fetched.
+const isScopedPackageCandidate=(client:Client)=>
+  client.id==="7666f0e4-9dbe-47cb-bb90-8a67a2a0a822"
+  &&client.server==="Five"&&client.due_date==="2026-11-19";
 
 export const Route = createFileRoute("/_authenticated/renovacoes")({
   validateSearch: (search: Record<string, unknown>): { tab: Tab; access?: string; server?: string } => {
@@ -1141,7 +1146,8 @@ function Painel() {
                       <button
                         type="button"
                         disabled={renewingBusy||
-                          (PANEL_PILOT_UI_ENABLED&&!!panelRouteForClient(c.server)
+                          ((PANEL_PILOT_UI_ENABLED||isScopedPackageCandidate(c))
+                            &&!!panelRouteForClient(c.server)
                             &&(pilotTargetsQuery.isLoading||pilotTargetsQuery.isError))||
                           (isExternalTarget(c,pilotTargetsQuery.data)
                             &&(externalJobsQuery.isLoading||externalJobsQuery.isError||
