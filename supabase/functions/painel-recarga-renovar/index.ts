@@ -12,7 +12,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   buildPanelRecargaBody, confirmedRenewalDatesFromPanel, financialTransitionError, panelRouteForClient, parsePanelRecargaResponse, validatePanelRenewalDraft, parsePanelPilotBatch,
-  RECARGA_BASE_URL, rolloutRenewalIssue, type ExternalOutcome,
+  RECARGA_BASE_URL, rolloutRenewalIssue, LEAL_PAULO_PACKAGE6, lealPauloPackage6Issue, type ExternalOutcome,
 } from "../_shared/painel-recarga.ts";
 
 const ownerId="c70b3e1f-e5d2-4caf-ae09-019964dbf30e";
@@ -87,12 +87,17 @@ Deno.serve(async(request)=>{
   // Batch list is owner-only, read-only and does not call the provider.
   // Empty or malformed secret => no permitted cases (fail closed).
   const batchPilotCases=parsePanelPilotBatch(Deno.env.get("PAINEL_RECARGA_PILOT_BATCH"));
+  // Explicit single-client switch. Default OFF; never inferred from live/rollout.
+  const packagePilotOn=Deno.env.get("PAINEL_RECARGA_LEALPAULO_6M_ENABLED")==="true";
+  const packagePilot=packagePilotOn&&!batchPilotCases.some(p=>p.clientId===LEAL_PAULO_PACKAGE6.clientId)
+    ? [LEAL_PAULO_PACKAGE6] : [];
+  const authorizedPilots=[...batchPilotCases,...packagePilot];
   // A separate, default-off rollout switch is required in addition to the
   // global live switch. Publishing this code cannot authorize mass renewal.
   const rolloutEnabled=Deno.env.get("PAINEL_RECARGA_ROLLOUT_ENABLED")==="true"
     &&Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")==="true";
   if(mode==="pilot_targets")
-    return reply(200,{ok:true,readOnly:true,targets:batchPilotCases,rolloutEnabled});
+    return reply(200,{ok:true,readOnly:true,targets:authorizedPilots,rolloutEnabled});
   if(typeof input.clientId!=="string"||!isDate(input.expectedDueDate))
     return reply(400,{ok:false,message:"Cliente e vencimento esperado obrigatórios."});
   const {data:client,error:clientError}=await userDb.from("clients")
@@ -116,9 +121,14 @@ Deno.serve(async(request)=>{
     const values=parseLocalOptions(input.options);
     if(!values)
       return reply(400,{ok:false,previewOnly:true,message:"Plano, valores ou vencimentos inválidos."});
-    const selectedCase=batchPilotCases.find(item=>
+    const selectedCase=authorizedPilots.find(item=>
       item.clientId===customer.id&&item.server===customer.server
       &&item.expectedDueDate===expected);
+    if(selectedCase?.kind==="package6"){
+      const issue=lealPauloPackage6Issue(customer,values);
+      if(issue)return reply(409,{ok:false,previewOnly:true,pilotRestricted:true,
+        message:issue+" Nenhum pedido enviado."});
+    }
     // The normal read-only calculator remains available to every customer.
     // Only the new zero-revenue pilot must be in the strict allowlist.
     if(values.pilotKind==="unpaid"&&selectedCase?.kind!=="unpaid")
@@ -139,7 +149,7 @@ Deno.serve(async(request)=>{
         message:"Já existe pedido externo para este cliente e ciclo. Confira o pedido existente."});
     // For a selected test, show only configuration match status and live switch.
     // This is read-only and never exposes raw configuration.
-    const pilotCase=batchPilotCases.find(item=>
+    const pilotCase=authorizedPilots.find(item=>
       item.clientId===customer.id&&item.server===customer.server
       &&item.expectedDueDate===expected);
     const pilotDiagnostic=pilotCase?{
@@ -273,7 +283,7 @@ Deno.serve(async(request)=>{
   // Keep the exact authorized case in scope for the subsequent real-renewal
   // financial guards. Previously it was declared inside the if block, causing
   // ReferenceError before reserving the job and contacting the provider.
-  const authorizedCase=batchPilotCases.find(item=>
+  const authorizedCase=authorizedPilots.find(item=>
     item.clientId===customer.id&&item.server===customer.server
     &&item.expectedDueDate===expected);
   if(mode==="renew"){
@@ -303,7 +313,9 @@ Deno.serve(async(request)=>{
     if(authorizedCase){
       // Exact pilot cases retain their original stricter single-cycle rules.
       const isUnpaid=authorizedCase.kind==="unpaid";
-      const amountsMatch=values.months===1
+      const amountsMatch=authorizedCase.kind==="package6"
+        ? lealPauloPackage6Issue(customer,values)===null
+        : values.months===1
         &&values.cost===Number(customer.cost)
         &&(isUnpaid
           ? values.prevPaid===0 &&values.paymentAmount===0
