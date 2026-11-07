@@ -51,12 +51,22 @@ const PANEL_PILOT_UI_ENABLED = import.meta.env["VITE_MAXFLIX_PANEL_PILOT"] === "
 // Non-secret, build-time UI configuration. Backend independently checks
 // PAINEL_RECARGA_PILOT_CLIENT_ID + PAINEL_RECARGA_PILOT_EXPECTED_DUE_DATE.
 type PanelPilotTarget={clientId:string;expectedDueDate:string;server:string;kind:"paid"|"unpaid"};
+type PanelPilotConfig={targets:PanelPilotTarget[];rolloutEnabled:boolean};
 // UX-only allowlist obtained once from the owner-authorized Edge Function.
 // The private backend validates the same list independently on every renewal.
 const isPilotTarget=(client:Client,targets:readonly PanelPilotTarget[])=>
   PANEL_PILOT_UI_ENABLED&&targets.some(item=>
     item.clientId===client.id&&item.expectedDueDate===client.due_date
     &&item.server===client.server);
+
+const isRolloutTarget=(client:Client,config:PanelPilotConfig|undefined)=>
+  PANEL_PILOT_UI_ENABLED&&config?.rolloutEnabled===true
+  &&!!panelRouteForClient(client.server)
+  &&(client.access_type==="padrao"||client.access_type==="pacote_pago")
+  &&!!client.financial_due_date
+  &&(client.paid>0||client.financial_due_date>client.due_date);
+const isExternalTarget=(client:Client,config:PanelPilotConfig|undefined)=>
+  isPilotTarget(client,config?.targets??[])||isRolloutTarget(client,config);
 
 export const Route = createFileRoute("/_authenticated/renovacoes")({
   validateSearch: (search: Record<string, unknown>): { tab: Tab; access?: string; server?: string } => {
@@ -234,15 +244,18 @@ function Painel() {
     enabled:PANEL_PILOT_UI_ENABLED,
     staleTime:60_000,
     refetchOnWindowFocus:false,
-    queryFn:async():Promise<PanelPilotTarget[]>=>{
+    queryFn:async():Promise<PanelPilotConfig>=>{
       const {data,error}=await supabase.functions.invoke("painel-recarga-renovar",{
         body:{mode:"pilot_targets"},
       });
       if(error||data?.ok!==true||data?.readOnly!==true||!Array.isArray(data.targets))
         throw Error("Lista segura de pilotos indisponível.");
-      return data.targets.filter((target:PanelPilotTarget)=>
-        typeof target.clientId==="string"&&typeof target.expectedDueDate==="string"
-        &&typeof target.server==="string"&&(target.kind==="paid"||target.kind==="unpaid"));
+      return {
+        targets:data.targets.filter((target:PanelPilotTarget)=>
+          typeof target.clientId==="string"&&typeof target.expectedDueDate==="string"
+          &&typeof target.server==="string"&&(target.kind==="paid"||target.kind==="unpaid")),
+        rolloutEnabled:data.rolloutEnabled===true,
+      };
     },
   });
 
@@ -523,9 +536,9 @@ function Painel() {
     client:Client,
     opts:{months:number;cost:number;paid:number;monthlyCost:number;monthlyPaid:number},
   )=>{
-    if(!isPilotTarget(client,pilotTargetsQuery.data??[])||!panelRouteForClient(client.server))return;
+    if(!isPilotTarget(client,pilotTargetsQuery.data?.targets??[])||!panelRouteForClient(client.server))return;
     if(renewingBusy)return;
-    const target=pilotTargetsQuery.data?.find(item=>item.clientId===client.id
+    const target=pilotTargetsQuery.data?.targets.find(item=>item.clientId===client.id
       &&item.expectedDueDate===client.due_date&&item.server===client.server);
     if(!target)return;
     const unpaid=target.kind==="unpaid";
@@ -1054,16 +1067,16 @@ function Painel() {
                     <div className="mt-3 flex flex-wrap items-stretch gap-2 xl:mt-0">
                       <button
                         type="button"
-                        disabled={isPilotTarget(c,pilotTargetsQuery.data??[])}
+                        disabled={isPilotTarget(c,pilotTargetsQuery.data?.targets??[])}
                         onClick={() => renew(c)}
                         className="font-display flex min-h-11 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl bg-cyan/15 px-2 text-sm font-semibold text-cyan ring-1 ring-cyan/30 hover:bg-cyan/25"
                       >
                         <RefreshCw size={15} aria-hidden="true" /> Renovar
                       </button>
-                      {isPilotTarget(c,pilotTargetsQuery.data??[])&&panelRouteForClient(c.server)&&(
+                      {isPilotTarget(c,pilotTargetsQuery.data?.targets??[])&&panelRouteForClient(c.server)&&(
                         <button type="button" disabled={renewingBusy}
                           onClick={()=>{
-                            const target=pilotTargetsQuery.data?.find(t=>t.clientId===c.id);
+                            const target=pilotTargetsQuery.data?.targets.find(t=>t.clientId===c.id);
                             if(target?.kind==="unpaid"){
                               void confirmPanelPilot(c,{months:1,cost:0,paid:0,
                                 monthlyCost:Number(c.cost),monthlyPaid:0});
@@ -1076,7 +1089,7 @@ function Painel() {
                             }else setRenewing(c);
                           }}
                           className="font-display min-h-11 rounded-xl bg-panel2 px-2 text-xs font-semibold text-warn ring-1 ring-warn/30 disabled:opacity-50">
-                          {pilotTargetsQuery.data?.find(t=>t.clientId===c.id)?.kind==="unpaid"
+                          {pilotTargetsQuery.data?.targets.find(t=>t.clientId===c.id)?.kind==="unpaid"
                             ?"Painel (gratuito)":"Painel (piloto)"}
                         </button>
                       )}
@@ -1216,7 +1229,7 @@ function Painel() {
       {previewClient && (
         <PreflightDialog key={previewClient.id} client={previewClient}
           onClose={() => setPreviewClient(null)}
-          pilotKind={pilotTargetsQuery.data?.find(t=>t.clientId===previewClient.id
+          pilotKind={pilotTargetsQuery.data?.targets.find(t=>t.clientId===previewClient.id
             &&t.expectedDueDate===previewClient.due_date)?.kind} />
       )}
 
@@ -1226,7 +1239,7 @@ function Painel() {
           saving={renewingBusy}
           onCancel={() => setRenewing(null)}
           onConfirm={(opts) => confirmRenew(renewing, opts)}
-          {...(isPilotTarget(renewing,pilotTargetsQuery.data??[]) && panelRouteForClient(renewing.server)
+          {...(isPilotTarget(renewing,pilotTargetsQuery.data?.targets??[]) && panelRouteForClient(renewing.server)
             ? { onConfirmPilot: (opts: { months: number; cost: number; paid: number; monthlyCost: number; monthlyPaid: number }) => confirmPanelPilot(renewing, opts) }
             : {})}
         />
