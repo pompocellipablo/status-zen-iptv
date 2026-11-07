@@ -318,9 +318,9 @@ Deno.serve(async(request)=>{
     item.clientId===customer.id&&item.server===customer.server
     &&item.expectedDueDate===expected);
   if(mode==="renew"){
-    if(!authorizedCase&&!rolloutEnabled)
+    if(!authorizedCase)
       return reply(403,{ok:false,pilotRestricted:true,
-        message:"Renovação geral desativada; lote piloto não autoriza este cliente e ciclo. Nenhum pedido enviado."});
+        message:"Apenas o segundo ciclo técnico já pago de LealPaulo está autorizado. Nenhum pedido enviado."});
     if(authorizedCase?.kind!=="prepaid2" &&
        authorizedCase&&customer.financial_due_date!==customer.due_date)
       return reply(409,{ok:false,pilotRestricted:true,
