@@ -1866,6 +1866,8 @@ function RenewDialog({
   const totalCost = monthlyCost * (validMonths ? effectiveMonths : 0);
   const monthlyPaid = effectiveMonths > 1 ? 0 : paidValue;
   const { dueDate: newDue, financialDueDate } = renewalDates(client.due_date, validMonths ? effectiveMonths : 1);
+  const displayedFinancialDue = pilotPrepaid2
+    ? (client.financial_due_date ?? financialDueDate) : financialDueDate;
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-background/80 p-4 backdrop-blur-sm">
@@ -1881,7 +1883,9 @@ function RenewDialog({
           Novo vencimento em {formatDate(newDue)} · servidor {client.server}
         </p>
 
-        <label htmlFor="paid-months" className="mt-5 block text-xs tracking-wide text-mist uppercase">Meses pagos</label>
+        <label htmlFor="paid-months" className="mt-5 block text-xs tracking-wide text-mist uppercase">
+          {pilotPrepaid2 ? "Ciclos técnicos a renovar (pacote já pago)" : "Meses pagos"}
+        </label>
         <div className="mt-2 flex gap-2">
           {[1, 2, 3, 6, 12].map((m) => (
             <Button
@@ -1914,7 +1918,7 @@ function RenewDialog({
           }}
           className="mt-3 w-full rounded-xl bg-panel px-3 py-2.5 text-sm text-frost ring-1 ring-line outline-none focus:ring-cyan/50"
         />
-        <p className="mt-2 text-xs text-mist">{validMonths ? `Financeiro até ${formatDate(financialDueDate)}` : "Informe de 1 a 120 meses."}</p>
+        <p className="mt-2 text-xs text-mist">{validMonths ? `Financeiro até ${formatDate(displayedFinancialDue)}` : "Informe de 1 a 120 meses."}</p>
 
         <div className="mt-4 grid grid-cols-2 gap-3">
           <div>
@@ -1944,7 +1948,12 @@ function RenewDialog({
         </div>
 
         <div className="mt-4 rounded-xl bg-panel p-4 text-sm ring-1 ring-line">
-          {effectiveMonths > 1 ? (
+          {pilotPrepaid2 ? (
+            <p className="text-mist">
+              Pacote de R$ 150,00 já pago. Esta operação não registra nova receita:
+              apenas desconta 1 crédito do Five e preserva o vencimento financeiro em 19/05/2027.
+            </p>
+          ) : effectiveMonths > 1 ? (
             <p className="text-mist">
               O valor de <span className="text-frost">{formatBRL(paidValue)}</span> entra uma vez no
               faturamento. Nos {effectiveMonths - 1} meses seguintes o valor pago fica R$ 0,00 e só o custo do
