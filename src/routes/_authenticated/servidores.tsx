@@ -143,6 +143,17 @@ function ServersPage() {
       .sort((a,b)=>b.total-a.total||a.name.localeCompare(b.name,"pt-BR"));
   },[clients]);
   const selected=localSelection ?? (servidor&&counts.some(s=>s.name===servidor)?servidor:"");
+  const correctionHistoryQuery=useQuery({
+    queryKey:["panel-date-corrections",selected],
+    enabled:Boolean(selected),
+    queryFn:async()=>{
+      const {data,error}=await supabase.from("panel_due_date_corrections")
+        .select("id,client_name,client_login,server,previous_due_date,corrected_due_date,preserved_financial_due_date,source,created_at")
+        .eq("server",selected).order("created_at",{ascending:false}).limit(12);
+      if(error)throw error;
+      return data??[];
+    },
+  });
   const serverClients=useMemo(()=>clients.filter(c=>c.server===selected),[clients,selected]);
   const total=counts.reduce((acc,row)=>acc+row.total,0);
   const totalActive=counts.reduce((acc,row)=>acc+row.active,0);
@@ -301,18 +312,25 @@ function ServersPage() {
     if(!window.confirm(message))return;
     setCorrectingId(client.id);
     try{
-      let request=supabase.from("clients").update({
-        due_date:plan.dueDate,financial_due_date:plan.financialDueDate,
-      }).eq("id",client.id).eq("server",selected).eq("login",client.login).eq("due_date",client.due_date);
-      request=client.financial_due_date===null
-        ?request.is("financial_due_date",null)
-        :request.eq("financial_due_date",client.financial_due_date);
-      const {data,error}=await request.select("id").maybeSingle();
+      const {data,error}=await supabase.rpc("approve_panel_date_correction",{
+        p_client_id:client.id,
+        p_expected_login:client.login,
+        p_expected_server:selected,
+        p_expected_due_date:client.due_date,
+        p_expected_financial_due_date:client.financial_due_date!,
+        p_panel_due_date:plan.dueDate,
+        p_source:source,
+        p_confirmed:true,
+      });
       if(error)throw error;
-      if(!data)throw Error("O cadastro foi modificado desde a exportação. Recarregue e confira novamente.");
-      await queryClient.invalidateQueries({queryKey:["clients"]});
+      if(!data||typeof data!=="object"||Array.isArray(data)||data["ok"]!==true)
+        throw Error("A transação do banco não confirmou a correção. Nenhum novo pedido ao painel será enviado.");
+      await Promise.all([
+        queryClient.invalidateQueries({queryKey:["clients"]}),
+        queryClient.invalidateQueries({queryKey:["panel-date-corrections",selected]}),
+      ]);
       setDirectChecks(s=>{const next={...s};delete next[client.id];return next;});
-      setCorrectionNotice(client.name+": vencimento conferido e corrigido. Os dados financeiros seguem a regra de cobertura, sem lançar pagamento.");
+      setCorrectionNotice(client.name+": vencimento corrigido e registrado no histórico de auditoria. Financeiro preservado; nenhum pagamento ou crédito consumido.");
     }catch(error){
       setCorrectionNotice("Correção não realizada: "+(error instanceof Error?error.message:"erro desconhecido")+".");
     }finally{
@@ -510,6 +528,18 @@ function ServersPage() {
           </div>}
           {correctionNotice&&<p role="status" className="mt-2 text-xs text-mist">{correctionNotice}</p>}
         </div>}
+        {selected&&<section className="mt-4 rounded-xl bg-panel p-3 ring-1 ring-line" aria-label="Histórico de correções de vencimento">
+          <h3 className="text-sm font-semibold text-frost">Histórico de correções aprovadas</h3>
+          <p className="mt-1 text-xs text-mist">Registro permanente das datas técnicas alteradas por confirmação. O financeiro não é modificado.</p>
+          {correctionHistoryQuery.isError&&<p role="status" className="mt-2 text-xs text-warn">Não foi possível consultar o histórico de correções.</p>}
+          {correctionHistoryQuery.data?.length===0&&<p className="mt-2 text-xs text-mist">Nenhuma correção registrada neste servidor.</p>}
+          {(correctionHistoryQuery.data??[]).map(log=><div key={log.id} className="mt-2 rounded-lg bg-background/70 p-3 text-xs ring-1 ring-line">
+            <p className="font-semibold text-frost">{log.client_name} · {log.client_login}</p>
+            <p className="mt-1 text-mist">Técnico: {formatDate(log.previous_due_date)} → <strong className="text-cyan">{formatDate(log.corrected_due_date)}</strong></p>
+            <p className="mt-1 text-mist">Financeiro preservado: {formatDate(log.preserved_financial_due_date)}</p>
+            <p className="mt-1 text-mist">Fonte: {log.source==="simulacao"?"Painel Recarga":"Arquivo exportado"} · {new Date(log.created_at).toLocaleString("pt-BR",{timeZone:"America/Sao_Paulo"})}</p>
+          </div>)}
+        </section>}
         <p className="mt-3 text-xs text-mist">{filtered.length} cliente(s) nesta visualização.</p>
         <div className="mt-2 space-y-2">
           {(expanded?filtered:filtered.slice(0,50)).map(c=>{
