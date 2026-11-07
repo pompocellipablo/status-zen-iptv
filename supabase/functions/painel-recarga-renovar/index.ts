@@ -89,15 +89,23 @@ Deno.serve(async(request)=>{
   const batchPilotCases=parsePanelPilotBatch(Deno.env.get("PAINEL_RECARGA_PILOT_BATCH"));
   // Explicit single-client switch. Default OFF; never inferred from live/rollout.
   const packagePilotOn=Deno.env.get("PAINEL_RECARGA_LEALPAULO_6M_ENABLED")==="true";
-  const packagePilot=packagePilotOn&&!batchPilotCases.some(p=>p.clientId===LEAL_PAULO_PACKAGE6.clientId)
-    ? [LEAL_PAULO_PACKAGE6] : [];
+  const packagePilot=packagePilotOn ? [LEAL_PAULO_PACKAGE6] : [];
+  // Temporary, exclusively scoped live window: 03:00 Brasília on 07/11/2026.
+  // The expiry stops NEW renewals automatically. Existing LealPaulo jobs may
+  // still be reconciled via check with their saved idempotency key.
+  const exclusiveLiveUntilMs=Date.parse("2026-11-07T06:00:00Z");
+  const exclusiveWindowOpen=Date.now()<exclusiveLiveUntilMs;
   const authorizedPilots=[...batchPilotCases,...packagePilot];
   // A separate, default-off rollout switch is required in addition to the
   // global live switch. Publishing this code cannot authorize mass renewal.
   const rolloutEnabled=Deno.env.get("PAINEL_RECARGA_ROLLOUT_ENABLED")==="true"
     &&Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")==="true";
   if(mode==="pilot_targets")
-    return reply(200,{ok:true,readOnly:true,targets:authorizedPilots,rolloutEnabled});
+    return reply(200,{ok:true,readOnly:true,
+      // Deliberately hide all older pilot targets and bulk rollout even if
+      // their secrets happen to be enabled when the global live flag changes.
+      targets:packagePilot,rolloutEnabled:false,
+      exclusiveWindowOpen});
   if(typeof input.clientId!=="string"||!isDate(input.expectedDueDate))
     return reply(400,{ok:false,message:"Cliente e vencimento esperado obrigatórios."});
   const {data:client,error:clientError}=await userDb.from("clients")
@@ -149,12 +157,13 @@ Deno.serve(async(request)=>{
         message:"Já existe pedido externo para este cliente e ciclo. Confira o pedido existente."});
     // For a selected test, show only configuration match status and live switch.
     // This is read-only and never exposes raw configuration.
-    const pilotCase=authorizedPilots.find(item=>
+    const pilotCase=packagePilot.find(item=>
       item.clientId===customer.id&&item.server===customer.server
       &&item.expectedDueDate===expected);
     const pilotDiagnostic=pilotCase?{
       clientId:"ok",expectedDueDate:"ok",
-      liveEnabled:Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")==="true",
+      liveEnabled:packagePilotOn&&exclusiveWindowOpen
+        &&Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")==="true",
     }:undefined;
     return reply(200,{ok:true,previewOnly:true,providerRequestSent:false,
       pilotDiagnostic,
@@ -273,6 +282,21 @@ Deno.serve(async(request)=>{
       note:"Consulta sem renovação, pagamento ou consumo de crédito da MaxFlix."});
   }
 
+  // One-client emergency isolation is applied BEFORE any renewal job lookup
+  // or provider request, independently of the old batch/rollout secrets.
+  // Check is permitted for this client even after expiry to reconcile a
+  // previously created job; renew is not.
+  if((mode==="renew"||mode==="check")&&(
+    !packagePilotOn ||
+    customer.id!==LEAL_PAULO_PACKAGE6.clientId ||
+    customer.login!=="LealPaulo" ||
+    customer.server!==LEAL_PAULO_PACKAGE6.server ||
+    expected!==LEAL_PAULO_PACKAGE6.expectedDueDate))
+    return reply(403,{ok:false,disabled:true,pilotRestricted:true,
+      message:"Modo exclusivo: somente o ciclo autorizado de LealPaulo pode acessar renovações reais. Nenhum pedido enviado."});
+  if(mode==="renew"&&!exclusiveWindowOpen)
+    return reply(403,{ok:false,disabled:true,pilotRestricted:true,
+      message:"A janela temporária do piloto LealPaulo terminou. Nenhuma nova renovação enviada."});
   if(Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")!=="true")
     return reply(503,{ok:false,disabled:true,message:"Renovação real ainda bloqueada. Use apenas o modo simulação."});
 
@@ -283,7 +307,7 @@ Deno.serve(async(request)=>{
   // Keep the exact authorized case in scope for the subsequent real-renewal
   // financial guards. Previously it was declared inside the if block, causing
   // ReferenceError before reserving the job and contacting the provider.
-  const authorizedCase=authorizedPilots.find(item=>
+  const authorizedCase=packagePilot.find(item=>
     item.clientId===customer.id&&item.server===customer.server
     &&item.expectedDueDate===expected);
   if(mode==="renew"){
