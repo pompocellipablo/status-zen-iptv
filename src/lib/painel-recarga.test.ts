@@ -687,6 +687,8 @@ describe("Exact LealPaulo six-month pilot (no provider calls)",()=>{
     assert.match(edge,/PAINEL_RECARGA_LIVE_ENABLED/);
     assert.match(edge,/!authorizedCase&&!rolloutEnabled/);
     assert.match(screen,/pilotPackage6\s*\?\s*6\s*:\s*1/);
+    assert.match(screen,/const isScopedPackageCandidate=/);
+    assert.match(screen,/PANEL_PILOT_UI_ENABLED\|\|isScopedPackageCandidate\(c\)/);
     assert.match(screen,/opts\.months!==6\|\|opts\.paid!==150/);
     assert.match(screen,/mode:"preflight"/);
   });
