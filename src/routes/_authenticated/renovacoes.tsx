@@ -50,13 +50,14 @@ import {
 const PANEL_PILOT_UI_ENABLED = import.meta.env["VITE_MAXFLIX_PANEL_PILOT"] === "true";
 // Non-secret, build-time UI configuration. Backend independently checks
 // PAINEL_RECARGA_PILOT_CLIENT_ID + PAINEL_RECARGA_PILOT_EXPECTED_DUE_DATE.
-type PanelPilotTarget={clientId:string;expectedDueDate:string;server:string;kind:"paid"|"unpaid"};
+type PanelPilotTarget={clientId:string;expectedDueDate:string;server:string;kind:"paid"|"unpaid"|"package6"};
 type PanelPilotConfig={targets:PanelPilotTarget[];rolloutEnabled:boolean};
 // UX-only allowlist obtained once from the owner-authorized Edge Function.
 // The private backend validates the same list independently on every renewal.
 const isPilotTarget=(client:Client,targets:readonly PanelPilotTarget[])=>
-  PANEL_PILOT_UI_ENABLED&&targets.some(item=>
-    item.clientId===client.id&&item.expectedDueDate===client.due_date
+  targets.some(item=>
+    (PANEL_PILOT_UI_ENABLED||item.kind==="package6")
+    &&item.clientId===client.id&&item.expectedDueDate===client.due_date
     &&item.server===client.server);
 
 const isRolloutTarget=(client:Client,config:PanelPilotConfig|undefined)=>
@@ -241,7 +242,7 @@ function Painel() {
   // the supervised provider pilot UI. It is read-only; no provider calls.
   const pilotTargetsQuery=useQuery({
     queryKey:["panel-pilot-targets"],
-    enabled:PANEL_PILOT_UI_ENABLED,
+    enabled:true,
     staleTime:60_000,
     refetchOnWindowFocus:false,
     queryFn:async():Promise<PanelPilotConfig>=>{
@@ -253,7 +254,7 @@ function Painel() {
       return {
         targets:data.targets.filter((target:PanelPilotTarget)=>
           typeof target.clientId==="string"&&typeof target.expectedDueDate==="string"
-          &&typeof target.server==="string"&&(target.kind==="paid"||target.kind==="unpaid")),
+          &&typeof target.server==="string"&&(target.kind==="paid"||target.kind==="unpaid"||target.kind==="package6")),
         rolloutEnabled:data.rolloutEnabled===true,
       };
     },
@@ -261,7 +262,7 @@ function Painel() {
 
   const externalJobsQuery=useQuery({
     queryKey:["external-renewal-jobs"],
-    enabled:PANEL_PILOT_UI_ENABLED,
+    enabled:true,
     queryFn:async()=>{
       const {data,error}=await supabase.from("external_renewal_jobs")
         .select("id,client_id,client_name,login,server,state,created_at,external_message,expected_due_date")
@@ -551,7 +552,7 @@ function Painel() {
     client_id:string|null;client_name:string;expected_due_date:string;
     state:string;
   })=>{
-    if(!PANEL_PILOT_UI_ENABLED||!job.client_id||renewingBusy)return;
+    if(!job.client_id||renewingBusy)return;
     if(!["created","waiting","uncertain","external_confirmed"].includes(job.state)){
       setNotice("Pedido requer conciliação manual, não uma nova renovação.");
       return;
@@ -589,10 +590,18 @@ function Painel() {
     const target=pilotTargetsQuery.data?.targets.find(item=>item.clientId===client.id
       &&item.expectedDueDate===client.due_date&&item.server===client.server);
     const unpaid=target?.kind==="unpaid";
+    const package6=target?.kind==="package6";
     if(target){
-      // Legacy exact-person pilots remain monthly and do not authorize new
-      // plan amounts or free accounts outside the original one-cycle scope.
-      if(opts.months!==1||opts.paid!==Number(client.paid)
+      // Special case: one exact pre-paid six-month package; no other amount
+      // or duration can be submitted, even before backend revalidation.
+      if(package6){
+        if(opts.months!==6||opts.paid!==150||opts.monthlyPaid!==0
+          ||opts.monthlyCost!==6.5||opts.cost!==39
+          ||Number(client.paid)!==0||client.financial_due_date!==client.due_date){
+          setNotice("Piloto LealPaulo: somente 6 meses por R$ 150,00 e um ciclo Five. Nenhum pedido enviado.");
+          return;
+        }
+      }else if(opts.months!==1||opts.paid!==Number(client.paid)
         ||opts.monthlyCost!==Number(client.cost)
         ||(unpaid&&(opts.paid!==0||client.financial_due_date!==client.due_date
           ||!["padrao","meu_acesso"].includes(client.access_type??"")))
@@ -1037,7 +1046,7 @@ function Painel() {
           </div>
         )}
 
-        {PANEL_PILOT_UI_ENABLED&&<section className="mt-4 rounded-xl bg-panel p-3 text-sm ring-1 ring-warn/25" aria-label="Acompanhamento do piloto Painel Recarga">
+        {(PANEL_PILOT_UI_ENABLED||pilotTargetsQuery.data?.targets.some(t=>t.kind==="package6"))&&<section className="mt-4 rounded-xl bg-panel p-3 text-sm ring-1 ring-warn/25" aria-label="Acompanhamento do piloto Painel Recarga">
           <p className="font-semibold text-warn">Painel Recarga — {pilotTargetsQuery.data?.rolloutEnabled?"integração supervisionada":"piloto supervisionado"}</p>
           <p className="mt-1 text-xs text-mist">Somente pedidos externos já autorizados. Verificar andamento usa a mesma chave do pedido; não cria nova autorização.</p>
           {externalJobsQuery.isError&&<p className="mt-2 text-danger">Histórico externo indisponível. Consulte o painel antes de qualquer nova renovação.</p>}
@@ -1288,6 +1297,9 @@ function Painel() {
           saving={renewingBusy}
           onCancel={() => setRenewing(null)}
           onConfirm={(opts) => confirmRenew(renewing, opts)}
+          pilotPackage6={pilotTargetsQuery.data?.targets.some(t=>
+            t.clientId===renewing.id&&t.server===renewing.server
+            &&t.expectedDueDate===renewing.due_date&&t.kind==="package6")===true}
           {...(isExternalTarget(renewing,pilotTargetsQuery.data)
             ? { onConfirmPilot: (opts: { months: number; cost: number; paid: number; monthlyCost: number; monthlyPaid: number }) => confirmPanelPilot(renewing, opts) }
             : {})}
@@ -1621,7 +1633,7 @@ function TemplateDialog({
  * It cannot create provider requests, payments, credits or date changes.
  */
 function PreflightDialog({client,onClose,pilotKind}:{
-  client:Client;onClose:()=>void;pilotKind?:"paid"|"unpaid"|undefined;
+  client:Client;onClose:()=>void;pilotKind?:"paid"|"unpaid"|"package6"|undefined;
 }) {
   const prepaid=!!client.financial_due_date&&client.financial_due_date>client.due_date;
   const [months,setMonths]=useState(1);
@@ -1792,8 +1804,10 @@ function RenewDialog({
   onCancel,
   onConfirm,
   onConfirmPilot,
+  pilotPackage6,
 }: {
   client: Client;
+  pilotPackage6: boolean;
   saving: boolean;
   onCancel: () => void;
   onConfirm: (opts: {
@@ -1809,7 +1823,7 @@ function RenewDialog({
 }) {
   const defaultCost = client.cost || client.prev_cost || SERVER_COSTS[client.server] || 0;
   const defaultPaid = client.paid || client.prev_paid || 0;
-  const [months, setMonths] = useState(1);
+  const [months, setMonths] = useState(pilotPackage6 ? 6 : 1);
   const [cost, setCost] = useState(String(defaultCost).replace(".", ","));
   const [paid, setPaid] = useState(String(defaultPaid).replace(".", ","));
 
@@ -1824,6 +1838,9 @@ function RenewDialog({
     <div className="fixed inset-0 z-50 overflow-y-auto bg-background/80 p-4 backdrop-blur-sm">
       <section className="mx-auto mt-10 max-w-md rounded-2xl bg-panel2/90 p-6 ring-1 ring-line">
         <h2 className="font-display text-xl font-semibold">Renovar {client.name}</h2>
+        {pilotPackage6&&<p className="mt-2 text-xs font-semibold text-cyan">
+          PILOTO EXCLUSIVO: 6 meses, R$ 150,00, apenas 1 ciclo técnico no Five.
+        </p>}
         <p className="mt-1 text-sm text-mist">
           Novo vencimento em {formatDate(newDue)} · servidor {client.server}
         </p>
@@ -1905,7 +1922,8 @@ function RenewDialog({
 
         {onConfirmPilot&&<div className="mt-4 rounded-xl bg-warn/10 p-3 text-xs text-warn ring-1 ring-warn/25">
           <p>Envia apenas 1 ciclo técnico ao Painel Recarga. O técnico usa a data confirmada pelo servidor, e a cobertura financeira segue o período contratado. Exige sua confirmação.</p>
-          <Button type="button" variant="outline" disabled={!validMonths||saving||paidValue<=0}
+          <Button type="button" variant="outline" disabled={!validMonths||saving||paidValue<=0
+              ||(pilotPackage6&&(months!==6||paidValue!==150||monthlyCost!==6.5))}
             onClick={()=>void onConfirmPilot({months,cost:totalCost,paid:paidValue,monthlyCost,monthlyPaid})}
             className="mt-3 w-full rounded-xl text-warn ring-1 ring-warn/30">
             Confirmar renovação no Painel Recarga
