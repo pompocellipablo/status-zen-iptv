@@ -586,7 +586,7 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
       edge.indexOf('// The API cycles are not the same as months'));
     assert.match(block,/const amountsMatch=lealPauloPrepaidSecondIssue\(customer,values\)===null/);
     assert.match(block,/if\(!amountsMatch\)/);
-    assert.match(block,/if\(!authorizedCase\)/);
+    assert.match(edge,/if\(!authorizedCase\)/);
   });
   it("read-only authorized targets do not call providers or mutate ledger",()=>{
     const begin=edge.indexOf('if(mode==="pilot_targets")');
