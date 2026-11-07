@@ -1,7 +1,67 @@
 import {describe,it} from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
-import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO,financialTransitionError,confirmedRenewalDatesFromPanel,validatePanelRenewalDraft,parsePanelPilotBatch} from "./painel-recarga";
+import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO,financialTransitionError,confirmedRenewalDatesFromPanel,validatePanelRenewalDraft,parsePanelPilotBatch,rolloutRenewalIssue} from "./painel-recarga";
+
+describe("Rollout opt-in guards (no real requests)",()=>{
+  const client={due_date:"2026-11-11",financial_due_date:"2026-11-11",
+    access_type:"padrao",paid:35,cost:6,prev_paid:35};
+  const monthly={months:1,dueDate:"2026-12-11",financialDueDate:"2026-12-11",
+    cost:6,monthlyPaid:35,prevPaid:35,paymentAmount:35,paymentCost:6};
+  it("uses two independent server flags and never sends real requests after code publication alone",()=>{
+    const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
+    assert.match(edge,/PAINEL_RECARGA_ROLLOUT_ENABLED/);
+    assert.match(edge,/PAINEL_RECARGA_LIVE_ENABLED/);
+    assert.match(edge,/!authorizedCase&&!rolloutEnabled/);
+    assert.match(edge,/rolloutRenewalIssue\(customer,values\)/);
+    assert.match(edge,/rolloutEnabled\}\)/);
+  });
+  it("permits one paid monthly cycle only at exact price and cost",()=>{
+    assert.equal(rolloutRenewalIssue(client,monthly),null);
+    assert.match(String(rolloutRenewalIssue(client,{...monthly,paymentAmount:2})),/Plano mensal/);
+    assert.match(String(rolloutRenewalIssue(client,{...monthly,cost:10})),/Custo/);
+  });
+  it("keeps prepaid finance fixed with zero payment and one credit",()=>{
+    const prepaid={...client,due_date:"2026-11-11",financial_due_date:"2027-05-11",paid:0,prev_paid:35};
+    const args={...monthly,months:1,financialDueDate:"2027-05-11",
+      paymentAmount:0,paymentCost:0,monthlyPaid:0};
+    assert.equal(rolloutRenewalIssue(prepaid,args),null);
+    assert.match(String(rolloutRenewalIssue(prepaid,{...args,paymentAmount:35})),/Pacote ativo/);
+    assert.match(String(rolloutRenewalIssue(prepaid,{...args,dueDate:"2027-06-11"})),/Pacote ativo/);
+  });
+  it("permits paid 6/12-month packages but blocks a one-month payment for a year",()=>{
+    const six={...monthly,months:6,financialDueDate:"2027-05-11",
+      monthlyPaid:0,paymentAmount:175,paymentCost:36};
+    const annual={...monthly,months:12,financialDueDate:"2027-11-11",
+      monthlyPaid:0,paymentAmount:310,paymentCost:72};
+    assert.equal(rolloutRenewalIssue(client,six),null);
+    assert.equal(rolloutRenewalIssue(client,annual),null);
+    assert.match(String(rolloutRenewalIssue(client,{...annual,paymentAmount:35})),/Pacote/);
+    assert.match(String(rolloutRenewalIssue(client,{...annual,financialDueDate:"2030-01-01"})),/cobertura/);
+  });
+  it("never enrolls complimentary clients into broad provider renewals",()=>{
+    assert.match(String(rolloutRenewalIssue({...client,paid:0,access_type:"meu_acesso"},
+      {...monthly,paymentAmount:0})),/gratuito/);
+  });
+});
+
+describe("Immutable server-date correction audit",()=>{
+  it("requires owner confirmation and prevents payment, credit or financial date edits",()=>{
+    const sql=readFileSync(new URL("../../supabase/migrations/20261107020000_panel_date_correction_audit.sql",import.meta.url),"utf8");
+    assert.match(sql,/CREATE TABLE IF NOT EXISTS public\.panel_due_date_corrections/);
+    assert.match(sql,/ALTER TABLE public\.panel_due_date_corrections ENABLE ROW LEVEL SECURITY/);
+    assert.match(sql,/p_confirmed IS DISTINCT FROM true/);
+    assert.match(sql,/v_client\.financial_due_date<v_client\.due_date/);
+    assert.match(sql,/j\.state IN/);
+    assert.match(sql,/j\.state='completed'/);
+    assert.match(sql,/UPDATE public\.clients SET due_date=p_panel_due_date/);
+    assert.doesNotMatch(sql,/SET financial_due_date=/);
+    assert.doesNotMatch(sql,/INSERT INTO public\.(payments|server_credit_movements)/);
+    const ui=readFileSync(new URL("../routes/_authenticated/servidores.tsx",import.meta.url),"utf8");
+    assert.match(ui,/supabase\.rpc\("approve_panel_date_correction"/);
+    assert.match(ui,/Histórico de correções aprovadas/);
+  });
+});
 
 describe("Painel Recarga integration guardrails",()=>{
   it("maps only documented IPTV panels",()=>{
@@ -312,7 +372,8 @@ describe("Supervised pilot UI safety",()=>{
   const screen=readFileSync(new URL("../routes/_authenticated/renovacoes.tsx",import.meta.url),"utf8");
   it("uses an opt-in frontend gate, with existing manual renewal preserved",()=>{
     assert.match(screen,/const PANEL_PILOT_UI_ENABLED = import\.meta\.env(?:\["VITE_MAXFLIX_PANEL_PILOT"\]|\.VITE_MAXFLIX_PANEL_PILOT) === "true";/);
-    assert.match(screen,/isPilotTarget\(c,pilotTargetsQuery\.data\?\?\[\]\)&&panelRouteForClient/);
+    assert.match(screen,/const isExternalTarget=/);
+    assert.match(screen,/isExternalTarget\(c,pilotTargetsQuery\.data\)/);
     assert.match(screen,/supabase\.rpc\("renew_client_with_credit"/);
   });
   it("requires a named-client confirmation before making an external request",()=>{
@@ -517,7 +578,7 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
     const use=edge.indexOf('const isUnpaid=authorizedCase.kind==="unpaid"',job);
     assert.ok(index>0 && guard>index && job>guard && use>job);
     assert.match(edge.slice(index,guard),/const authorizedCase=batchPilotCases\.find/);
-    assert.match(edge.slice(job,use),/if\(!authorizedCase\)/);
+    assert.match(edge.slice(job,use),/if\(authorizedCase\)/);
     assert.doesNotMatch(edge.slice(guard,job),/const authorizedCase=/);
   });
   it("never accepts prepaid package or edited payment amount during pilots",()=>{
@@ -540,9 +601,9 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
   it("UI displays pilot buttons only for cases returned by owner-only backend",()=>{
     assert.match(screen,/mode:"pilot_targets"/);
     assert.match(screen,/const isPilotTarget=/);
-    assert.match(screen,/isPilotTarget\(c,pilotTargetsQuery\.data\?\?\[\]\)/);
-    assert.match(screen,/isPilotTarget\(renewing,pilotTargetsQuery\.data\?\?\[\]\)/);
-    assert.match(screen,/if\(!isPilotTarget\(client,pilotTargetsQuery\.data\?\?\[\]\)/);
+    assert.match(screen,/isExternalTarget\(c,pilotTargetsQuery\.data\)/);
+    assert.match(screen,/isExternalTarget\(renewing,pilotTargetsQuery\.data\)/);
+    assert.match(screen,/if\(!isExternalTarget\(client,pilotTargetsQuery\.data\)/);
     assert.match(screen,/\{!onConfirmPilot && <Button/);
     assert.match(screen,/opts\.months!==1\|\|opts\.paid!==Number\(client\.paid\)/);
     assert.match(screen,/target\.kind==="unpaid"/);
