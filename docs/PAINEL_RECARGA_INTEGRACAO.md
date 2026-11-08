@@ -207,3 +207,29 @@ O proprietário informou ter incluído as APIs de GF e Fast no Painel Recarga.
 - Próxima etapa: homologação de simulação não consumidora, conferência
   do ciclo/retorno, seguida de um único piloto real separado e expressamente
   autorizado. Não utilizar clientes não pagos para testes com consumo.
+
+
+## 08/11/2026 — Fast IPTV confirmado na API
+
+O proprietário enviou uma captura do próprio Painel Recarga mostrando o endpoint
+**POST `/renovar/iptv/fast`**, com alternativa `/renovar/fast`, e
+indicando que Fast **usa a chave cadastrada em Chaves e logins**.
+A captura mostra também a seção de GF, com o mesmo mecanismo de chave.
+Nenhuma chave ou token deve ser registrado no GitHub ou neste documento.
+
+**Estado atualizado do adaptador:**
+- `Fast` → IPTV, `/renovar/iptv/fast` (mapeamento exato)
+- `GF` → IPTV, `/renovar/iptv/gf` (rota já documentada e mapeada)
+- Ambos permanecem SEM homologação real e SEM liberação de renovação.
+- A lista privada `PANEL_PILOT_BATCH_SERVERS` não foi ampliada: Fast
+  e GF continuam excluídos dos pilotos anteriores.
+- A Edge Function de produção ainda exige autorização exclusiva de
+  cliente/ciclo, e a janela anterior do LealPaulo expirou. Adicionar
+  a rota ao código não permite renovar outros clientes.
+- Próxima fase: publicar o adaptador com restrições intactas,
+  validar a modalidade e o login exato por simulação sem consumo
+  (verificando se a chave está conectada no Painel Recarga).
+  Somente após resultado aprovado, selecionar um cliente real
+  efetivamente pago, requerer confirmação explícita e autorizar um
+  piloto limitado para cada servidor. Não acionar POST de renovação real
+  ou criar pagamentos apenas para testar a rota.
