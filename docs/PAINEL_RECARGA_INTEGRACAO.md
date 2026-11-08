@@ -187,3 +187,23 @@ As condições deste piloto são deliberadamente mais restritas que as do rollou
 - Se o fornecedor retornar 202, 207, timeout, outra data de início ou resultado
   incerto, não abrir novo pedido: acompanhar a **mesma idempotency key** e
   conciliar antes de retentar ou registrar pagamento.
+
+
+## 08/11/2026 — novas APIs informadas: GF e Fast
+
+O proprietário informou ter incluído as APIs de GF e Fast no Painel Recarga.
+
+- **GF IPTV**: a rota `/renovar/iptv/gf` já era documentada. Foi adicionada
+  ao adaptador compartilhado e coberta por teste unitário; isso NÃO autoriza
+  renovação real. Antes de homologar, confirmar login exato, validade técnica,
+  modalidade IPTV e resposta de consulta, sem descontar créditos.
+- **Fast**: ainda não consta no contrato de rotas recebido. Preservar Fast
+  como manual até confirmar na documentação atualizada do Painel Recarga
+  o endpoint e se a modalidade é IPTV ou P2P. NÃO supor
+  `/renovar/iptv/fast` sem documentação.
+- Nenhuma configuração de secrets, rollout ou cliente é alterada nesta etapa.
+  A Edge Function vigente conserva a autorização exclusiva expirada do
+  LealPaulo, portanto novo tráfego real permanece bloqueado.
+- Próxima etapa: homologação de simulação não consumidora, conferência
+  do ciclo/retorno, seguida de um único piloto real separado e expressamente
+  autorizado. Não utilizar clientes não pagos para testes com consumo.
