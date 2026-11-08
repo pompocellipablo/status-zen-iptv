@@ -66,7 +66,8 @@ describe("Immutable server-date correction audit",()=>{
 describe("Painel Recarga integration guardrails",()=>{
   it("maps only documented IPTV panels",()=>{
     assert.equal(panelRouteForClient("Five")?.path,"/renovar/iptv/five");
-    assert.equal(panelRouteForClient("GF"),null); // Not homologated: manual only
+    assert.deepEqual(panelRouteForClient("GF"),{kind:"iptv",panel:"gf",path:"/renovar/iptv/gf"}); // Route documented; live pilot not homologated
+    assert.equal(panelRouteForClient("Fast"),null); // Endpoint/modality must be verified
     assert.equal(panelRouteForClient("Club")?.path,"/renovar/iptv/club");
     assert.deepEqual(panelRouteForClient("Blade"),{kind:"p2p",panel:"blade",path:"/renovar/p2p/blade"});
     assert.deepEqual(panelRouteForClient("UniP2P"),{kind:"p2p",panel:"uniplay",path:"/renovar/p2p/uniplay"});
