@@ -7,7 +7,7 @@ export const RECARGA_BASE_URL = "https://painelrecarga.dev";
 export type PanelRoute = {kind: "iptv" | "p2p"; panel: string; path: string};
 const IPTV_PANELS: Record<string,string> = {
   "All Play":"allplay", "Club":"club",
-  "Five":"five", "Now":"now", "Uniplay":"uniplay",
+  "Five":"five", "GF":"gf", "Now":"now", "Uniplay":"uniplay",
 };
 
 /**
