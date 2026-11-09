@@ -40,7 +40,7 @@ async function inspectClientOnPanel(client:Client,mode:"simulate"|"check_simulat
     const {data,error}=await supabase.functions.invoke("painel-recarga-renovar",{
       body:{mode,clientId:client.id,expectedDueDate:client.due_date},
     });
-    let response=data as {simulated?:boolean;dateInspectionSupported?:boolean;panelDueDate?:string|null;outcome?:{status?:string;message?:string};message?:string}|null;
+    let response=data as {simulated?:boolean;dateInspectionSupported?:boolean;panelDueDate?:string|null;outcome?:{status?:string;message?:string};message?:string;note?:string}|null;
     if(error){
       const http=(error as {context?:unknown}).context;
       if(http instanceof Response){try{response=await http.json();}catch{response=null;}}
@@ -56,14 +56,18 @@ async function inspectClientOnPanel(client:Client,mode:"simulate"|"check_simulat
           :"O resultado da solicitação é incerto. Confira a fila do Painel Recarga antes de reenviar."};
     }
     const confirmed=response?.simulated===true&&remoteStatus==="simulated";
-    const panelDue=confirmed&&/^\d{4}-\d{2}-\d{2}$/.test(response?.panelDueDate??"")
+    // A simulated login is not necessarily a trustworthy date lookup.
+    // Fast's API can return a historic "vencimento_antes"; never offer
+    // date-correction actions using that unverified value.
+    const dateTrusted=response?.dateInspectionSupported===true&&client.server!=="Fast";
+    const panelDue=confirmed&&dateTrusted&&/^\d{4}-\d{2}-\d{2}$/.test(response?.panelDueDate??"")
       ?response!.panelDueDate!:null;
     const message=response?.outcome?.message??response?.message??"O painel não retornou um resultado reconhecido.";
-    const noBackend=confirmed&&response?.dateInspectionSupported!==true;
+    const noBackend=confirmed&&!dateTrusted;
     return {
       server:client.server,login:client.login,panelDue,
       status:confirmed?(panelDue?(panelDue===client.due_date?"same":"different"):"unavailable"):"failed",
-      message:noBackend?"A conferência de datas ainda não foi publicada no servidor.":confirmed&&!panelDue
+      message:noBackend?(response?.note??"Login confirmado em simulação; a data do painel ainda não está homologada. Confira manualmente, sem corrigir o cadastro."):confirmed&&!panelDue
         ?"O login foi localizado, mas o painel não informou o vencimento atual.":message,
     };
   }catch(error){
