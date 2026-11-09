@@ -132,6 +132,24 @@ describe("Read-only panel expiry inspection",()=>{
   });
 });
 
+describe("Fast simulation dates are untrusted until provider semantics are verified",()=>{
+  const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
+  const ui=readFileSync(new URL("../routes/_authenticated/servidores.tsx",import.meta.url),"utf8");
+  it("confirms Fast login without accepting a historical vencimento_antes as current",()=>{
+    assert.match(edge,/const dateTrusted=customer\.server!=="Fast"/);
+    assert.match(edge,/const due=dateTrusted&&outcome\.status==="simulated"/);
+    assert.match(edge,/const safeOutcome=dateTrusted\?outcome:\{\.\.\.outcome,previousDue:undefined\}/);
+    assert.match(edge,/dateInspectionSupported:dateTrusted/);
+    assert.match(edge,/remoteHttpStatus:response\.status,outcome:safeOutcome,panelDueDate:due/);
+  });
+  it("does not expose a cached old Fast date or propose date correction in UI",()=>{
+    assert.match(edge,/panelDueDate:ok&&dateTrusted\?previous!\.panel_due_date:null/);
+    assert.match(ui,/client\.server!=="Fast"/);
+    assert.match(ui,/confirmed&&dateTrusted&&/);
+    assert.match(ui,/response\?\.note\?\?/);
+    assert.match(ui,/status:confirmed\?\(panelDue\?/);
+  });
+});
 describe("Financial coverage safety",()=>{
   const month={months:1,dueDate:"2026-12-10",financialDueDate:"2026-12-10",paymentAmount:35,monthlyPaid:35,paymentCost:6};
   it("allows a new paid month when technical and financial dates were equal",()=>{
