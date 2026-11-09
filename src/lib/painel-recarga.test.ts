@@ -132,22 +132,30 @@ describe("Read-only panel expiry inspection",()=>{
   });
 });
 
-describe("Fast simulation dates are untrusted until provider semantics are verified",()=>{
+describe("Fast simulation date after owner's manual renewal (no provider calls)",()=>{
   const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
   const ui=readFileSync(new URL("../routes/_authenticated/servidores.tsx",import.meta.url),"utf8");
-  it("confirms Fast login without accepting a historical vencimento_antes as current",()=>{
-    assert.match(edge,/const dateTrusted=customer\.server!=="Fast"/);
-    assert.match(edge,/const due=dateTrusted&&outcome\.status==="simulated"/);
-    assert.match(edge,/const safeOutcome=dateTrusted\?outcome:\{\.\.\.outcome,previousDue:undefined\}/);
-    assert.match(edge,/dateInspectionSupported:dateTrusted/);
-    assert.match(edge,/remoteHttpStatus:response\.status,outcome:safeOutcome,panelDueDate:due/);
+  it("interprets vencimento_antes for exact login, never projected vencimento_novo",()=>{
+    const response={ok:true,resultados:[{
+      usuario:"b44474rbx",ok:true,
+      vencimento_antes:"17/10/2026 10:00:00",
+      vencimento_novo:"17/11/2026 10:00:00",
+    }]};
+    const found=parsePanelRecargaResponse(200,response,"b44474rbx",true);
+    assert.equal(found.status,"simulated");
+    assert.equal(found.previousDue,"2026-10-17");
+    assert.equal(found.nextDue,undefined);
+    assert.equal(parsePanelRecargaResponse(200,response,"outra_conta",true).status,"failed");
   });
-  it("does not expose a cached old Fast date or propose date correction in UI",()=>{
-    assert.match(edge,/panelDueDate:ok&&dateTrusted\?previous!\.panel_due_date:null/);
-    assert.match(ui,/client\.server!=="Fast"/);
+  it("restores Fast date display after renewal, but never changes clients automatically",()=>{
+    assert.match(edge,/const due=outcome\.status==="simulated"\?outcome\.previousDue\?\?null:null/);
+    assert.match(edge,/remoteHttpStatus:response\.status,outcome,panelDueDate:due/);
+    assert.match(edge,/panelDueDate:ok\?previous!\.panel_due_date:null/);
+    assert.match(ui,/const dateTrusted=response\?\.dateInspectionSupported===true/);
     assert.match(ui,/confirmed&&dateTrusted&&/);
-    assert.match(ui,/response\?\.note\?\?/);
-    assert.match(ui,/status:confirmed\?\(panelDue\?/);
+    assert.match(ui,/supabase\.rpc\("approve_panel_date_correction"/);
+    assert.match(ui,/window\.confirm\(message\)/);
+    assert.doesNotMatch(ui,/client\.server!=="Fast"/);
   });
 });
 describe("Financial coverage safety",()=>{
