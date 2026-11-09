@@ -185,15 +185,6 @@ Deno.serve(async(request)=>{
       return reply(409,{ok:false,message:"Vencimento alterado; atualize o cadastro antes da conferência."});
     const route=panelRouteForClient(customer.server);
     if(!route)return reply(422,{ok:false,message:"Este servidor ainda não possui rota de conferência validada."});
-    // Fast has returned a historical vencimento_antes (17/10/2026) even
-    // while the direct panel and the registered account showed 08/12/2026.
-    // Authenticate the login, but do NOT present that field as a current
-    // expiry or feed it into manual date-correction workflows.
-    const dateTrusted=customer.server!=="Fast";
-    const dateNote= dateTrusted
-      ? "Consulta sem renovação, pagamento ou consumo de crédito da MaxFlix."
-      : "Login Fast confirmado na simulação. A data fornecida pela API não está homologada; confira o vencimento diretamente no painel. Nenhuma data foi alterada.";
-
     const table=userDb.from("external_simulation_jobs");
     const active=await table.select("*").eq("client_id",customer.id)
       .in("state",["created","waiting","uncertain"]).maybeSingle();
@@ -219,12 +210,11 @@ Deno.serve(async(request)=>{
         &&Date.now()-Date.parse(previous!.created_at)<120_000;
       if(finished&&(mode==="check_simulation"||fresh)){
         const ok=previous!.state==="completed";
-        return reply(200,{ok,simulated:true,cached:true,dateInspectionSupported:dateTrusted,
+        return reply(200,{ok,simulated:true,cached:true,dateInspectionSupported:true,
           simulationJobId:previous!.id,
           outcome:{status:ok?"simulated":"failed",
             message:previous!.external_message??(ok?"Simulação concluída.":"Simulação recusada.")},
-          panelDueDate:ok&&dateTrusted?previous!.panel_due_date:null,
-          note:dateNote});
+          panelDueDate:ok?previous!.panel_due_date:null});
       }
       if(mode==="check_simulation")
         return reply(404,{ok:false,message:"Nenhuma consulta pendente para acompanhar. Use Conferir no painel."});
@@ -270,15 +260,14 @@ Deno.serve(async(request)=>{
       try{remoteData=JSON.parse(raw);}catch{remoteData=null;}
     }catch{
       await persist({state:"uncertain",external_message:"Resposta incerta: confirme pela mesma chave, não crie outra consulta."});
-      return reply(202,{ok:false,simulated:true,pending:true,dateInspectionSupported:dateTrusted,
+      return reply(202,{ok:false,simulated:true,pending:true,dateInspectionSupported:true,
         simulationJobId:simulationJob.id,
         outcome:{status:"uncertain",message:"A consulta pode estar na fila. Verifique o andamento; nenhuma nova chave deve ser gerada."}});
     }
     const outcome=parsePanelRecargaResponse(response.status,remoteData,simulationJob.login,true);
     const newState=outcome.status==="simulated"?"completed":outcome.status==="waiting"?"waiting":
       outcome.status==="failed"?"failed":"uncertain";
-    const due=dateTrusted&&outcome.status==="simulated"?outcome.previousDue??null:null;
-    const safeOutcome=dateTrusted?outcome:{...outcome,previousDue:undefined};
+    const due=outcome.status==="simulated"?outcome.previousDue??null:null;
     const stored=await persist({
       state:newState,external_http_status:response.status,
       external_message:outcome.message.slice(0,400),panel_due_date:due,
@@ -288,10 +277,10 @@ Deno.serve(async(request)=>{
     if(!stored)
       return reply(503,{ok:false,simulated:true,pending:true,simulationJobId:simulationJob.id,
         outcome:{status:"uncertain",message:"O painel respondeu, mas não foi possível gravar o resultado; confira o mesmo pedido."}});
-    return reply(200,{ok:outcome.status==="simulated",simulated:true,dateInspectionSupported:dateTrusted,
+    return reply(200,{ok:outcome.status==="simulated",simulated:true,dateInspectionSupported:true,
       simulationJobId:simulationJob.id,pending:newState==="waiting"||newState==="uncertain",
-      remoteHttpStatus:response.status,outcome:safeOutcome,panelDueDate:due,
-      note:dateNote});
+      remoteHttpStatus:response.status,outcome,panelDueDate:due,
+      note:"Consulta sem renovação, pagamento ou consumo de crédito da MaxFlix."});
   }
 
   // One-client emergency isolation is applied BEFORE any renewal job lookup
