@@ -56,10 +56,9 @@ async function inspectClientOnPanel(client:Client,mode:"simulate"|"check_simulat
           :"O resultado da solicitação é incerto. Confira a fila do Painel Recarga antes de reenviar."};
     }
     const confirmed=response?.simulated===true&&remoteStatus==="simulated";
-    // A simulated login is not necessarily a trustworthy date lookup.
-    // Fast's API can return a historic "vencimento_antes"; never offer
-    // date-correction actions using that unverified value.
-    const dateTrusted=response?.dateInspectionSupported===true&&client.server!=="Fast";
+    // Display an exact-login provider date only if the backend explicitly
+    // supports date inspection. A difference is NOT an automatic correction.
+    const dateTrusted=response?.dateInspectionSupported===true;
     const panelDue=confirmed&&dateTrusted&&/^\d{4}-\d{2}-\d{2}$/.test(response?.panelDueDate??"")
       ?response!.panelDueDate!:null;
     const message=response?.outcome?.message??response?.message??"O painel não retornou um resultado reconhecido.";
@@ -67,7 +66,7 @@ async function inspectClientOnPanel(client:Client,mode:"simulate"|"check_simulat
     return {
       server:client.server,login:client.login,panelDue,
       status:confirmed?(panelDue?(panelDue===client.due_date?"same":"different"):"unavailable"):"failed",
-      message:noBackend?(response?.note??"Login confirmado em simulação; a data do painel ainda não está homologada. Confira manualmente, sem corrigir o cadastro."):confirmed&&!panelDue
+      message:noBackend?(response?.note??"A conferência de datas ainda não foi publicada no servidor."):confirmed&&!panelDue
         ?"O login foi localizado, mas o painel não informou o vencimento atual.":message,
     };
   }catch(error){
