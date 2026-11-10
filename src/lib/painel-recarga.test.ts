@@ -175,6 +175,87 @@ describe("Rollout opt-in guards (no real requests)",()=>{
   });
 });
 
+describe("Active prepaid packages — integrated button regression across all enabled servers",()=>{
+  const servers=[...PANEL_GENERAL_SERVERS];
+  const technical="2026-11-12";
+  const cases=[
+    {name:"semestral",financial:"2027-04-12",price:175},
+    {name:"anual",financial:"2027-10-12",price:320},
+  ];
+  it("permits one paid-covered cycle for all nine servers even though current monthly paid is zero",()=>{
+    assert.equal(servers.length,9);
+    for(const server of servers)for(const kind of cases){
+      const client={server,due_date:technical,financial_due_date:kind.financial,
+        access_type:"pacote_pago",paid:0,prev_paid:kind.price,cost:6.5};
+      assert.equal(broadPanelRenewalEligible(client,"2026-11-10"),true,
+        server+" "+kind.name);
+      assert.equal(broadPanelRenewalEligible({...client,access_type:"padrao"},"2026-11-10"),true,
+        server+" "+kind.name+" padrao");
+      const values={months:1,dueDate:"2026-12-12",financialDueDate:kind.financial,
+        cost:6.5,monthlyPaid:0,prevPaid:kind.price,paymentAmount:0,paymentCost:0};
+      assert.equal(rolloutRenewalIssue(client,values),null,server+" "+kind.name);
+      assert.equal(validatePanelRenewalDraft(client,values,"2026-11-10"),null,
+        server+" "+kind.name+" preflight");
+      assert.equal(financialTransitionError(client,values),null,
+        server+" "+kind.name+" financial safety");
+      assert.deepEqual(confirmedRenewalDatesFromPanel(client,values,
+        "12/12/2026 08:00:00","12/11/2026 08:00:00","2026-11-10"),{
+          dueDate:"2026-12-12",financialDueDate:kind.financial,blockedReason:null,
+        },server+" "+kind.name+" server confirmation");
+      assert.deepEqual(buildPanelRecargaBody("pacote_teste",false),{
+        usuario:"pacote_teste",ciclos:1,
+      });
+    }
+  });
+  it("rejects insufficient coverage, a technically expired client, free access and Elite",()=>{
+    const c={server:"Five",due_date:technical,financial_due_date:"2027-04-12",
+      access_type:"pacote_pago",paid:0,prev_paid:175,cost:6.5};
+    for(const invalid of [
+      {...c,financial_due_date:"2026-12-11"},
+      {...c,financial_due_date:"2026-11-30"},
+      {...c,due_date:"2026-11-09"},
+      {...c,access_type:"gratuidade"},
+      {...c,access_type:"meu_acesso"},
+      {...c,server:"Elite"},
+      {...c,cost:0},
+    ])assert.equal(broadPanelRenewalEligible(invalid,"2026-11-10"),false);
+  });
+  it("does not permit a second charge, a financial extension or two technical cycles",()=>{
+    const c={server:"Five",due_date:technical,financial_due_date:"2027-04-12",
+      access_type:"pacote_pago",paid:0,prev_paid:175,cost:6.5};
+    const v={months:1,dueDate:"2026-12-12",financialDueDate:"2027-04-12",
+      cost:6.5,monthlyPaid:0,prevPaid:175,paymentAmount:0,paymentCost:0};
+    for(const invalid of [
+      {...v,paymentAmount:175},
+      {...v,paymentCost:6.5},
+      {...v,monthlyPaid:35},
+      {...v,months:2},
+      {...v,dueDate:"2027-01-12"},
+      {...v,financialDueDate:"2027-05-12"},
+    ])assert.notEqual(rolloutRenewalIssue(c,invalid),null);
+    assert.match(confirmedRenewalDatesFromPanel(c,v,
+      "12/05/2027","12/11/2026","2026-11-10").blockedReason??"",
+      /ultrapassa|distante/);
+  });
+  it("keeps the UI integrated path and transactional ledger from charging a paid package",()=>{
+    const ui=readFileSync(new URL("../routes/_authenticated/renovacoes.tsx",import.meta.url),"utf8");
+    const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
+    const sql=readFileSync(new URL("../../supabase/migrations/20261105152000_atomic_external_renewal_sync.sql",import.meta.url),"utf8");
+    assert.match(ui,/const isGeneralTarget=/);
+    assert.match(ui,/client\.financial_due_date>=nextDueDate\(client\.due_date\)/);
+    assert.match(ui,/if\(client\.financial_due_date&&client\.financial_due_date>client\.due_date\)/);
+    assert.match(ui,/void confirmPanelPilot\(client,\{months:1,cost:0,paid:0,/);
+    assert.match(ui,/const covered=prepaid&&opts\.months===1&&opts\.paid===0&&opts\.monthlyPaid===0/);
+    assert.match(edge,/generalEnabled&&broadPanelRenewalEligible\(customer,/);
+    assert.match(edge,/freePilot\?"sync_external_free_pilot_job":"sync_external_renewal_job"/);
+    assert.match(sql,/v_client\.financial_due_date > v_client\.due_date THEN/);
+    assert.match(sql,/v_payment_amount <> 0/);
+    assert.match(sql,/v_job\.financial_due_date <> v_client\.financial_due_date/);
+    assert.match(sql,/IF v_payment_amount > 0 THEN/);
+    assert.equal((sql.match(/INSERT INTO public\.server_credit_movements/g)||[]).length,1);
+  });
+});
+
 describe("Immutable server-date correction audit",()=>{
   it("requires owner confirmation and prevents payment, credit or financial date edits",()=>{
     const sql=readFileSync(new URL("../../supabase/migrations/20261107020000_panel_date_correction_audit.sql",import.meta.url),"utf8");
