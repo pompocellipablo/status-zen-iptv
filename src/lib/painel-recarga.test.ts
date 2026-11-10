@@ -51,7 +51,9 @@ describe("Rollout opt-in guards (no real requests)",()=>{
     const current={server:"Five",due_date:"2026-11-19",financial_due_date:"2026-11-19",
       access_type:"padrao",paid:35,cost:6.5};
     assert.equal(broadPanelRenewalEligible(current,"2026-11-10"),true);
-    assert.equal(broadPanelRenewalEligible({...current,server:"Fast"},"2026-11-10"),false);
+    assert.equal(broadPanelRenewalEligible({...current,server:"Fast"},"2026-11-10"),true);
+    assert.equal(broadPanelRenewalEligible({...current,server:"All Play"},"2026-11-10"),true);
+    assert.equal(broadPanelRenewalEligible({...current,server:"Elite"},"2026-11-10"),false);
     assert.equal(broadPanelRenewalEligible({...current,due_date:"2026-11-09",financial_due_date:"2026-11-09"},"2026-11-10"),false);
     assert.equal(broadPanelRenewalEligible({...current,access_type:"meu_acesso"},"2026-11-10"),false);
     assert.equal(broadPanelRenewalEligible({...current,paid:0},"2026-11-10"),false);
@@ -778,7 +780,7 @@ describe("Exact-client rollout controls and expired legacy pilot",()=>{
     assert.deepEqual(parsePanelRolloutTargets(JSON.stringify([target,target])),[]);
     assert.equal(parsePanelRolloutTargets(JSON.stringify([{...target,server:"Fast"}])).length,1);
     assert.equal(parsePanelRolloutTargets(JSON.stringify([{...target,server:"All Play"}])).length,1);
-    assert.deepEqual(PANEL_GENERAL_SERVERS,["Club","Five","Uniplay","UniP2P","Blade","Now","GF"]);
+    assert.deepEqual(PANEL_GENERAL_SERVERS,["Club","Five","Uniplay","UniP2P","Blade","Now","GF","Fast","All Play"]);
     assert.deepEqual(parsePanelRolloutTargets(JSON.stringify(Array.from({length:9},(_,i)=>({
       ...target,clientId:`11111111-1111-4111-8111-${String(i).padStart(12,"0")}`,
     })))),[]);

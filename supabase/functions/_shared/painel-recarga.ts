@@ -62,10 +62,10 @@ export const PANEL_PILOT_BATCH_SERVERS=[
   "Five","Uniplay","UniP2P","Blade","Now","All Play",
 ] as const;
 
-/** Daily homologated services. Fast and All Play require exact single-client canaries. */
-export const PANEL_GENERAL_SERVERS=["Club","Five","Uniplay","UniP2P","Blade","Now","GF"] as const;
-/** The exact-client canary allowlist additionally supports Fast and All Play. */
-export const PANEL_ROLLOUT_SERVERS=[...PANEL_GENERAL_SERVERS,"Fast","All Play"] as const;
+/** Owner-approved daily integration: Fast real cycle passed; All Play simulation passed. Elite remains excluded. */
+export const PANEL_GENERAL_SERVERS=["Club","Five","Uniplay","UniP2P","Blade","Now","GF","Fast","All Play"] as const;
+/** Individual pilot entries still require exact ID, server and original expiry. */
+export const PANEL_ROLLOUT_SERVERS=[...PANEL_GENERAL_SERVERS] as const;
 export type PanelRolloutTarget={clientId:string;server:typeof PANEL_ROLLOUT_SERVERS[number];expectedDueDate:string};
 export function parsePanelRolloutTargets(raw:string|undefined|null):PanelRolloutTarget[]{
   if(!raw||raw.length>4096)return [];
