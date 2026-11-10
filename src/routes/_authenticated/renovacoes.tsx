@@ -52,7 +52,7 @@ const PANEL_PILOT_UI_ENABLED = import.meta.env["VITE_MAXFLIX_PANEL_PILOT"] === "
 // PAINEL_RECARGA_PILOT_CLIENT_ID + PAINEL_RECARGA_PILOT_EXPECTED_DUE_DATE.
 type PanelPilotTarget={clientId:string;expectedDueDate:string;server:string;kind:"paid"|"unpaid"|"package6"|"prepaid2"};
 type PanelRolloutTarget={clientId:string;server:string;expectedDueDate:string};
-type PanelPilotConfig={targets:PanelPilotTarget[];rolloutTargets:PanelRolloutTarget[];rolloutEnabled:boolean};
+type PanelPilotConfig={targets:PanelPilotTarget[];rolloutTargets:PanelRolloutTarget[];rolloutEnabled:boolean;generalEnabled:boolean;generalServers:string[]};
 const ROLLOUT_CANARY_SERVERS=new Set(["Club","Five","Uniplay","UniP2P","Blade","Now","GF"]);
 // UX-only allowlist obtained once from the owner-authorized Edge Function.
 // The private backend validates the same list independently on every renewal.
@@ -62,15 +62,28 @@ const isPilotTarget=(client:Client,targets:readonly PanelPilotTarget[])=>
     &&item.clientId===client.id&&item.expectedDueDate===client.due_date
     &&item.server===client.server);
 
-const isRolloutTarget=(client:Client,config:PanelPilotConfig|undefined)=>
-  config?.rolloutEnabled===true
-  &&config.rolloutTargets.some(target=>target.clientId===client.id
-    &&target.server===client.server&&target.expectedDueDate===client.due_date)
+const isGeneralTarget=(client:Client,config:PanelPilotConfig|undefined)=>
+  config?.rolloutEnabled===true&&config.generalEnabled===true
+  &&config.generalServers.includes(client.server)
   &&ROLLOUT_CANARY_SERVERS.has(client.server)
   &&!!panelRouteForClient(client.server)
   &&(client.access_type==="padrao"||client.access_type==="pacote_pago")
-  &&!!client.financial_due_date
-  &&(client.paid>0||client.financial_due_date>client.due_date);
+  &&Number(client.cost)>0
+  &&!!client.financial_due_date&&client.due_date>=today()
+  &&client.financial_due_date>=client.due_date
+  &&((client.financial_due_date===client.due_date&&Number(client.paid)>0)
+    ||(client.financial_due_date>client.due_date
+      &&client.financial_due_date>=nextDueDate(client.due_date)));
+const isRolloutTarget=(client:Client,config:PanelPilotConfig|undefined)=>
+  (config?.rolloutEnabled===true
+    &&config.rolloutTargets.some(target=>target.clientId===client.id
+      &&target.server===client.server&&target.expectedDueDate===client.due_date)
+    &&ROLLOUT_CANARY_SERVERS.has(client.server)
+    &&!!panelRouteForClient(client.server)
+    &&(client.access_type==="padrao"||client.access_type==="pacote_pago")
+    &&!!client.financial_due_date
+    &&(Number(client.paid)>0||client.financial_due_date>client.due_date))
+  ||isGeneralTarget(client,config);
 const isExternalTarget=(client:Client,config:PanelPilotConfig|undefined)=>
   isPilotTarget(client,config?.targets??[])||isRolloutTarget(client,config);
 // If target loading fails, never silently fall back to manual renewal for
@@ -267,6 +280,10 @@ function Painel() {
           typeof target.clientId==="string"&&typeof target.expectedDueDate==="string"
           &&typeof target.server==="string"&&(target.kind==="paid"||target.kind==="unpaid"||target.kind==="package6"||target.kind==="prepaid2")),
         rolloutEnabled:data.rolloutEnabled===true,
+        generalEnabled:data.generalEnabled===true,
+        generalServers:Array.isArray(data.generalServers)
+          ?data.generalServers.filter((name:unknown):name is string=>typeof name==="string")
+          :[],
         rolloutTargets:Array.isArray(data.rolloutTargets)
           ?data.rolloutTargets.filter((target:PanelRolloutTarget)=>
             typeof target.clientId==="string"&&typeof target.expectedDueDate==="string"
@@ -659,6 +676,13 @@ function Painel() {
       const paidMonth=opts.months===1&&opts.paid===client.paid&&opts.monthlyPaid===client.paid;
       const paidPackage=[6,12].includes(opts.months)&&opts.paid>client.paid&&opts.monthlyPaid===0;
       const covered=prepaid&&opts.months===1&&opts.paid===0&&opts.monthlyPaid===0;
+      if(isGeneralTarget(client,pilotTargetsQuery.data)
+        &&!pilotTargetsQuery.data?.rolloutTargets.some(t=>t.clientId===client.id
+          &&t.server===client.server&&t.expectedDueDate===client.due_date)
+        &&opts.months!==1){
+        setNotice("Novos pacotes de 6/12 meses precisam de validação própria. Nenhum pedido enviado.");
+        return;
+      }
       if(!isRolloutTarget(client,pilotTargetsQuery.data)
         ||opts.monthlyCost!==client.cost
         ||(!prepaid&&!paidMonth&&!paidPackage)
@@ -1192,7 +1216,8 @@ function Painel() {
                         onClick={() => void renew(c)}
                         className="font-display flex min-h-11 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl bg-cyan/15 px-2 text-sm font-semibold text-cyan ring-1 ring-cyan/30 hover:bg-cyan/25"
                       >
-                        <RefreshCw size={15} aria-hidden="true" /> {isExternalTarget(c,pilotTargetsQuery.data)?"Renovar no painel":"Renovar"}
+                        <RefreshCw size={15} aria-hidden="true" /> {isExternalTarget(c,pilotTargetsQuery.data)?"Renovar no painel":
+                          ROLLOUT_CANARY_SERVERS.has(c.server)?"Renovar manual":"Renovar"}
                       </button>
                       <a
                         href={renewalMessageLink(c, template, overdueTemplate)}

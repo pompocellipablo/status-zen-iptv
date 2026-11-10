@@ -1,20 +1,38 @@
 import {describe,it} from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
-import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO,financialTransitionError,confirmedRenewalDatesFromPanel,validatePanelRenewalDraft,parsePanelPilotBatch,parsePanelRolloutTargets,isPanelRolloutTarget,rolloutRenewalIssue,lealPauloPackage6Issue,LEAL_PAULO_PACKAGE6,lealPauloPrepaidSecondIssue,LEAL_PAULO_PREPAID_SECOND} from "./painel-recarga";
+import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO,financialTransitionError,confirmedRenewalDatesFromPanel,validatePanelRenewalDraft,parsePanelPilotBatch,parsePanelRolloutTargets,isPanelRolloutTarget,broadPanelRenewalEligible,rolloutRenewalIssue,lealPauloPackage6Issue,LEAL_PAULO_PACKAGE6,lealPauloPrepaidSecondIssue,LEAL_PAULO_PREPAID_SECOND} from "./painel-recarga";
 
 describe("Rollout opt-in guards (no real requests)",()=>{
   const client={due_date:"2026-11-11",financial_due_date:"2026-11-11",
     access_type:"padrao",paid:35,cost:6,prev_paid:35};
   const monthly={months:1,dueDate:"2026-12-11",financialDueDate:"2026-12-11",
     cost:6,monthlyPaid:35,prevPaid:35,paymentAmount:35,paymentCost:6};
-  it("requires two independent live flags plus a private client list",()=>{
+  it("requires two independent live flags plus a dedicated general switch",()=>{
     const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
     assert.match(edge,/PAINEL_RECARGA_ROLLOUT_ENABLED/);
     assert.match(edge,/PAINEL_RECARGA_LIVE_ENABLED/);
     assert.match(edge,/PAINEL_RECARGA_ROLLOUT_TARGETS/);
-    assert.match(edge,/rolloutEnabled&&isPanelRolloutTarget\(customer,rolloutTargets\)/);
+    assert.match(edge,/PAINEL_RECARGA_GENERAL_ENABLED/);
+    assert.match(edge,/generalEnabled&&broadPanelRenewalEligible\(customer,/);
     assert.match(edge,/rolloutTargets:rolloutEnabled\?rolloutTargets:\[\]/);
+  });
+  it("general mode excludes expired, unpaid, free and zero-cost clients",()=>{
+    const current={server:"Five",due_date:"2026-11-19",financial_due_date:"2026-11-19",
+      access_type:"padrao",paid:35,cost:6.5};
+    assert.equal(broadPanelRenewalEligible(current,"2026-11-10"),true);
+    assert.equal(broadPanelRenewalEligible({...current,server:"Fast"},"2026-11-10"),false);
+    assert.equal(broadPanelRenewalEligible({...current,due_date:"2026-11-09",financial_due_date:"2026-11-09"},"2026-11-10"),false);
+    assert.equal(broadPanelRenewalEligible({...current,access_type:"meu_acesso"},"2026-11-10"),false);
+    assert.equal(broadPanelRenewalEligible({...current,paid:0},"2026-11-10"),false);
+    assert.equal(broadPanelRenewalEligible({...current,cost:0},"2026-11-10"),false);
+  });
+  it("general mode preserves prepaid coverage and requires a complete next cycle",()=>{
+    const c={server:"Five",due_date:"2026-11-12",financial_due_date:"2027-04-12",
+      access_type:"padrao",paid:0,cost:6.5};
+    assert.equal(broadPanelRenewalEligible(c,"2026-11-10"),true);
+    assert.equal(broadPanelRenewalEligible({...c,financial_due_date:"2026-11-20"},"2026-11-10"),false);
+    assert.equal(broadPanelRenewalEligible({...c,financial_due_date:"2026-10-20"},"2026-11-10"),false);
   });
   it("permits one paid monthly cycle only at exact price and cost",()=>{
     assert.equal(rolloutRenewalIssue(client,monthly),null);
@@ -617,7 +635,7 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
     const end=edge.indexOf('if(typeof input.clientId',begin);
     assert.ok(begin>0&&end>begin);
     assert.match(edge.slice(begin,end),/readOnly:true/);
-    assert.match(edge.slice(begin,end),/targets:packagePilot/);
+    assert.match(edge.slice(begin,end),/targets:exclusiveWindowOpen\?packagePilot:\[\]/);
     assert.doesNotMatch(edge.slice(begin,end),/\bfetch\(|\.update\(|\.insert\(|\.rpc\(/);
   });
   it("UI displays pilot buttons only for cases returned by owner-only backend",()=>{

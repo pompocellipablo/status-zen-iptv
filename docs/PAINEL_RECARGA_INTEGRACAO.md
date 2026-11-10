@@ -297,3 +297,34 @@ não atualizar o cliente nem lançar o pagamento antecipadamente. Só depois
 habilitar a autorização exclusiva e clicar em "Renovar no painel",
 acompanhando o pedido único e a sincronização. Se a simulação divergir,
 interromper o piloto e conciliar as datas sem consumir um crédito.
+
+
+## 10/11/2026 — operação diária por servidores homologados (preparada; desligada por padrão)
+
+Além dos pilotos por cliente exato, o backend e a UI passam a aceitar um
+segundo modo de liberação **geral, porém restrita**, exclusivamente
+para Club, Five, Uniplay IPTV (`Uniplay`), UniP2P, Blade, Now e GF.
+Fast, All Play e Elite NÃO entram.
+
+Para ativar esse segundo modo, é obrigatório um NOVO Secret privado
+`PAINEL_RECARGA_GENERAL_ENABLED=true`, além dos dois switches
+`PAINEL_RECARGA_LIVE_ENABLED=true` e
+`PAINEL_RECARGA_ROLLOUT_ENABLED=true`. Na ausência do novo Secret, tudo
+permanece como no piloto anterior. Um switch desativado bloqueia novas
+renovações reais. O usuário continua confirmando cada cliente/ciclo.
+
+A liberação geral cobre apenas clientes ativos, com custo técnico positivo,
+acessos padrão ou pacote pago e dados de vencimento consistentes:
+mensal com valor de pagamento positivo já cadastrado OU ciclo técnico
+completamente coberto por pagamento prévio. O servidor é fonte de verdade
+da validade técnica confirmada; as regras financeiras permanecem no banco.
+Contas vencidas, gratuitas, meses de indicação pendentes e novas vendas
+de planos semestral/anual ficam fora do rollout geral nesta fase.
+Não é permitido reprocessar o mesmo ciclo ou alterar a data financeira
+do pacote já pago. O botão continua distinguindo renovação integrada
+da renovação manual em acessos não elegíveis.
+
+Não disponibilizar o modo geral em produção até publicar e verificar
+**ambas** as versões: front-end e função backend, confirmar testes
+estáticos/de tipagem e então configurar a chave nova. Nenhum clique
+de renovação será executado pela implantação em si.

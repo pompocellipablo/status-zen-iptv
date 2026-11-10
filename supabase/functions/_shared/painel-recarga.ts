@@ -93,6 +93,28 @@ export function isPanelRolloutTarget(
 }
 
 /**
+ * General daily rollout eligibility. Exact client pilots remain separate.
+ * Only active paid monthly contracts and already-covered prepaid cycles
+ * are allowed; no expired/free/zero-cost clients or new package sales.
+ */
+export function broadPanelRenewalEligible(
+  client:{server:string;due_date:string;financial_due_date:string|null;
+    access_type:string|null;paid:number;cost:number},
+  todayISO:string,
+):boolean{
+  if(!PANEL_ROLLOUT_SERVERS.includes(client.server as typeof PANEL_ROLLOUT_SERVERS[number]))return false;
+  if(!["padrao","pacote_pago"].includes(client.access_type??""))return false;
+  if(!Number.isFinite(client.cost)||client.cost<=0)return false;
+  const due=panelDateToISO(client.due_date);
+  const finance=panelDateToISO(client.financial_due_date??undefined);
+  const today=panelDateToISO(todayISO);
+  if(!due||!finance||!today||due<today||finance<due)return false;
+  if(finance===due)return Number.isFinite(client.paid)&&client.paid>0;
+  const nextDue=addMonthsISO(due,1);
+  return !!nextDue&&finance>=nextDue;
+}
+
+/**
  * Dedicated, fail-closed package test. Only the owner can enable its private
  * Edge Function flag; this identifier is not a credential or a client-side
  * authorization. It never enables the general rollout.

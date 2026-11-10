@@ -11,7 +11,7 @@
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
-  buildPanelRecargaBody, confirmedRenewalDatesFromPanel, financialTransitionError, panelRouteForClient, parsePanelRecargaResponse, validatePanelRenewalDraft, parsePanelPilotBatch, parsePanelRolloutTargets, isPanelRolloutTarget,
+  buildPanelRecargaBody, confirmedRenewalDatesFromPanel, financialTransitionError, panelRouteForClient, parsePanelRecargaResponse, validatePanelRenewalDraft, parsePanelPilotBatch, parsePanelRolloutTargets, isPanelRolloutTarget, broadPanelRenewalEligible, PANEL_ROLLOUT_SERVERS,
   RECARGA_BASE_URL, rolloutRenewalIssue, LEAL_PAULO_PREPAID_SECOND, lealPauloPrepaidSecondIssue, type ExternalOutcome,
 } from "../_shared/painel-recarga.ts";
 
@@ -100,12 +100,17 @@ Deno.serve(async(request)=>{
   // A separate, default-off rollout switch is required in addition to the
   // global live switch. Publishing this code cannot authorize mass renewal.
   const rolloutTargets=parsePanelRolloutTargets(Deno.env.get("PAINEL_RECARGA_ROLLOUT_TARGETS"));
+  // Independent kill switch: code deployment alone NEVER enables all clients.
+  const generalFlag=Deno.env.get("PAINEL_RECARGA_GENERAL_ENABLED")==="true";
   const rolloutEnabled=Deno.env.get("PAINEL_RECARGA_ROLLOUT_ENABLED")==="true"
-    &&Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")==="true"&&rolloutTargets.length>0;
+    &&Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")==="true"
+    &&(rolloutTargets.length>0||generalFlag);
+  const generalEnabled=rolloutEnabled&&generalFlag;
   if(mode==="pilot_targets")
     return reply(200,{ok:true,readOnly:true,
       targets:exclusiveWindowOpen?packagePilot:[],
       rolloutEnabled,rolloutTargets:rolloutEnabled?rolloutTargets:[],
+      generalEnabled,generalServers:generalEnabled?PANEL_ROLLOUT_SERVERS:[],
       exclusiveWindowOpen});
   if(typeof input.clientId!=="string"||!isDate(input.expectedDueDate))
     return reply(400,{ok:false,message:"Cliente e vencimento esperado obrigatórios."});
@@ -287,7 +292,10 @@ Deno.serve(async(request)=>{
   const authorizedCase=packagePilot.find(item=>
     item.clientId===customer.id&&item.server===customer.server
     &&item.expectedDueDate===expected);
-  const rolloutAuthorized=rolloutEnabled&&isPanelRolloutTarget(customer,rolloutTargets);
+  const exactRolloutAuthorized=rolloutEnabled&&isPanelRolloutTarget(customer,rolloutTargets);
+  const generalAuthorized=generalEnabled&&broadPanelRenewalEligible(customer,
+    new Date().toLocaleDateString("sv-SE",{timeZone:"America/Sao_Paulo"}));
+  const rolloutAuthorized=exactRolloutAuthorized||generalAuthorized;
   const legacyPilotAuthorized=!!authorizedCase&&exclusiveWindowOpen;
   const exclusivePilotLive=packagePilotOn
     &&Deno.env.get("PAINEL_RECARGA_LEALPAULO_PREPAID2_LIVE_ENABLED")==="true";
@@ -336,9 +344,23 @@ Deno.serve(async(request)=>{
       // Never authorize free/owner access or adjusted prices from a browser.
       if(!rolloutEnabled)
         return reply(403,{ok:false,message:"Renovação geral ainda não habilitada."});
+      // Only a single paid-month technical cycle in general rollout.
+      // New six/twelve-month sales remain scoped to explicit pilots.
+      if(generalAuthorized&&!exactRolloutAuthorized&&values.months!==1)
+        return reply(409,{ok:false,message:"Contratos novos de 6/12 meses exigem validação separada. Nenhum pedido enviado."});
       const rolloutIssue=rolloutRenewalIssue(customer,values);
       if(rolloutIssue)
         return reply(409,{ok:false,message:rolloutIssue+" Nenhum pedido enviado."});
+    }
+    // Free referral rewards must not be bypassed by a normal paid renewal.
+    if(generalAuthorized&&!exactRolloutAuthorized){
+      const {data:rewards,error:rewardError}=await userDb.from("referral_rewards")
+        .select("id").eq("client_id",customer.id).eq("reward","mes_gratis")
+        .eq("status","pendente").limit(1);
+      if(rewardError)
+        return reply(503,{ok:false,message:"Não foi possível conferir mês grátis; nenhum pedido enviado."});
+      if(rewards?.length)
+        return reply(409,{ok:false,message:"Mês grátis de indicação pendente. Confira antes de renovar no painel."});
     }
     const draftIssue=validatePanelRenewalDraft(customer,values,
       new Date().toLocaleDateString("sv-SE",{timeZone:"America/Sao_Paulo"}));
