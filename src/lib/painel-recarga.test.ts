@@ -1,7 +1,37 @@
 import {describe,it} from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
-import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO,financialTransitionError,confirmedRenewalDatesFromPanel,validatePanelRenewalDraft,parsePanelPilotBatch,parsePanelRolloutTargets,isPanelRolloutTarget,broadPanelRenewalEligible,PANEL_GENERAL_SERVERS,HUMBERTO_OVERDUE_PILOT,humbertoOverdueIssue,rolloutRenewalIssue,lealPauloPackage6Issue,LEAL_PAULO_PACKAGE6,lealPauloPrepaidSecondIssue,LEAL_PAULO_PREPAID_SECOND} from "./painel-recarga";
+import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO,financialTransitionError,confirmedRenewalDatesFromPanel,validatePanelRenewalDraft,parsePanelPilotBatch,parsePanelRolloutTargets,isPanelRolloutTarget,broadPanelRenewalEligible,PANEL_GENERAL_SERVERS,broadOverdueEligible,generalOverdueRenewalIssue,HUMBERTO_OVERDUE_PILOT,humbertoOverdueIssue,rolloutRenewalIssue,lealPauloPackage6Issue,LEAL_PAULO_PACKAGE6,lealPauloPrepaidSecondIssue,LEAL_PAULO_PREPAID_SECOND} from "./painel-recarga";
+
+describe("General overdue payment-day rule",()=>{
+  const c={server:"Five",due_date:"2026-11-05",financial_due_date:"2026-11-05",
+    access_type:"padrao",paid:0,cost:0,prev_paid:35,prev_cost:6.5};
+  const v={months:1,dueDate:"2026-12-10",financialDueDate:"2026-12-10",cost:6.5,
+    monthlyPaid:35,prevPaid:35,paymentAmount:35,paymentCost:6.5,paymentDate:"2026-11-10",
+    pilotKind:"overdue"};
+  it("includes legitimate overdue customers but not free, Elite or prepaid",()=>{
+    assert.equal(broadOverdueEligible(c,"2026-11-10"),true);
+    for(const invalid of [{...c,server:"Elite"},{...c,access_type:"meu_acesso"},
+      {...c,prev_paid:0},{...c,prev_cost:0},{...c,paid:35},
+      {...c,financial_due_date:"2027-01-05"}])
+      assert.equal(broadOverdueEligible(invalid,"2026-11-10"),false);
+  });
+  it("starts the anniversary on the payment day, not the expired due",()=>{
+    assert.equal(generalOverdueRenewalIssue(c,v,"2026-11-10"),null);
+    for(const invalid of [{...v,paymentDate:"2026-11-11"},{...v,paymentDate:"2026-11-05"},
+      {...v,dueDate:"2026-12-05"},{...v,financialDueDate:"2026-12-11"},
+      {...v,paymentAmount:30},{...v,cost:0},{...v,pilotKind:"unpaid"},{...v,months:6}])
+      assert.ok(generalOverdueRenewalIssue(c,invalid,"2026-11-10"));
+    assert.equal(generalOverdueRenewalIssue(c,
+      {...v,paymentDate:"2026-11-09",dueDate:"2026-12-09",financialDueDate:"2026-12-09"},"2026-11-10"),null);
+  });
+  it("stops without local posting when the panel renews to a different date",()=>{
+    const ok=confirmedRenewalDatesFromPanel(c,v,"2026-12-10","2026-11-05","2026-11-10");
+    assert.deepEqual(ok,{dueDate:"2026-12-10",financialDueDate:"2026-12-10",blockedReason:null});
+    assert.ok(confirmedRenewalDatesFromPanel(c,v,"2026-12-05","2026-11-05","2026-11-10").blockedReason);
+    assert.ok(confirmedRenewalDatesFromPanel(c,v,"2026-12-10","2026-11-06","2026-11-10").blockedReason);
+  });
+});
 
 describe("Humberto overdue-paid one-client canary, no provider call",()=>{
   const paid={id:HUMBERTO_OVERDUE_PILOT.clientId,login:"HumbertoFelipe",server:"Five",
@@ -28,7 +58,7 @@ describe("Humberto overdue-paid one-client canary, no provider call",()=>{
     const ui=readFileSync(new URL("../routes/_authenticated/renovacoes.tsx",import.meta.url),"utf8");
     assert.match(edge,/PAINEL_RECARGA_HUMBERTO_OVERDUE_ENABLED/);
     const shared=readFileSync(new URL("../../supabase/functions/_shared/painel-recarga.ts",import.meta.url),"utf8");
-    assert.equal(shared.split('paymentAmount:number;monthlyPaid:number;paymentCost:number;pilotKind?:"unpaid"|"overdue";').length-1,2);
+    assert.equal(shared.split('paymentAmount:number;monthlyPaid:number;paymentCost:number;paymentDate?:string;pilotKind?:"unpaid"|"overdue";').length-1,2);
     assert.match(edge,/outcome\.nextDue!==HUMBERTO_OVERDUE_PILOT\.nextDueDate/);
     assert.match(edge,/state:"needs_review"/);
     assert.match(ui,/isOverdueTarget\(client,pilotTargetsQuery\.data\)/);

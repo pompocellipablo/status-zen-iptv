@@ -150,6 +150,51 @@ export function humbertoOverdueIssue(
 }
 
 /**
+ * Late monthly payments are authorized only after explicit owner confirmation.
+ * The ordinary due_date/paid/cost record remains untouched until the provider
+ * confirms a single real cycle and local settlement succeeds.
+ */
+export function broadOverdueEligible(
+  client:{server:string;due_date:string;financial_due_date:string|null;
+    access_type:string|null;paid:number;cost:number;prev_paid:number;prev_cost:number},
+  todayISO:string,
+):boolean{
+  const due=panelDateToISO(client.due_date);
+  const finance=panelDateToISO(client.financial_due_date??undefined);
+  const now=panelDateToISO(todayISO);
+  return !!due&&!!finance&&!!now&&due<now&&finance===due
+    &&PANEL_GENERAL_SERVERS.includes(client.server as typeof PANEL_GENERAL_SERVERS[number])
+    &&client.access_type==="padrao"&&client.paid===0&&client.cost===0
+    &&Number.isFinite(client.prev_paid)&&client.prev_paid>0
+    &&Number.isFinite(client.prev_cost)&&client.prev_cost>0;
+}
+export function generalOverdueRenewalIssue(
+  client:{server:string;due_date:string;financial_due_date:string|null;
+    access_type:string|null;paid:number;cost:number;prev_paid:number;prev_cost:number},
+  values:{months:number;dueDate:string;financialDueDate:string;cost:number;
+    monthlyPaid:number;prevPaid:number;paymentAmount:number;paymentCost:number;
+    paymentDate?:string;pilotKind?:string},
+  todayISO:string,
+):string|null{
+  if(!broadOverdueEligible(client,todayISO))
+    return "Cliente fora das regras para mensalidade vencida.";
+  const paymentDate=panelDateToISO(values.paymentDate);
+  const today=panelDateToISO(todayISO);
+  if(!paymentDate||!today||paymentDate<=client.due_date||paymentDate>today)
+    return "A data do pagamento precisa ser posterior ao vencimento e não pode estar no futuro.";
+  const projected=addMonthsISO(paymentDate,1);
+  if(!projected||projected<=today)
+    return "O pagamento informado não cobre um novo ciclo; conciliação manual necessária.";
+  if(values.pilotKind!=="overdue"||values.months!==1
+    ||values.dueDate!==projected||values.financialDueDate!==projected
+    ||values.cost!==client.prev_cost||values.monthlyPaid!==client.prev_paid
+    ||values.prevPaid!==client.prev_paid||values.paymentAmount!==client.prev_paid
+    ||values.paymentCost!==client.prev_cost)
+    return "Valores ou prazo não correspondem ao pagamento e ao histórico.";
+  return null;
+}
+
+/**
  * Dedicated, fail-closed package test. Only the owner can enable its private
  * Edge Function flag; this identifier is not a credential or a client-side
  * authorization. It never enables the general rollout.
@@ -318,7 +363,7 @@ export function validatePanelRenewalDraft(
   client:{due_date:string;financial_due_date:string|null;access_type?:string|null;paid?:number},
   values:{
     months:number;dueDate:string;financialDueDate:string;
-    paymentAmount:number;monthlyPaid:number;paymentCost:number;pilotKind?:"unpaid"|"overdue";
+    paymentAmount:number;monthlyPaid:number;paymentCost:number;paymentDate?:string;pilotKind?:"unpaid"|"overdue";
   },
   todayISO:string,
 ):string|null {
@@ -391,7 +436,7 @@ export function confirmedRenewalDatesFromPanel(
   client: {due_date:string;financial_due_date:string|null},
   values: {
     months:number;dueDate:string;financialDueDate:string;
-    paymentAmount:number;monthlyPaid:number;paymentCost:number;pilotKind?:"unpaid"|"overdue";
+    paymentAmount:number;monthlyPaid:number;paymentCost:number;paymentDate?:string;pilotKind?:"unpaid"|"overdue";
   },
   providerNextDue:string|undefined,
   providerPreviousDue:string|undefined,
@@ -428,6 +473,13 @@ export function confirmedRenewalDatesFromPanel(
       return blocked("O vencimento anterior informado pelo painel difere da MaxFlix. Revise antes de atualizar.");
   }
 
+  if(values.pilotKind==="overdue"){
+    if(currentFinance!==client.due_date||values.months!==1
+      ||values.paymentAmount<=0||values.monthlyPaid<=0
+      ||values.financialDueDate!==values.dueDate||newDue!==values.dueDate)
+      return blocked("Vencido: painel não confirmou a cobertura financeira da data recebida.");
+    return {dueDate:newDue,financialDueDate:values.financialDueDate,blockedReason:null};
+  }
   if(values.pilotKind==="unpaid"){
     if(currentFinance!==client.due_date||values.months!==1
       ||values.paymentAmount!==0||values.monthlyPaid!==0||values.paymentCost!==0
