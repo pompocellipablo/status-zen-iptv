@@ -32,5 +32,13 @@ jobs:
       - name: Validar vencimentos, auditoria e Painel Recarga
         run: bun test src/lib/iptv.test.ts src/lib/server-panel-audit.test.ts src/lib/painel-recarga.test.ts
 
+      - name: Preparar Deno para validação real das Edge Functions
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Verificar tipos da Edge Function (sem deploy ou execução)
+        run: deno check supabase/functions/painel-recarga-renovar/index.ts
+
       - name: Compilar a aplicação (sem deploy)
         run: bun run build
