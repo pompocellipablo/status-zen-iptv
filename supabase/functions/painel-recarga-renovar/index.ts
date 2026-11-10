@@ -11,7 +11,7 @@
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
-  buildPanelRecargaBody, confirmedRenewalDatesFromPanel, financialTransitionError, panelRouteForClient, parsePanelRecargaResponse, validatePanelRenewalDraft, parsePanelPilotBatch, parsePanelRolloutTargets, isPanelRolloutTarget, broadPanelRenewalEligible, PANEL_GENERAL_SERVERS, HUMBERTO_OVERDUE_PILOT, humbertoOverdueIssue,
+  buildPanelRecargaBody, confirmedRenewalDatesFromPanel, financialTransitionError, panelRouteForClient, parsePanelRecargaResponse, validatePanelRenewalDraft, parsePanelPilotBatch, parsePanelRolloutTargets, isPanelRolloutTarget, broadPanelRenewalEligible, broadOverdueEligible, generalOverdueRenewalIssue, PANEL_GENERAL_SERVERS, HUMBERTO_OVERDUE_PILOT, humbertoOverdueIssue, panelDateToISO,
   RECARGA_BASE_URL, rolloutRenewalIssue, LEAL_PAULO_PREPAID_SECOND, lealPauloPrepaidSecondIssue, type ExternalOutcome,
 } from "../_shared/painel-recarga.ts";
 
@@ -26,7 +26,7 @@ const reply=(status:number,payload:Record<string,unknown>)=>
   new Response(JSON.stringify(payload),{status,headers});
 type Mode="simulate"|"check_simulation"|"preflight"|"renew"|"check"|"pilot_targets";
 type ClientRow={id:string;name:string;login:string;server:string;due_date:string;financial_due_date:string|null;access_type:string|null;paid:number;cost:number;prev_paid:number;prev_cost:number};
-type Options={months:number;dueDate:string;financialDueDate:string;cost:number;monthlyPaid:number;prevPaid:number;paymentAmount:number;paymentCost:number;pilotKind?:"unpaid"|"overdue"};
+type Options={months:number;dueDate:string;financialDueDate:string;cost:number;monthlyPaid:number;prevPaid:number;paymentAmount:number;paymentCost:number;pilotKind?:"unpaid"|"overdue";paymentDate?:string};
 type Job={
   id:string;client_id:string|null;login:string;server:string;expected_due_date:string;
   new_due_date:string;financial_due_date:string;idempotency_key:string;
@@ -49,6 +49,8 @@ function parseLocalOptions(input:unknown):Options|null{
     if(!safeNumber(o[key]))return null;
   }
   if(o.pilotKind!==undefined&&o.pilotKind!=="unpaid"&&o.pilotKind!=="overdue")return null;
+  if(o.pilotKind==="overdue"&&!isDate(o.paymentDate))return null;
+  if(o.pilotKind!=="overdue"&&o.paymentDate!==undefined)return null;
   return o as unknown as Options;
 }
 
@@ -113,6 +115,10 @@ Deno.serve(async(request)=>{
   const generalEnabled=rolloutEnabled&&generalFlag;
   // Free renewals require a second, exact-client owner allowlist.
   const freeCanaryTargets=parsePanelRolloutTargets(Deno.env.get("PAINEL_RECARGA_FREE_TARGETS"));
+  // Permanent overdue workflow is a SECOND independent, default-off switch.
+  // Publishing code never permits payments on expired accounts.
+  const generalOverdueEnabled=generalEnabled
+    &&Deno.env.get("PAINEL_RECARGA_OVERDUE_GENERAL_ENABLED")==="true";
   const overdueEnabled=generalEnabled
     &&Deno.env.get("PAINEL_RECARGA_HUMBERTO_OVERDUE_ENABLED")==="true";
   const overdueDay=new Date().toLocaleDateString("sv-SE",{timeZone:"America/Sao_Paulo"});
@@ -133,6 +139,7 @@ Deno.serve(async(request)=>{
       targets:exclusiveWindowOpen?packagePilot:[],
       freeTargets:freePilotCases,
       overdueTarget,
+      generalOverdueEnabled,
       rolloutEnabled,rolloutTargets:rolloutEnabled?rolloutTargets:[],
       generalEnabled,generalServers:generalEnabled?PANEL_GENERAL_SERVERS:[],
       exclusiveWindowOpen});
@@ -160,10 +167,15 @@ Deno.serve(async(request)=>{
     if(!values)
       return reply(400,{ok:false,previewOnly:true,message:"Plano, valores ou vencimentos inválidos."});
     if(values.pilotKind==="overdue"){
-      if(!overdueTarget)return reply(403,{ok:false,previewOnly:true,
-        message:"Piloto vencido não habilitado. Nenhum pedido enviado."});
-      const issue=humbertoOverdueIssue(customer,values,overdueDay);
-      if(issue)return reply(409,{ok:false,previewOnly:true,message:issue});
+      const exact=!!overdueTarget&&customer.id===overdueTarget.clientId
+        &&customer.server===overdueTarget.server
+        &&customer.due_date===overdueTarget.expectedDueDate;
+      const issue=exact?humbertoOverdueIssue(customer,values,overdueDay)
+        :generalOverdueEnabled
+          ?generalOverdueRenewalIssue(customer,values,overdueDay)
+          :"Mensalidades vencidas ainda não estão habilitadas para renovação integrada.";
+      if(issue)return reply(403,{ok:false,previewOnly:true,pilotRestricted:true,
+        message:issue+" Nenhum pedido enviado."});
     }
     const selectedCase=authorizedPilots.find(item=>
       item.clientId===customer.id&&item.server===customer.server
@@ -182,6 +194,15 @@ Deno.serve(async(request)=>{
       new Date().toLocaleDateString("sv-SE",{timeZone:"America/Sao_Paulo"}));
     if(issue)
       return reply(409,{ok:false,previewOnly:true,message:issue});
+    if(values.pilotKind==="overdue"){
+      const {data:paid,error:paidError}=await userDb.from("payments")
+        .select("id").eq("client_id",customer.id)
+        .gt("paid_at",customer.due_date).limit(1);
+      if(paidError)return reply(503,{ok:false,previewOnly:true,
+        message:"Não foi possível conferir pagamentos anteriores. Nenhum pedido enviado."});
+      if(paid?.length)return reply(409,{ok:false,previewOnly:true,
+        message:"Já existe pagamento posterior ao vencimento registrado. Concilie para evitar duplicidade."});
+    }
     const {data:existing,error:existingError}=await userDb.from("external_renewal_jobs")
       .select("id,state").eq("client_id",customer.id)
       .eq("expected_due_date",expected).maybeSingle();
@@ -328,12 +349,13 @@ Deno.serve(async(request)=>{
   const rolloutAuthorized=exactRolloutAuthorized||generalAuthorized;
   const overdueAuthorized=!!overdueTarget&&customer.id===overdueTarget.clientId
     &&customer.server===overdueTarget.server&&customer.due_date===overdueTarget.expectedDueDate;
+  const generalOverdueAuthorized=generalOverdueEnabled&&broadOverdueEligible(customer,overdueDay);
   const freeAuthorized=freePilotCases.some(t=>t.clientId===customer.id
     &&t.server===customer.server&&t.expectedDueDate===expected);
   const legacyPilotAuthorized=!!authorizedCase&&exclusiveWindowOpen;
   const exclusivePilotLive=packagePilotOn
     &&Deno.env.get("PAINEL_RECARGA_LEALPAULO_PREPAID2_LIVE_ENABLED")==="true";
-  if(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized&&!overdueAuthorized)
+  if(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized&&!overdueAuthorized&&!generalOverdueAuthorized)
     return reply(403,{ok:false,disabled:true,pilotRestricted:true,
       message:"Cliente e vencimento fora da liberação controlada. Nenhum pedido enviado."});
   if(Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")!=="true"
@@ -355,7 +377,7 @@ Deno.serve(async(request)=>{
   // A "check" replays the provider POST under the SAME idempotency key.
   // If the original job never left "created", revoking rollout permission
   // must not let a status check initiate a NEW external renewal.
-  if(mode==="check"&&job?.state==="created"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized&&!overdueAuthorized)
+  if(mode==="check"&&job?.state==="created"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized&&!overdueAuthorized&&!generalOverdueAuthorized)
     return reply(403,{ok:false,disabled:true,pilotRestricted:true,
       message:"Autorização revogada antes do primeiro envio. Nenhum pedido externo enviado."});
   if(mode==="renew"&&!job){
@@ -367,8 +389,9 @@ Deno.serve(async(request)=>{
     const values=parseLocalOptions(input.options);
     if(!values||values.dueDate<=expected||values.financialDueDate<values.dueDate)
       return reply(400,{ok:false,message:"Datas, valores ou período da renovação inválidos."});
-    if(overdueAuthorized){
-      const issue=humbertoOverdueIssue(customer,values,overdueDay);
+    if(overdueAuthorized||generalOverdueAuthorized){
+      const issue=overdueAuthorized?humbertoOverdueIssue(customer,values,overdueDay)
+        :generalOverdueRenewalIssue(customer,values,overdueDay);
       if(issue)return reply(409,{ok:false,pilotRestricted:true,message:issue});
     }else if(freeAuthorized){
       if(values.pilotKind!=="unpaid"||values.months!==1
@@ -399,7 +422,7 @@ Deno.serve(async(request)=>{
       if(rolloutIssue)
         return reply(409,{ok:false,message:rolloutIssue+" Nenhum pedido enviado."});
     }
-    if(overdueAuthorized){
+    if(overdueAuthorized||generalOverdueAuthorized){
       const {data:rewards,error:rewardsError}=await userDb.from("referral_rewards")
         .select("id").eq("client_id",customer.id).eq("reward","mes_gratis")
         .eq("status","pendente").limit(1);
@@ -421,6 +444,17 @@ Deno.serve(async(request)=>{
     if(draftIssue)return reply(409,{ok:false,message:draftIssue});
     const financeError=financialTransitionError(customer,values);
     if(financeError)return reply(409,{ok:false,message:financeError});
+    if(overdueAuthorized||generalOverdueAuthorized){
+      // The owner may have recorded the payment manually since preflight;
+      // never send a new provider request and later duplicate the receipt.
+      const {data:paid,error:paidError}=await userDb.from("payments")
+        .select("id").eq("client_id",customer.id)
+        .gt("paid_at",customer.due_date).limit(1);
+      if(paidError)return reply(503,{ok:false,
+        message:"Histórico de pagamentos indisponível. Nenhum pedido enviado."});
+      if(paid?.length)return reply(409,{ok:false,
+        message:"Pagamento posterior ao vencimento já registrado. Não renovar em duplicidade."});
+    }
     // The API cycles are not the same as months paid to MaxFlix.
     // We must consume a single credit in the panel and local ledger per click.
     const payload={
@@ -550,9 +584,9 @@ Deno.serve(async(request)=>{
   };
   if(outcome.status==="confirmed"){
     if(job.local_values?.pilotKind==="overdue"
-      &&outcome.nextDue!==HUMBERTO_OVERDUE_PILOT.nextDueDate){
-      const message="Five confirmou um vencimento diferente de 10/12/2026. "
-        +"Não lançar pagamento nem renovar novamente: concilie primeiro a cobertura do Humberto.";
+      &&panelDateToISO(outcome.nextDue)!==job.local_values.dueDate){
+      const message="O servidor confirmou vencimento diferente da data contratual após o pagamento. "
+        +"O pedido externo pode ter sido executado. Não lance pagamento nem renove novamente; concilie primeiro.";
       await updateJob({...common,state:"needs_review",external_message:message});
       return reply(409,{ok:false,externalConfirmed:true,needsReview:true,
         orderId:outcome.orderId,providerDue:outcome.nextDue??null,message});
