@@ -1,20 +1,20 @@
 import {describe,it} from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
-import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO,financialTransitionError,confirmedRenewalDatesFromPanel,validatePanelRenewalDraft,parsePanelPilotBatch,rolloutRenewalIssue,lealPauloPackage6Issue,LEAL_PAULO_PACKAGE6,lealPauloPrepaidSecondIssue,LEAL_PAULO_PREPAID_SECOND} from "./painel-recarga";
+import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO,financialTransitionError,confirmedRenewalDatesFromPanel,validatePanelRenewalDraft,parsePanelPilotBatch,parsePanelRolloutTargets,isPanelRolloutTarget,rolloutRenewalIssue,lealPauloPackage6Issue,LEAL_PAULO_PACKAGE6,lealPauloPrepaidSecondIssue,LEAL_PAULO_PREPAID_SECOND} from "./painel-recarga";
 
 describe("Rollout opt-in guards (no real requests)",()=>{
   const client={due_date:"2026-11-11",financial_due_date:"2026-11-11",
     access_type:"padrao",paid:35,cost:6,prev_paid:35};
   const monthly={months:1,dueDate:"2026-12-11",financialDueDate:"2026-12-11",
     cost:6,monthlyPaid:35,prevPaid:35,paymentAmount:35,paymentCost:6};
-  it("uses two independent server flags and never sends real requests after code publication alone",()=>{
+  it("requires two independent live flags plus a private client list",()=>{
     const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
     assert.match(edge,/PAINEL_RECARGA_ROLLOUT_ENABLED/);
     assert.match(edge,/PAINEL_RECARGA_LIVE_ENABLED/);
-    assert.match(edge,/if\(!authorizedCase\)/);
-    assert.match(edge,/rolloutRenewalIssue\(customer,values\)/);
-    assert.match(edge,/rolloutEnabled:false/);
+    assert.match(edge,/PAINEL_RECARGA_ROLLOUT_TARGETS/);
+    assert.match(edge,/rolloutEnabled&&isPanelRolloutTarget\(customer,rolloutTargets\)/);
+    assert.match(edge,/rolloutTargets:rolloutEnabled\?rolloutTargets:\[\]/);
   });
   it("permits one paid monthly cycle only at exact price and cost",()=>{
     assert.equal(rolloutRenewalIssue(client,monthly),null);
@@ -584,17 +584,14 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
   });
   const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
   const screen=readFileSync(new URL("../routes/_authenticated/renovacoes.tsx",import.meta.url),"utf8");
-  it("backend requires global live flag AND exact batch case before provider renewal",()=>{
-    const live=edge.indexOf('if(Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")!=="true"&&!exclusivePilotLive)');
-    const guard=edge.indexOf('// SIX-SERVER BATCH PILOT');
+  it("backend gates renewals before the provider or job reservation",()=>{
+    const guard=edge.indexOf('// Exact per-client, server and ORIGINAL due-date gate');
     const reserve=edge.indexOf('// For live operations, persist a stable idempotency key');
-    assert.ok(live>0&&guard>live&&reserve>guard);
-    const code=edge.slice(guard,reserve);
-    assert.match(code,/mode==="renew"/);
-    assert.match(code,/item\.clientId===customer\.id/);
-    assert.match(code,/item\.server===customer\.server/);
-    assert.match(code,/item\.expectedDueDate===expected/);
-    assert.match(code,/return reply\(403/);
+    assert.ok(guard>0&&reserve>guard);
+    const block=edge.slice(guard,reserve);
+    assert.match(block,/if\(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized\)/);
+    assert.match(block,/PAINEL_RECARGA_LIVE_ENABLED/);
+    assert.match(block,/return reply\(403/);
   });
   it("keeps authorizedCase in function scope before both renewal guards",()=>{
     // Regression: a const inside if(mode==="renew") caused HTTP 500
@@ -613,7 +610,7 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
       edge.indexOf('// The API cycles are not the same as months'));
     assert.match(block,/const amountsMatch=lealPauloPrepaidSecondIssue\(customer,values\)===null/);
     assert.match(block,/if\(!amountsMatch\)/);
-    assert.match(edge,/if\(!authorizedCase\)/);
+    assert.match(edge,/if\(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized\)/);
   });
   it("read-only authorized targets do not call providers or mutate ledger",()=>{
     const begin=edge.indexOf('if(mode==="pilot_targets")');
@@ -710,56 +707,52 @@ describe("Exact LealPaulo six-month pilot (no provider calls)",()=>{
     assert.match(edge,/const amountsMatch=lealPauloPrepaidSecondIssue\(customer,values\)===null/);
     assert.match(edge,/lealPauloPrepaidSecondIssue\(customer,values\)/);
     assert.match(edge,/PAINEL_RECARGA_LIVE_ENABLED/);
-    assert.match(edge,/if\(!authorizedCase\)/);
+    assert.match(edge,/if\(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized\)/);
     assert.match(screen,/pilotPackage6\s*\?\s*6\s*:\s*1/);
     assert.match(screen,/const isScopedPackageCandidate=/);
-    assert.match(screen,/PANEL_PILOT_UI_ENABLED\|\|isScopedPackageCandidate\(c\)/);
+    assert.match(screen,/ROLLOUT_CANARY_SERVERS\.has\(c\.server\)/);
     assert.match(screen,/opts\.months!==6\|\|opts\.paid!==150/);
     assert.match(screen,/mode:"preflight"/);
   });
 });
 
-describe("Temporary exclusive LealPaulo access (static backend security)",()=>{
+describe("Exact-client rollout controls and expired legacy pilot",()=>{
   const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
-  it("hides old batch pilots and mass rollout from real-use discovery",()=>{
+  const target={clientId:"11111111-1111-4111-8111-111111111111",server:"Club",expectedDueDate:"2026-12-10"};
+  it("fails closed for missing or malformed allowlist, duplicate clients and untested servers",()=>{
+    assert.deepEqual(parsePanelRolloutTargets(undefined),[]);
+    assert.deepEqual(parsePanelRolloutTargets("invalid"),[]);
+    assert.deepEqual(parsePanelRolloutTargets(JSON.stringify([])),[]);
+    for(const server of ["GF","Fast","All Play","Elite","unknown"])
+      assert.deepEqual(parsePanelRolloutTargets(JSON.stringify([{...target,server}])),[]);
+    assert.deepEqual(parsePanelRolloutTargets(JSON.stringify([{...target,extra:true}])),[]);
+    assert.deepEqual(parsePanelRolloutTargets(JSON.stringify([{...target,clientId:"abc"}])),[]);
+    assert.deepEqual(parsePanelRolloutTargets(JSON.stringify([target,target])),[]);
+    assert.deepEqual(parsePanelRolloutTargets(JSON.stringify(Array.from({length:9},(_,i)=>({
+      ...target,clientId:`11111111-1111-4111-8111-${String(i).padStart(12,"0")}`,
+    })))),[]);
+  });
+  it("authorizes only exact ID, server and original due date",()=>{
+    const list=parsePanelRolloutTargets(JSON.stringify([target]));
+    assert.equal(list.length,1);
+    assert.equal(isPanelRolloutTarget({id:target.clientId,server:"Club",due_date:"2026-12-10"},list),true);
+    assert.equal(isPanelRolloutTarget({id:target.clientId,server:"Five",due_date:"2026-12-10"},list),false);
+    assert.equal(isPanelRolloutTarget({id:target.clientId,server:"Club",due_date:"2027-01-10"},list),false);
+    assert.equal(isPanelRolloutTarget({id:"22222222-2222-4222-8222-222222222222",server:"Club",due_date:"2026-12-10"},list),false);
+  });
+  it("owner-only target discovery is read only and never returns raw secrets",()=>{
     const begin=edge.indexOf('if(mode==="pilot_targets")');
     const end=edge.indexOf('if(typeof input.clientId',begin);
     assert.ok(begin>0&&end>begin);
-    const body=edge.slice(begin,end);
-    assert.match(body,/targets:packagePilot/);
-    assert.match(body,/rolloutEnabled:false/);
-    assert.doesNotMatch(body,/targets:authorizedPilots/);
+    const preview=edge.slice(begin,end);
+    assert.match(preview,/readOnly:true/);
+    assert.match(preview,/rolloutTargets:rolloutEnabled\?rolloutTargets:\[\]/);
+    assert.match(preview,/targets:exclusiveWindowOpen\?packagePilot:\[\]/);
+    assert.doesNotMatch(preview,/fetch\(|\.insert\(|\.update\(/);
   });
-  it("blocks every other client and old pilot before job access/provider POST",()=>{
-    const gate=edge.indexOf('if((mode==="renew"||mode==="check")&&(');
-    const jobs=edge.indexOf('const {data:stored,error:queryError}');
-    const provider=edge.indexOf('response=await fetch(base+route.path',jobs);
-    assert.ok(gate>0&&gate<jobs&&jobs<provider);
-    const check=edge.slice(gate,jobs);
-    assert.match(check,/!packagePilotOn/);
-    assert.match(check,/customer\.id!==LEAL_PAULO_PREPAID_SECOND\.clientId/);
-    assert.match(check,/customer\.login!=="LealPaulo"/);
-    assert.match(check,/customer\.server!==LEAL_PAULO_PREPAID_SECOND\.server/);
-    assert.match(check,/expected!==LEAL_PAULO_PREPAID_SECOND\.expectedDueDate/);
-    assert.match(check,/return reply\(403/);
-    assert.match(check,/mode==="renew"&&!exclusiveWindowOpen/);
-  });
-  it("enables only a new scoped secret without changing the old global live flag",()=>{
-    const gate=edge.indexOf('if((mode==="renew"||mode==="check")&&(');
-    const scoped=edge.indexOf('const exclusivePilotLive=packagePilotOn');
-    const request=edge.indexOf('const {data:stored,error:queryError}');
-    assert.ok(gate>0 && scoped>gate && request>scoped);
-    assert.match(edge,/PAINEL_RECARGA_LEALPAULO_PREPAID2_LIVE_ENABLED/);
-    assert.match(edge,/if\(Deno\.env\.get\("PAINEL_RECARGA_LIVE_ENABLED"\)!=="true"&&!exclusivePilotLive\)/);
-    assert.match(edge,/liveEnabled:packagePilotOn&&exclusiveWindowOpen/);
-    assert.match(edge,/const authorizedCase=packagePilot\.find/);
-  });
-  it("closes new renewals at 03:00 BRT, while allowing same-job check reconciliation",()=>{
+  it("does not reactivate LealPaulo's expired window",()=>{
     assert.match(edge,/Date\.parse\("2026-11-07T06:00:00Z"\)/);
-    assert.match(edge,/const exclusiveWindowOpen=Date\.now\(\)<exclusiveLiveUntilMs/);
-    assert.match(edge,/if\(mode==="renew"&&!exclusiveWindowOpen\)/);
-    assert.doesNotMatch(edge,/mode==="check"&&!exclusiveWindowOpen/);
-    assert.match(edge,/liveEnabled:packagePilotOn&&exclusiveWindowOpen/);
+    assert.match(edge,/!!authorizedCase&&exclusiveWindowOpen/);
     assert.match(edge,/mode==="check"&&!job/);
   });
 });
