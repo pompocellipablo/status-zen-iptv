@@ -11,7 +11,7 @@
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
-  buildPanelRecargaBody, confirmedRenewalDatesFromPanel, financialTransitionError, panelRouteForClient, parsePanelRecargaResponse, validatePanelRenewalDraft, parsePanelPilotBatch, parsePanelRolloutTargets, isPanelRolloutTarget, broadPanelRenewalEligible, PANEL_ROLLOUT_SERVERS,
+  buildPanelRecargaBody, confirmedRenewalDatesFromPanel, financialTransitionError, panelRouteForClient, parsePanelRecargaResponse, validatePanelRenewalDraft, parsePanelPilotBatch, parsePanelRolloutTargets, isPanelRolloutTarget, broadPanelRenewalEligible, PANEL_GENERAL_SERVERS,
   RECARGA_BASE_URL, rolloutRenewalIssue, LEAL_PAULO_PREPAID_SECOND, lealPauloPrepaidSecondIssue, type ExternalOutcome,
 } from "../_shared/painel-recarga.ts";
 
@@ -99,7 +99,12 @@ Deno.serve(async(request)=>{
   const authorizedPilots=[...batchPilotCases,...packagePilot];
   // A separate, default-off rollout switch is required in addition to the
   // global live switch. Publishing this code cannot authorize mass renewal.
-  const rolloutTargets=parsePanelRolloutTargets(Deno.env.get("PAINEL_RECARGA_ROLLOUT_TARGETS"));
+  const oldRolloutTargets=parsePanelRolloutTargets(Deno.env.get("PAINEL_RECARGA_ROLLOUT_TARGETS"));
+  // Separate target list: Fast/All Play remain excluded from the daily rollout.
+  const canaryTargets=parsePanelRolloutTargets(Deno.env.get("PAINEL_RECARGA_CANARY_TARGETS"));
+  const rolloutTargets=[...oldRolloutTargets,...canaryTargets];
+  const canaryTargetIds=new Set(rolloutTargets.map(t=>t.clientId));
+  if(canaryTargetIds.size!==rolloutTargets.length)rolloutTargets.length=0;
   // Independent kill switch: code deployment alone NEVER enables all clients.
   const generalFlag=Deno.env.get("PAINEL_RECARGA_GENERAL_ENABLED")==="true";
   const rolloutEnabled=Deno.env.get("PAINEL_RECARGA_ROLLOUT_ENABLED")==="true"
@@ -110,7 +115,7 @@ Deno.serve(async(request)=>{
     return reply(200,{ok:true,readOnly:true,
       targets:exclusiveWindowOpen?packagePilot:[],
       rolloutEnabled,rolloutTargets:rolloutEnabled?rolloutTargets:[],
-      generalEnabled,generalServers:generalEnabled?PANEL_ROLLOUT_SERVERS:[],
+      generalEnabled,generalServers:generalEnabled?PANEL_GENERAL_SERVERS:[],
       exclusiveWindowOpen});
   if(typeof input.clientId!=="string"||!isDate(input.expectedDueDate))
     return reply(400,{ok:false,message:"Cliente e vencimento esperado obrigatórios."});

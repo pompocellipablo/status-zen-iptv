@@ -328,3 +328,6 @@ Não disponibilizar o modo geral em produção até publicar e verificar
 **ambas** as versões: front-end e função backend, confirmar testes
 estáticos/de tipagem e então configurar a chave nova. Nenhum clique
 de renovação será executado pela implantação em si.
+
+## 10/11/2026 — Fast e All Play em piloto individual
+As duas rotas responderam à consulta sem consumo: Fast JoseAdelson, due 13/11/2026 (pacote pago até 13/01/2027); All Play AraujoDiogo, due 01/12/2026, mensal R$35. O código agora aceita ambos **somente no Secret PAINEL_RECARGA_CANARY_TARGETS**, com ID, servidor e vencimento exatos; Fast e All Play não entram na lista de 7 servidores gerais até a primeira renovação real homologada. Nenhuma renovação é automática. Não usar o cliente próprio b44474rbx da Fast cujo vencimento no painel estava diferente. A nova chave somente autoriza a ação quando há confirmação humana e todas as verificações do fluxo de renovação.

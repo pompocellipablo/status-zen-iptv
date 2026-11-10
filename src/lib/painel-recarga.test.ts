@@ -1,7 +1,7 @@
 import {describe,it} from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
-import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO,financialTransitionError,confirmedRenewalDatesFromPanel,validatePanelRenewalDraft,parsePanelPilotBatch,parsePanelRolloutTargets,isPanelRolloutTarget,broadPanelRenewalEligible,rolloutRenewalIssue,lealPauloPackage6Issue,LEAL_PAULO_PACKAGE6,lealPauloPrepaidSecondIssue,LEAL_PAULO_PREPAID_SECOND} from "./painel-recarga";
+import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO,financialTransitionError,confirmedRenewalDatesFromPanel,validatePanelRenewalDraft,parsePanelPilotBatch,parsePanelRolloutTargets,isPanelRolloutTarget,broadPanelRenewalEligible,PANEL_GENERAL_SERVERS,rolloutRenewalIssue,lealPauloPackage6Issue,LEAL_PAULO_PACKAGE6,lealPauloPrepaidSecondIssue,LEAL_PAULO_PREPAID_SECOND} from "./painel-recarga";
 
 describe("Rollout opt-in guards (no real requests)",()=>{
   const client={due_date:"2026-11-11",financial_due_date:"2026-11-11",
@@ -14,6 +14,8 @@ describe("Rollout opt-in guards (no real requests)",()=>{
     assert.match(edge,/PAINEL_RECARGA_LIVE_ENABLED/);
     assert.match(edge,/PAINEL_RECARGA_ROLLOUT_TARGETS/);
     assert.match(edge,/PAINEL_RECARGA_GENERAL_ENABLED/);
+    assert.match(edge,/PAINEL_RECARGA_CANARY_TARGETS/);
+    assert.match(edge,/generalEnabled\?PANEL_GENERAL_SERVERS:\[\]/);
     assert.match(edge,/generalEnabled&&broadPanelRenewalEligible\(customer,/);
     assert.match(edge,/rolloutTargets:rolloutEnabled\?rolloutTargets:\[\]/);
   });
@@ -741,11 +743,14 @@ describe("Exact-client rollout controls and expired legacy pilot",()=>{
     assert.deepEqual(parsePanelRolloutTargets(undefined),[]);
     assert.deepEqual(parsePanelRolloutTargets("invalid"),[]);
     assert.deepEqual(parsePanelRolloutTargets(JSON.stringify([])),[]);
-    for(const server of ["Fast","All Play","Elite","unknown"])
+    for(const server of ["Elite","unknown"])
       assert.deepEqual(parsePanelRolloutTargets(JSON.stringify([{...target,server}])),[]);
     assert.deepEqual(parsePanelRolloutTargets(JSON.stringify([{...target,extra:true}])),[]);
     assert.deepEqual(parsePanelRolloutTargets(JSON.stringify([{...target,clientId:"abc"}])),[]);
     assert.deepEqual(parsePanelRolloutTargets(JSON.stringify([target,target])),[]);
+    assert.equal(parsePanelRolloutTargets(JSON.stringify([{...target,server:"Fast"}])).length,1);
+    assert.equal(parsePanelRolloutTargets(JSON.stringify([{...target,server:"All Play"}])).length,1);
+    assert.deepEqual(PANEL_GENERAL_SERVERS,["Club","Five","Uniplay","UniP2P","Blade","Now","GF"]);
     assert.deepEqual(parsePanelRolloutTargets(JSON.stringify(Array.from({length:9},(_,i)=>({
       ...target,clientId:`11111111-1111-4111-8111-${String(i).padStart(12,"0")}`,
     })))),[]);

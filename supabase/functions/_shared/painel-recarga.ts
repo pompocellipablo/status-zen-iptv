@@ -62,8 +62,10 @@ export const PANEL_PILOT_BATCH_SERVERS=[
   "Five","Uniplay","UniP2P","Blade","Now","All Play",
 ] as const;
 
-/** Paid rollout: only previously homologated servers, at most eight exact client cycles. */
-export const PANEL_ROLLOUT_SERVERS=["Club","Five","Uniplay","UniP2P","Blade","Now","GF"] as const;
+/** Daily homologated services. Fast and All Play require exact single-client canaries. */
+export const PANEL_GENERAL_SERVERS=["Club","Five","Uniplay","UniP2P","Blade","Now","GF"] as const;
+/** The exact-client canary allowlist additionally supports Fast and All Play. */
+export const PANEL_ROLLOUT_SERVERS=[...PANEL_GENERAL_SERVERS,"Fast","All Play"] as const;
 export type PanelRolloutTarget={clientId:string;server:typeof PANEL_ROLLOUT_SERVERS[number];expectedDueDate:string};
 export function parsePanelRolloutTargets(raw:string|undefined|null):PanelRolloutTarget[]{
   if(!raw||raw.length>4096)return [];
@@ -102,7 +104,7 @@ export function broadPanelRenewalEligible(
     access_type:string|null;paid:number;cost:number},
   todayISO:string,
 ):boolean{
-  if(!PANEL_ROLLOUT_SERVERS.includes(client.server as typeof PANEL_ROLLOUT_SERVERS[number]))return false;
+  if(!PANEL_GENERAL_SERVERS.includes(client.server as typeof PANEL_GENERAL_SERVERS[number]))return false;
   if(!["padrao","pacote_pago"].includes(client.access_type??""))return false;
   if(!Number.isFinite(client.cost)||client.cost<=0)return false;
   const due=panelDateToISO(client.due_date);
