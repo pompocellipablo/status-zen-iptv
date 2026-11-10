@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/select";
 import { paginateClients } from "@/lib/client-pagination";
 import { panelRouteForClient } from "@/lib/painel-recarga";
-import { sortClients, type ClientSortMode } from "@/lib/client-sort";
+import { defaultClientSortMode, sortClients, type ClientSortMode } from "@/lib/client-sort";
 import { MessageCircle, MoreHorizontal, RefreshCw, Search } from "lucide-react";
 import {
   DropdownMenu,
@@ -133,7 +133,8 @@ function Painel() {
   useEffect(() => setServerFilter(selectedServer ?? "todos"), [selectedServer]);
   const [accessFilter, setAccessFilter] = useState(selectedAccess ?? "todos");
   useEffect(() => setAccessFilter(selectedAccess ?? "todos"),[selectedAccess]);
-  const [sortMode, setSortMode] = useState<ClientSortMode>("vencimento-asc");
+  const [sortMode, setSortMode] = useState<ClientSortMode>(() => defaultClientSortMode(selectedTab));
+  useEffect(() => { setSortMode(defaultClientSortMode(tab)); }, [tab]);
   const [page, setPage] = useState(1);
   const [formOpen, setFormOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);

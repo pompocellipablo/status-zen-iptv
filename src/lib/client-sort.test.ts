@@ -1,6 +1,6 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { sortClients } from "./client-sort.ts";
+import { defaultClientSortMode, sortClients } from "./client-sort.ts";
 import { paginateClients } from "./client-pagination.ts";
 
 const clients = [
@@ -18,6 +18,11 @@ describe("client sorting", () => {
   test("preserves chronological sort used previously, in both directions", () => {
     assert.deepEqual(sortClients(clients, "vencimento-asc").map(c=>c.login), ["login10", "login2", "alpha", "zeta"]);
     assert.deepEqual(sortClients(clients, "vencimento-desc").map(c=>c.login), ["zeta", "alpha", "login2", "login10"]);
+  });
+  test("opens expired clients with their most recent expiration first", () => {
+    assert.equal(defaultClientSortMode("vencidos"), "vencimento-desc");
+    assert.equal(defaultClientSortMode("todos"), "vencimento-asc");
+    assert.deepEqual(sortClients(clients, defaultClientSortMode("vencidos")).map(c=>c.login), ["zeta", "alpha", "login2", "login10"]);
   });
   test("sorts the complete filtered list before pagination", () => {
     const sample = Array.from({ length: 52 }, (_,i) => ({

@@ -169,7 +169,7 @@ function ServersPage() {
       if(mode==="ativos"&&!active)return false;
       if(mode==="vencidos"&&active)return false;
       return !term||[c.name,c.login].join(" ").toLocaleLowerCase("pt-BR").includes(term);
-    }).sort((a,b)=>a.due_date.localeCompare(b.due_date)||a.name.localeCompare(b.name,"pt-BR"));
+    }).sort((a,b)=>(mode==="vencidos" ? b.due_date.localeCompare(a.due_date) : a.due_date.localeCompare(b.due_date))||a.name.localeCompare(b.name,"pt-BR"));
   },[serverClients,mode,search]);
   const audit=useMemo(()=>exported?auditServerAccounts(serverClients,exported.accounts):null,[serverClients,exported]);
   // Exclude expired accounts only from automated requests; retain them in

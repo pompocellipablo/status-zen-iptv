@@ -8,6 +8,11 @@ export type ClientSortMode =
 type SortableClient = { name: string; login: string; due_date: string };
 const collator = new Intl.Collator("pt-BR", { numeric: true, sensitivity: "base" });
 
+/** Show the newest expiration first when opening the expired-client list. */
+export function defaultClientSortMode(tab: string): ClientSortMode {
+  return tab === "vencidos" ? "vencimento-desc" : "vencimento-asc";
+}
+
 export function sortClients<T extends SortableClient>(clients: readonly T[], mode: ClientSortMode): T[] {
   const [field, direction] = mode.split("-") as ["vencimento" | "login", "asc" | "desc"];
   const order = direction === "desc" ? -1 : 1;
