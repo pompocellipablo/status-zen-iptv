@@ -637,7 +637,7 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
     const reserve=edge.indexOf('const payload={',guard);
     assert.ok(guard>0&&reserve>guard);
     const block=edge.slice(guard,reserve);
-    assert.match(block,/if\(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized\)/);
+    assert.match(block,/if\(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized\)/);
     assert.match(block,/PAINEL_RECARGA_LIVE_ENABLED/);
     assert.match(block,/return reply\(403/);
   });
