@@ -69,7 +69,7 @@ const isGeneralTarget=(client:Client,config:PanelPilotConfig|undefined)=>
   &&!!panelRouteForClient(client.server)
   &&(client.access_type==="padrao"||client.access_type==="pacote_pago")
   &&Number(client.cost)>0
-  &&!!client.financial_due_date&&client.due_date>=today()
+  &&!!client.financial_due_date&&client.due_date>=toISODate(today())
   &&client.financial_due_date>=client.due_date
   &&((client.financial_due_date===client.due_date&&Number(client.paid)>0)
     ||(client.financial_due_date>client.due_date
