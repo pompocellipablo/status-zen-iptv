@@ -330,7 +330,13 @@ export function rolloutRenewalIssue(
     return "Cobertura financeira ausente ou anterior ao vencimento técnico.";
   const previousPaid=client.prev_paid||client.paid;
   if(finance>client.due_date){
-    if(values.months!==1||values.financialDueDate!==finance||
+    // A prepaid cycle must advance exactly ONE calendar month. Previously
+    // this first guard allowed an arbitrary multi-month projected due date
+    // provided it remained inside coverage; later safeguards blocked it.
+    // Reject it immediately before any provider job is reserved.
+    const nextTechnical=addMonthsISO(client.due_date,1);
+    if(!nextTechnical||values.dueDate!==nextTechnical||
+       values.months!==1||values.financialDueDate!==finance||
        values.dueDate>finance||values.paymentAmount!==0||values.paymentCost!==0||
        values.monthlyPaid!==0||values.prevPaid!==client.prev_paid)
       return "Pacote ativo: somente um ciclo técnico dentro da cobertura, sem outro pagamento.";
