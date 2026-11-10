@@ -233,3 +233,45 @@ Nenhuma chave ou token deve ser registrado no GitHub ou neste documento.
   efetivamente pago, requerer confirmação explícita e autorizar um
   piloto limitado para cada servidor. Não acionar POST de renovação real
   ou criar pagamentos apenas para testar a rota.
+
+
+## 10/11/2026 — liberação controlada implementada (DESLIGADA)
+
+O código deixou de depender exclusivamente do piloto LealPaulo (cuja janela
+se encerrou em 07/11/2026). A nova rota de renovação real exige **três
+autorizações simultâneas no backend**:
+
+- `PAINEL_RECARGA_LIVE_ENABLED=true`, autorização geral para tráfego real;
+- `PAINEL_RECARGA_ROLLOUT_ENABLED=true`, autorização separada de rollout;
+- `PAINEL_RECARGA_ROLLOUT_TARGETS`, JSON privado e válido, com 1 a 8 objetos
+  exatos do formato `{"clientId":"UUID","server":"Club","expectedDueDate":"AAAA-MM-DD"}`.
+
+O token principal `PAINEL_RECARGA_TOKEN` e
+`PAINEL_RECARGA_ENABLED=true` continuam necessários. A lista aceita
+somente Club, Five, Uniplay IPTV (`Uniplay`), UniP2P, Blade ou Now.
+**GF, Fast, All Play e Elite ficam excluídos** até a homologação específica.
+Não colocar segredos nem configurações reais da lista no GitHub.
+
+A autorização depende simultaneamente de **ID, servidor e data técnica
+anterior**. O próximo vencimento muda depois de renovar e a autorização
+antiga deixa de servir automaticamente. Listas ausentes, grandes,
+duplicadas, malformadas ou com servidores não homologados são recusadas.
+
+A consulta `pilot_targets` é autenticada, restrita ao proprietário e
+somente de leitura. Mostra apenas autorizações habilitadas; não gera pedido,
+não grava pagamentos e não revela token do fornecedor. O botão da
+MaxFlix fica integrado apenas para esses clientes; cada tentativa passa
+por pré-validação e confirmação explícita no navegador, e o backend
+revalida todas as condições antes de usar um crédito técnico.
+
+**Nenhum secret foi ativado nesta implementação; não foram feitas
+renovações reais.** Antes do primeiro uso, publicar a Edge Function com as
+proteções, conferir `pilot_targets` com integração desligada, homologar
+um cliente pagante específico e obter nova autorização explícita para o
+pedido real.
+
+**Limitação conhecida:** clientes vencidos têm `paid/cost` frequentemente
+zerados pelo processo de baixa; não podem usar o rollout inicial como
+se os valores históricos fossem um pagamento novo. Adequar esse fluxo
+com validação própria antes de liberar vencidos. Acessos gratuitos,
+gratificações por indicação e servidores não homologados continuam fora.
