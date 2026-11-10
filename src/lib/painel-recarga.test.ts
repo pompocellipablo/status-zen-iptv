@@ -3,6 +3,20 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO,financialTransitionError,confirmedRenewalDatesFromPanel,validatePanelRenewalDraft,parsePanelPilotBatch,parsePanelRolloutTargets,isPanelRolloutTarget,broadPanelRenewalEligible,PANEL_GENERAL_SERVERS,broadOverdueEligible,generalOverdueRenewalIssue,HUMBERTO_OVERDUE_PILOT,humbertoOverdueIssue,rolloutRenewalIssue,lealPauloPackage6Issue,LEAL_PAULO_PACKAGE6,lealPauloPrepaidSecondIssue,LEAL_PAULO_PREPAID_SECOND} from "./painel-recarga";
 
+describe("SQL overdue paid settlement contract (not applied)",()=>{
+  const s=readFileSync(new URL("../../supabase/migrations/20261110220000_general_overdue_paid_settlement.sql",import.meta.url),"utf8");
+  it("is owner-scoped and idempotent and prevents duplicate cash entries",()=>{
+    assert.match(s,/v_job\.state <> 'external_confirmed'/);
+    assert.match(s,/v_values->>'pilotKind' = 'overdue'/);
+    assert.match(s,/v_payment_date <= v_client\.due_date/);
+    assert.match(s,/v_job\.new_due_date <> v_expected_due/);
+    assert.match(s,/p\.paid_at>v_client\.due_date/);
+    assert.match(s,/COALESCE\(v_payment_date,v_business_date\)/);
+    assert.match(s,/INSERT INTO public\.server_credit_movements/);
+    assert.match(s,/SECURITY INVOKER/);
+  });
+});
+
 describe("General overdue payment-day rule",()=>{
   const c={server:"Five",due_date:"2026-11-05",financial_due_date:"2026-11-05",
     access_type:"padrao",paid:0,cost:0,prev_paid:35,prev_cost:6.5};
