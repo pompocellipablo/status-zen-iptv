@@ -318,7 +318,7 @@ export function validatePanelRenewalDraft(
   client:{due_date:string;financial_due_date:string|null;access_type?:string|null;paid?:number},
   values:{
     months:number;dueDate:string;financialDueDate:string;
-    paymentAmount:number;monthlyPaid:number;paymentCost:number;pilotKind?:"unpaid";
+    paymentAmount:number;monthlyPaid:number;paymentCost:number;pilotKind?:"unpaid"|"overdue";
   },
   todayISO:string,
 ):string|null {
@@ -391,7 +391,7 @@ export function confirmedRenewalDatesFromPanel(
   client: {due_date:string;financial_due_date:string|null},
   values: {
     months:number;dueDate:string;financialDueDate:string;
-    paymentAmount:number;monthlyPaid:number;paymentCost:number;pilotKind?:"unpaid";
+    paymentAmount:number;monthlyPaid:number;paymentCost:number;pilotKind?:"unpaid"|"overdue";
   },
   providerNextDue:string|undefined,
   providerPreviousDue:string|undefined,
