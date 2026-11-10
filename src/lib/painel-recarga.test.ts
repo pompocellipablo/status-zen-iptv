@@ -61,7 +61,7 @@ describe("Humberto overdue-paid one-client canary, no provider call",()=>{
     assert.match(edge,/generalOverdueRenewalIssue/);
     const shared=readFileSync(new URL("../../supabase/functions/_shared/painel-recarga.ts",import.meta.url),"utf8");
     assert.equal(shared.split('paymentAmount:number;monthlyPaid:number;paymentCost:number;paymentDate?:string;pilotKind?:"unpaid"|"overdue";').length-1,2);
-    assert.match(edge,/outcome\.nextDue!==HUMBERTO_OVERDUE_PILOT\.nextDueDate/);
+    assert.match(edge,/panelDateToISO\(outcome\.nextDue\)!==job\.local_values\.dueDate/);
     assert.match(edge,/state:"needs_review"/);
     assert.match(ui,/isOverdueTarget\(client,pilotTargetsQuery\.data\)/);
     assert.match(ui,/mode:"preflight"/);
