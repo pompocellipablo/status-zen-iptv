@@ -1423,6 +1423,18 @@ function Painel() {
             &&t.expectedDueDate===previewClient.due_date)?.kind} />
       )}
 
+      {overdueRenewing && (
+        <OverduePaidDialog key={overdueRenewing.id}
+          client={overdueRenewing} saving={renewingBusy}
+          onClose={()=>setOverdueRenewing(null)}
+          onConfirm={(date)=>{
+            const current=overdueRenewing;
+            setOverdueRenewing(null);
+            void confirmPanelPilot(current,{months:1,cost:Number(current.prev_cost),
+              paid:Number(current.prev_paid),monthlyCost:Number(current.prev_cost),
+              monthlyPaid:Number(current.prev_paid)},date);
+          }}/>
+      )}
       {renewing && (
         <RenewDialog
           client={renewing}
@@ -1450,6 +1462,48 @@ function Painel() {
       )}
     </div>
   );
+}
+
+/** A receipt must be declared explicitly, with the actual Pix/transfer date.
+ * This screen is not permission to send a provider order by itself.
+ */
+function OverduePaidDialog({client,saving,onClose,onConfirm}:{
+  client:Client;saving:boolean;onClose:()=>void;onConfirm:(paymentDate:string)=>void;
+}){
+  const [paymentDate,setPaymentDate]=useState(toISODate(today()));
+  const [received,setReceived]=useState(false);
+  const validDate=/^\d{4}-\d{2}-\d{2}$/.test(paymentDate)
+    &&paymentDate>client.due_date&&paymentDate<=toISODate(today());
+  const newDate=validDate
+    ?nextDueDate(client.due_date,new Date(paymentDate+"T00:00:00")):null;
+  const valid=validDate&&!!newDate&&newDate>toISODate(today())
+    &&Number(client.prev_paid)>0&&Number(client.prev_cost)>0;
+  return <div className="fixed inset-0 z-50 overflow-y-auto bg-background/80 p-4 backdrop-blur-sm">
+    <section className="mx-auto mt-10 max-w-md rounded-2xl bg-panel2 p-6 ring-1 ring-line"
+      aria-label="Confirmar mensalidade vencida">
+      <h2 className="text-xl font-semibold">Renovação vencida — {client.name}</h2>
+      <p className="mt-2 text-sm text-mist">Servidor: {client.server}. Vencimento anterior: {formatDate(client.due_date)}.</p>
+      <p className="mt-2 text-sm">Mensalidade recebida: {formatBRL(Number(client.prev_paid))}</p>
+      <p className="text-sm">Custo técnico: {formatBRL(Number(client.prev_cost))}</p>
+      <label htmlFor="overdue-paid-on" className="mt-4 block text-sm">Data real de recebimento</label>
+      <input id="overdue-paid-on" type="date" value={paymentDate}
+        min={client.due_date} max={toISODate(today())}
+        onChange={e=>setPaymentDate(e.target.value)}
+        className="mt-2 w-full rounded-lg bg-panel px-3 py-2 text-frost ring-1 ring-line"/>
+      <p className="mt-3 text-sm">Vencimento esperado: <strong>{newDate?formatDate(newDate):"Data inválida"}</strong>.</p>
+      <p className="mt-2 text-xs text-mist">O servidor precisa confirmar exatamente essa data. Se for diferente, será exigida conciliação e não se deve clicar novamente.</p>
+      <label className="mt-4 flex items-start gap-3 text-sm">
+        <input type="checkbox" checked={received}
+          onChange={e=>setReceived(e.target.checked)}/>
+        <span>Confirmo que recebi {formatBRL(Number(client.prev_paid))} na data informada e ainda não registrei este recebimento na MaxFlix.</span>
+      </label>
+      <div className="mt-5 flex gap-3">
+        <Button type="button" disabled={!valid||!received||saving}
+          onClick={()=>onConfirm(paymentDate)}>Pré-validar renovação no painel</Button>
+        <Button type="button" variant="outline" disabled={saving} onClick={onClose}>Cancelar</Button>
+      </div>
+    </section>
+  </div>;
 }
 
 function ServerReportDialog({ report, financialsHidden, onClose }: { report: Array<{
