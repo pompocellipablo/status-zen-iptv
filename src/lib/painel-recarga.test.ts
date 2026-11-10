@@ -3,6 +3,34 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO,financialTransitionError,confirmedRenewalDatesFromPanel,validatePanelRenewalDraft,parsePanelPilotBatch,parsePanelRolloutTargets,isPanelRolloutTarget,broadPanelRenewalEligible,PANEL_GENERAL_SERVERS,rolloutRenewalIssue,lealPauloPackage6Issue,LEAL_PAULO_PACKAGE6,lealPauloPrepaidSecondIssue,LEAL_PAULO_PREPAID_SECOND} from "./painel-recarga";
 
+describe("Free GF exact-client canary with zero revenue",()=>{
+  const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
+  it("requires private unpaid targets and a separate default-off switch",()=>{
+    assert.match(edge,/PAINEL_RECARGA_FREE_TARGETS/);
+    assert.match(edge,/PAINEL_RECARGA_FREE_ENABLED/);
+    assert.match(edge,/freeCanaryEnabled=generalEnabled/);
+    assert.match(edge,/freePilotCases\.some\(t=>t\.clientId===customer\.id/);
+    assert.match(edge,/values\.pilotKind!=="unpaid"/);
+    assert.match(edge,/customer\.paid!==0/);
+    assert.match(edge,/customer\.prev_paid!==0/);
+    assert.match(edge,/values\.paymentAmount!==0/);
+    assert.match(edge,/values\.paymentCost!==0/);
+  });
+  it("the isolated ledger only debits one credit and does not insert payment",()=>{
+    const sql=readFileSync(new URL("../../supabase/migrations/20261110211000_free_gf_owner_canary.sql",import.meta.url),"utf8");
+    assert.match(sql,/f3e78796-e1ee-444b-8481-6a53d999441a/);
+    assert.match(sql,/v_values->>'pilotKind' IS DISTINCT FROM 'unpaid'/);
+    assert.doesNotMatch(sql,/INSERT INTO public\.payments/);
+    assert.match(sql,/INSERT INTO public\.server_credit_movements/);
+  });
+  it("UI only offers free renewal from the server-authorized target",()=>{
+    const screen=readFileSync(new URL("../routes/_authenticated/renovacoes.tsx",import.meta.url),"utf8");
+    assert.match(screen,/item\.kind==="unpaid"/);
+    assert.match(screen,/data\.freeTargets/);
+    assert.match(edge,/freeTargets:freePilotCases/);
+  });
+});
+
 describe("Rollout opt-in guards (no real requests)",()=>{
   const client={due_date:"2026-11-11",financial_due_date:"2026-11-11",
     access_type:"padrao",paid:35,cost:6,prev_paid:35};
@@ -630,7 +658,7 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
       edge.indexOf('// The API cycles are not the same as months'));
     assert.match(block,/const amountsMatch=lealPauloPrepaidSecondIssue\(customer,values\)===null/);
     assert.match(block,/if\(!amountsMatch\)/);
-    assert.match(edge,/if\(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized\)/);
+    assert.match(edge,/if\(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized\)/);
   });
   it("read-only authorized targets do not call providers or mutate ledger",()=>{
     const begin=edge.indexOf('if(mode==="pilot_targets")');
@@ -727,7 +755,7 @@ describe("Exact LealPaulo six-month pilot (no provider calls)",()=>{
     assert.match(edge,/const amountsMatch=lealPauloPrepaidSecondIssue\(customer,values\)===null/);
     assert.match(edge,/lealPauloPrepaidSecondIssue\(customer,values\)/);
     assert.match(edge,/PAINEL_RECARGA_LIVE_ENABLED/);
-    assert.match(edge,/if\(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized\)/);
+    assert.match(edge,/if\(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized\)/);
     assert.match(screen,/pilotPackage6\s*\?\s*6\s*:\s*1/);
     assert.match(screen,/const isScopedPackageCandidate=/);
     assert.match(screen,/ROLLOUT_CANARY_SERVERS\.has\(c\.server\)/);
