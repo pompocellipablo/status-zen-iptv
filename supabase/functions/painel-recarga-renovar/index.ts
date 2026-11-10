@@ -11,7 +11,7 @@
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
-  buildPanelRecargaBody, confirmedRenewalDatesFromPanel, financialTransitionError, panelRouteForClient, parsePanelRecargaResponse, validatePanelRenewalDraft, parsePanelPilotBatch,
+  buildPanelRecargaBody, confirmedRenewalDatesFromPanel, financialTransitionError, panelRouteForClient, parsePanelRecargaResponse, validatePanelRenewalDraft, parsePanelPilotBatch, parsePanelRolloutTargets, isPanelRolloutTarget,
   RECARGA_BASE_URL, rolloutRenewalIssue, LEAL_PAULO_PREPAID_SECOND, lealPauloPrepaidSecondIssue, type ExternalOutcome,
 } from "../_shared/painel-recarga.ts";
 
@@ -99,13 +99,13 @@ Deno.serve(async(request)=>{
   const authorizedPilots=[...batchPilotCases,...packagePilot];
   // A separate, default-off rollout switch is required in addition to the
   // global live switch. Publishing this code cannot authorize mass renewal.
+  const rolloutTargets=parsePanelRolloutTargets(Deno.env.get("PAINEL_RECARGA_ROLLOUT_TARGETS"));
   const rolloutEnabled=Deno.env.get("PAINEL_RECARGA_ROLLOUT_ENABLED")==="true"
-    &&Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")==="true";
+    &&Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")==="true"&&rolloutTargets.length>0;
   if(mode==="pilot_targets")
     return reply(200,{ok:true,readOnly:true,
-      // Deliberately hide all older pilot targets and bulk rollout even if
-      // their secrets happen to be enabled when the global live flag changes.
-      targets:packagePilot,rolloutEnabled:false,
+      targets:exclusiveWindowOpen?packagePilot:[],
+      rolloutEnabled,rolloutTargets:rolloutEnabled?rolloutTargets:[],
       exclusiveWindowOpen});
   if(typeof input.clientId!=="string"||!isDate(input.expectedDueDate))
     return reply(400,{ok:false,message:"Cliente e vencimento esperado obrigatórios."});
@@ -283,50 +283,28 @@ Deno.serve(async(request)=>{
       note:"Consulta sem renovação, pagamento ou consumo de crédito da MaxFlix."});
   }
 
-  // One-client emergency isolation is applied BEFORE any renewal job lookup
-  // or provider request, independently of the old batch/rollout secrets.
-  // Check is permitted for this client even after expiry to reconcile a
-  // previously created job; renew is not.
-  if((mode==="renew"||mode==="check")&&(
-    !packagePilotOn ||
-    customer.id!==LEAL_PAULO_PREPAID_SECOND.clientId ||
-    customer.login!=="LealPaulo" ||
-    customer.server!==LEAL_PAULO_PREPAID_SECOND.server ||
-    expected!==LEAL_PAULO_PREPAID_SECOND.expectedDueDate))
-    return reply(403,{ok:false,disabled:true,pilotRestricted:true,
-      message:"Modo exclusivo: somente o ciclo autorizado de LealPaulo pode acessar renovações reais. Nenhum pedido enviado."});
-  if(mode==="renew"&&!exclusiveWindowOpen)
-    return reply(403,{ok:false,disabled:true,pilotRestricted:true,
-      message:"A janela temporária do piloto LealPaulo terminou. Nenhuma nova renovação enviada."});
-  // Existing global live switch remains OFF. This NEW separately revocable
-  // secret enables ONLY the exact six-month LealPaulo case; the scoped owner,
-  // server, due date and automatic expiry guards above must pass first.
-  const exclusivePilotLive=packagePilotOn
-    &&Deno.env.get("PAINEL_RECARGA_LEALPAULO_PREPAID2_LIVE_ENABLED")==="true";
-  if(Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")!=="true"&&!exclusivePilotLive)
-    return reply(503,{ok:false,disabled:true,message:"Renovação real ainda bloqueada. Use apenas o modo simulação."});
-
-  // SIX-SERVER BATCH PILOT. The single private secret grants at most ONE
-  // exact client + due date per supported provider. The public UI has
-  // no authority; disabled or invalid batch configuration fails closed.
-  // Existing 'check' requests remain able to reconcile already-issued jobs.
-  // Keep the exact authorized case in scope for the subsequent real-renewal
-  // financial guards. Previously it was declared inside the if block, causing
-  // ReferenceError before reserving the job and contacting the provider.
+  // Exact per-client, server and ORIGINAL due-date gate before any new order.
   const authorizedCase=packagePilot.find(item=>
     item.clientId===customer.id&&item.server===customer.server
     &&item.expectedDueDate===expected);
+  const rolloutAuthorized=rolloutEnabled&&isPanelRolloutTarget(customer,rolloutTargets);
+  const legacyPilotAuthorized=!!authorizedCase&&exclusiveWindowOpen;
+  const exclusivePilotLive=packagePilotOn
+    &&Deno.env.get("PAINEL_RECARGA_LEALPAULO_PREPAID2_LIVE_ENABLED")==="true";
+  if(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized)
+    return reply(403,{ok:false,disabled:true,pilotRestricted:true,
+      message:"Cliente e vencimento fora da liberação controlada. Nenhum pedido enviado."});
+  if(Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")!=="true"
+    &&!(exclusivePilotLive&&!!authorizedCase))
+    return reply(503,{ok:false,disabled:true,
+      message:"Renovação real bloqueada. Use apenas o modo simulação."});
   if(mode==="renew"){
-    if(!authorizedCase)
-      return reply(403,{ok:false,pilotRestricted:true,
-        message:"Apenas o segundo ciclo técnico já pago de LealPaulo está autorizado. Nenhum pedido enviado."});
     if(authorizedCase?.kind!=="prepaid2" &&
        authorizedCase&&customer.financial_due_date!==customer.due_date)
       return reply(409,{ok:false,pilotRestricted:true,
         message:"Lote piloto inicial apenas para clientes mensais sem pacote ativo."});
   }
 
-  // For live operations, persist a stable idempotency key BEFORE the provider call.
   const {data:stored,error:queryError}=await userDb.from("external_renewal_jobs")
     .select("*").eq("client_id",customer.id).eq("expected_due_date",expected).maybeSingle();
   if(queryError)return reply(503,{ok:false,message:"Livro de pedidos indisponível; nenhuma renovação foi enviada."});

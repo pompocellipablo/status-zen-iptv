@@ -62,6 +62,36 @@ export const PANEL_PILOT_BATCH_SERVERS=[
   "Five","Uniplay","UniP2P","Blade","Now","All Play",
 ] as const;
 
+/** Paid rollout: only previously homologated servers, at most eight exact client cycles. */
+export const PANEL_ROLLOUT_SERVERS=["Club","Five","Uniplay","UniP2P","Blade","Now"] as const;
+export type PanelRolloutTarget={clientId:string;server:typeof PANEL_ROLLOUT_SERVERS[number];expectedDueDate:string};
+export function parsePanelRolloutTargets(raw:string|undefined|null):PanelRolloutTarget[]{
+  if(!raw||raw.length>4096)return [];
+  let value:unknown;
+  try{value=JSON.parse(raw);}catch{return [];}
+  if(!Array.isArray(value)||value.length===0||value.length>8)return [];
+  const servers=new Set<string>(PANEL_ROLLOUT_SERVERS),seen=new Set<string>();
+  const out:PanelRolloutTarget[]=[];
+  for(const item of value){
+    if(!item||typeof item!=="object"||Array.isArray(item))return [];
+    const t=item as Record<string,unknown>;
+    if(Object.keys(t).length!==3||!("clientId" in t)||!("server" in t)||!("expectedDueDate" in t)
+      ||typeof t.clientId!=="string"
+      ||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(t.clientId)
+      ||typeof t.server!=="string"||!servers.has(t.server)
+      ||typeof t.expectedDueDate!=="string"||!/^\d{4}-\d{2}-\d{2}$/.test(t.expectedDueDate)
+      ||seen.has(t.clientId))return [];
+    seen.add(t.clientId);
+    out.push({clientId:t.clientId,server:t.server as PanelRolloutTarget["server"],expectedDueDate:t.expectedDueDate});
+  }
+  return out;
+}
+export function isPanelRolloutTarget(
+  client:{id:string;server:string;due_date:string},targets:readonly PanelRolloutTarget[]
+):boolean{
+  return targets.some(t=>t.clientId===client.id&&t.server===client.server&&t.expectedDueDate===client.due_date);
+}
+
 /**
  * Dedicated, fail-closed package test. Only the owner can enable its private
  * Edge Function flag; this identifier is not a credential or a client-side
