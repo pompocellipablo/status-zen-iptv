@@ -1,7 +1,39 @@
 import {describe,it} from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
-import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO,financialTransitionError,confirmedRenewalDatesFromPanel,validatePanelRenewalDraft,parsePanelPilotBatch,parsePanelRolloutTargets,isPanelRolloutTarget,broadPanelRenewalEligible,PANEL_GENERAL_SERVERS,rolloutRenewalIssue,lealPauloPackage6Issue,LEAL_PAULO_PACKAGE6,lealPauloPrepaidSecondIssue,LEAL_PAULO_PREPAID_SECOND} from "./painel-recarga";
+import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO,financialTransitionError,confirmedRenewalDatesFromPanel,validatePanelRenewalDraft,parsePanelPilotBatch,parsePanelRolloutTargets,isPanelRolloutTarget,broadPanelRenewalEligible,PANEL_GENERAL_SERVERS,HUMBERTO_OVERDUE_PILOT,humbertoOverdueIssue,rolloutRenewalIssue,lealPauloPackage6Issue,LEAL_PAULO_PACKAGE6,lealPauloPrepaidSecondIssue,LEAL_PAULO_PREPAID_SECOND} from "./painel-recarga";
+
+describe("Humberto overdue-paid one-client canary, no provider call",()=>{
+  const paid={id:HUMBERTO_OVERDUE_PILOT.clientId,login:"HumbertoFelipe",server:"Five",
+    due_date:"2026-11-05",financial_due_date:"2026-11-05",access_type:"padrao",
+    paid:0,cost:0,prev_paid:35,prev_cost:6.5};
+  const values={months:1,dueDate:"2026-12-10",financialDueDate:"2026-12-10",cost:6.5,
+    monthlyPaid:35,prevPaid:35,paymentAmount:35,paymentCost:6.5,pilotKind:"overdue"};
+  it("accepts one exact paid restore anchored to payment date",()=>{
+    assert.equal(humbertoOverdueIssue(paid,values,"2026-11-10"),null);
+    assert.equal(humbertoOverdueIssue(paid,values,"2026-11-12"),null);
+  });
+  it("blocks any wrong account, day, amount, cost or financial month",()=>{
+    for(const client of [{...paid,id:"11111111-1111-4111-8111-111111111111"},
+      {...paid,cost:6.5},{...paid,prev_paid:0},{...paid,due_date:"2026-11-06"}])
+      assert.notEqual(humbertoOverdueIssue(client,values,"2026-11-10"),null);
+    for(const opts of [{...values,paymentAmount:0},{...values,paymentAmount:30},
+      {...values,cost:0},{...values,financialDueDate:"2026-12-05"},
+      {...values,pilotKind:"unpaid"},{...values,months:6}])
+      assert.notEqual(humbertoOverdueIssue(paid,opts,"2026-11-10"),null);
+    assert.notEqual(humbertoOverdueIssue(paid,values,"2026-11-13"),null);
+  });
+  it("keeps default-off switch, provider mismatch review and confirmation",()=>{
+    const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
+    const ui=readFileSync(new URL("../routes/_authenticated/renovacoes.tsx",import.meta.url),"utf8");
+    assert.match(edge,/PAINEL_RECARGA_HUMBERTO_OVERDUE_ENABLED/);
+    assert.match(edge,/outcome\.nextDue!==HUMBERTO_OVERDUE_PILOT\.nextDueDate/);
+    assert.match(edge,/state:"needs_review"/);
+    assert.match(ui,/isOverdueTarget\(client,pilotTargetsQuery\.data\)/);
+    assert.match(ui,/mode:"preflight"/);
+    assert.match(ui,/window\.confirm\(summary\)/);
+  });
+});
 
 describe("Free GF exact-client canary with zero revenue",()=>{
   const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
@@ -639,7 +671,7 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
     const reserve=edge.indexOf('const payload={',guard);
     assert.ok(guard>0&&reserve>guard);
     const block=edge.slice(guard,reserve);
-    assert.match(block,/if\(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized\)/);
+    assert.match(block,/if\(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized&&!overdueAuthorized\)/);
     assert.match(block,/PAINEL_RECARGA_LIVE_ENABLED/);
     assert.match(block,/return reply\(403/);
   });
@@ -660,7 +692,7 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
       edge.indexOf('// The API cycles are not the same as months'));
     assert.match(block,/const amountsMatch=lealPauloPrepaidSecondIssue\(customer,values\)===null/);
     assert.match(block,/if\(!amountsMatch\)/);
-    assert.match(edge,/if\(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized\)/);
+    assert.match(edge,/if\(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized&&!overdueAuthorized\)/);
   });
   it("read-only authorized targets do not call providers or mutate ledger",()=>{
     const begin=edge.indexOf('if(mode==="pilot_targets")');
@@ -757,7 +789,7 @@ describe("Exact LealPaulo six-month pilot (no provider calls)",()=>{
     assert.match(edge,/const amountsMatch=lealPauloPrepaidSecondIssue\(customer,values\)===null/);
     assert.match(edge,/lealPauloPrepaidSecondIssue\(customer,values\)/);
     assert.match(edge,/PAINEL_RECARGA_LIVE_ENABLED/);
-    assert.match(edge,/if\(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized\)/);
+    assert.match(edge,/if\(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized&&!overdueAuthorized\)/);
     assert.match(screen,/pilotPackage6\s*\?\s*6\s*:\s*1/);
     assert.match(screen,/const isScopedPackageCandidate=/);
     assert.match(screen,/ROLLOUT_CANARY_SERVERS\.has\(c\.server\)/);

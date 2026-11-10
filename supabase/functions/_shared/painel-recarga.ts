@@ -117,6 +117,39 @@ export function broadPanelRenewalEligible(
 }
 
 /**
+ * Exact one-client overdue-paid renewal test. No authorization for other
+ * expired clients; payment date is the new monthly anniversary.
+ */
+export const HUMBERTO_OVERDUE_PILOT={
+  clientId:"9cb4336f-5df6-4f09-9022-90bb514277c8",
+  login:"HumbertoFelipe",server:"Five",expectedDueDate:"2026-11-05",
+  paymentDate:"2026-11-10",lastTestDate:"2026-11-12",
+  nextDueDate:"2026-12-10",amount:35,cost:6.5,
+} as const;
+export function humbertoOverdueIssue(
+ client:{id:string;login:string;server:string;due_date:string;financial_due_date:string|null;
+  access_type:string|null;paid:number;prev_paid:number;cost:number;prev_cost:number},
+ values:{months:number;dueDate:string;financialDueDate:string;cost:number;
+  monthlyPaid:number;prevPaid:number;paymentAmount:number;paymentCost:number;pilotKind?:string},
+ todayISO:string,
+):string|null{
+ const t=HUMBERTO_OVERDUE_PILOT;
+ if(client.id!==t.clientId||client.login!==t.login||client.server!==t.server
+   ||client.due_date!==t.expectedDueDate||client.financial_due_date!==t.expectedDueDate
+   ||client.access_type!=="padrao"
+   ||client.paid!==0||client.cost!==0||client.prev_paid!==t.amount||client.prev_cost!==t.cost)
+   return "Cadastro do Humberto diferente do histórico vencido; nenhum pedido enviado.";
+ if(todayISO<t.paymentDate||todayISO>t.lastTestDate)
+   return "O prazo do piloto vencido expirou; nenhum pedido enviado.";
+ if(values.pilotKind!=="overdue"||values.months!==1
+   ||values.dueDate!==t.nextDueDate||values.financialDueDate!==t.nextDueDate
+   ||values.cost!==t.cost||values.monthlyPaid!==t.amount||values.prevPaid!==t.amount
+   ||values.paymentAmount!==t.amount||values.paymentCost!==t.cost)
+   return "Pagamento ou vencimento do teste vencido divergente; nenhum pedido enviado.";
+ return null;
+}
+
+/**
  * Dedicated, fail-closed package test. Only the owner can enable its private
  * Edge Function flag; this identifier is not a credential or a client-side
  * authorization. It never enables the general rollout.

@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { paginateClients } from "@/lib/client-pagination";
-import { panelRouteForClient } from "@/lib/painel-recarga";
+import { panelRouteForClient,HUMBERTO_OVERDUE_PILOT } from "@/lib/painel-recarga";
 import { defaultClientSortMode, sortClients, type ClientSortMode } from "@/lib/client-sort";
 import { MessageCircle, MoreHorizontal, RefreshCw, Search } from "lucide-react";
 import {
@@ -52,7 +52,7 @@ const PANEL_PILOT_UI_ENABLED = import.meta.env["VITE_MAXFLIX_PANEL_PILOT"] === "
 // PAINEL_RECARGA_PILOT_CLIENT_ID + PAINEL_RECARGA_PILOT_EXPECTED_DUE_DATE.
 type PanelPilotTarget={clientId:string;expectedDueDate:string;server:string;kind:"paid"|"unpaid"|"package6"|"prepaid2"};
 type PanelRolloutTarget={clientId:string;server:string;expectedDueDate:string};
-type PanelPilotConfig={targets:PanelPilotTarget[];rolloutTargets:PanelRolloutTarget[];rolloutEnabled:boolean;generalEnabled:boolean;generalServers:string[]};
+type PanelPilotConfig={targets:PanelPilotTarget[];rolloutTargets:PanelRolloutTarget[];rolloutEnabled:boolean;generalEnabled:boolean;generalServers:string[];overdueTarget:typeof HUMBERTO_OVERDUE_PILOT|null};
 const ROLLOUT_CANARY_SERVERS=new Set(["Club","Five","Uniplay","UniP2P","Blade","Now","GF","Fast","All Play"]);
 // UX-only allowlist obtained once from the owner-authorized Edge Function.
 // The private backend validates the same list independently on every renewal.
@@ -84,8 +84,20 @@ const isRolloutTarget=(client:Client,config:PanelPilotConfig|undefined)=>
     &&!!client.financial_due_date
     &&(Number(client.paid)>0||client.financial_due_date>client.due_date))
   ||isGeneralTarget(client,config);
+const isOverdueTarget=(client:Client,config:PanelPilotConfig|undefined)=>
+  config?.generalEnabled===true
+  &&config.overdueTarget?.clientId===client.id
+  &&config.overdueTarget.server===client.server
+  &&config.overdueTarget.expectedDueDate===client.due_date
+  &&toISODate(today())>=config.overdueTarget.paymentDate
+  &&toISODate(today())<=config.overdueTarget.lastTestDate
+  &&client.financial_due_date===client.due_date
+  &&client.access_type==="padrao"
+  &&Number(client.paid)===0&&Number(client.cost)===0
+  &&Number(client.prev_paid)===config.overdueTarget.amount
+  &&Number(client.prev_cost)===config.overdueTarget.cost;
 const isExternalTarget=(client:Client,config:PanelPilotConfig|undefined)=>
-  isPilotTarget(client,config?.targets??[])||isRolloutTarget(client,config);
+  isPilotTarget(client,config?.targets??[])||isRolloutTarget(client,config)||isOverdueTarget(client,config);
 // If target loading fails, never silently fall back to manual renewal for
 // this exact paid pilot before the owner-only configuration has been fetched.
 const isScopedPackageCandidate=(client:Client)=>
@@ -282,6 +294,7 @@ function Painel() {
           &&typeof target.server==="string"&&(target.kind==="paid"||target.kind==="unpaid"||target.kind==="package6"||target.kind==="prepaid2")),
         rolloutEnabled:data.rolloutEnabled===true,
         generalEnabled:data.generalEnabled===true,
+        overdueTarget:data.overdueTarget?.clientId===HUMBERTO_OVERDUE_PILOT.clientId?data.overdueTarget:null,
         generalServers:Array.isArray(data.generalServers)
           ?data.generalServers.filter((name:unknown):name is string=>typeof name==="string")
           :[],
@@ -526,6 +539,12 @@ function Painel() {
           +"Verifique o mesmo pedido antes de outra renovação.");
         return;
       }
+      if(isOverdueTarget(client,pilotTargetsQuery.data)){
+        void confirmPanelPilot(client,{months:1,cost:HUMBERTO_OVERDUE_PILOT.cost,
+          paid:HUMBERTO_OVERDUE_PILOT.amount,monthlyCost:HUMBERTO_OVERDUE_PILOT.cost,
+          monthlyPaid:HUMBERTO_OVERDUE_PILOT.amount});
+        return;
+      }
       const target=pilotTargetsQuery.data?.targets.find(t=>t.clientId===client.id
         &&t.server===client.server&&t.expectedDueDate===client.due_date);
       if(target?.kind==="unpaid"){
@@ -628,6 +647,7 @@ function Painel() {
     if(renewingBusy)return;
     const target=pilotTargetsQuery.data?.targets.find(item=>item.clientId===client.id
       &&item.expectedDueDate===client.due_date&&item.server===client.server);
+    const overdue=isOverdueTarget(client,pilotTargetsQuery.data);
     const unpaid=target?.kind==="unpaid";
     const package6=target?.kind==="package6";
     const prepaid2=target?.kind==="prepaid2";
@@ -636,7 +656,14 @@ function Painel() {
       // form values from a previous renewal or a late pilot-target fetch.
       opts={months:1,cost:6.5,paid:0,monthlyCost:6.5,monthlyPaid:0};
     }
-    if(target){
+    if(overdue){
+      if(opts.months!==1||opts.paid!==HUMBERTO_OVERDUE_PILOT.amount
+        ||opts.monthlyPaid!==HUMBERTO_OVERDUE_PILOT.amount
+        ||opts.monthlyCost!==HUMBERTO_OVERDUE_PILOT.cost){
+        setNotice("Piloto vencido: valor ou custo incompatível. Nenhum pedido enviado.");
+        return;
+      }
+    }else if(target){
       // Special case: one exact pre-paid six-month package; no other amount
       // or duration can be submitted, even before backend revalidation.
       if(package6){
@@ -693,7 +720,9 @@ function Painel() {
         return;
       }
     }
-    const {dueDate,financialDueDate}=renewalDates(client.due_date,opts.months);
+    const planned=renewalDates(client.due_date,opts.months);
+    const dueDate=overdue?HUMBERTO_OVERDUE_PILOT.nextDueDate:planned.dueDate;
+    const financialDueDate=overdue?HUMBERTO_OVERDUE_PILOT.nextDueDate:planned.financialDueDate;
     const hasPrepaidCoverage=!!client.financial_due_date&&client.financial_due_date>client.due_date;
     const covered=hasPrepaidCoverage&&client.financial_due_date!>=dueDate;
     if(hasPrepaidCoverage&&!covered){
@@ -709,6 +738,7 @@ function Painel() {
       paymentAmount:unpaid?0:(covered?0:opts.paid),
       paymentCost:unpaid?0:(covered?0:opts.cost),
       ...(unpaid?{pilotKind:"unpaid" as const}:{}),
+      ...(overdue?{pilotKind:"overdue" as const}:{}),
     };
 
     // A read-only preflight MUST succeed before even offering a real renewal.
