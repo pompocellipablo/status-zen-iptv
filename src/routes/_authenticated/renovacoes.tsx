@@ -51,7 +51,9 @@ const PANEL_PILOT_UI_ENABLED = import.meta.env["VITE_MAXFLIX_PANEL_PILOT"] === "
 // Non-secret, build-time UI configuration. Backend independently checks
 // PAINEL_RECARGA_PILOT_CLIENT_ID + PAINEL_RECARGA_PILOT_EXPECTED_DUE_DATE.
 type PanelPilotTarget={clientId:string;expectedDueDate:string;server:string;kind:"paid"|"unpaid"|"package6"|"prepaid2"};
-type PanelPilotConfig={targets:PanelPilotTarget[];rolloutEnabled:boolean};
+type PanelRolloutTarget={clientId:string;server:string;expectedDueDate:string};
+type PanelPilotConfig={targets:PanelPilotTarget[];rolloutTargets:PanelRolloutTarget[];rolloutEnabled:boolean};
+const ROLLOUT_CANARY_SERVERS=new Set(["Club","Five","Uniplay","UniP2P","Blade","Now"]);
 // UX-only allowlist obtained once from the owner-authorized Edge Function.
 // The private backend validates the same list independently on every renewal.
 const isPilotTarget=(client:Client,targets:readonly PanelPilotTarget[])=>
@@ -61,7 +63,10 @@ const isPilotTarget=(client:Client,targets:readonly PanelPilotTarget[])=>
     &&item.server===client.server);
 
 const isRolloutTarget=(client:Client,config:PanelPilotConfig|undefined)=>
-  PANEL_PILOT_UI_ENABLED&&config?.rolloutEnabled===true
+  config?.rolloutEnabled===true
+  &&config.rolloutTargets.some(target=>target.clientId===client.id
+    &&target.server===client.server&&target.expectedDueDate===client.due_date)
+  &&ROLLOUT_CANARY_SERVERS.has(client.server)
   &&!!panelRouteForClient(client.server)
   &&(client.access_type==="padrao"||client.access_type==="pacote_pago")
   &&!!client.financial_due_date
@@ -262,6 +267,11 @@ function Painel() {
           typeof target.clientId==="string"&&typeof target.expectedDueDate==="string"
           &&typeof target.server==="string"&&(target.kind==="paid"||target.kind==="unpaid"||target.kind==="package6"||target.kind==="prepaid2")),
         rolloutEnabled:data.rolloutEnabled===true,
+        rolloutTargets:Array.isArray(data.rolloutTargets)
+          ?data.rolloutTargets.filter((target:PanelRolloutTarget)=>
+            typeof target.clientId==="string"&&typeof target.expectedDueDate==="string"
+            &&typeof target.server==="string")
+          :[],
       };
     },
   });
@@ -481,6 +491,11 @@ function Painel() {
     // The ordinary Renew button uses the provider only when the backend has
     // explicitly enabled its separate rollout switch, or for exact pilots.
     // No new provider order is triggered without a second confirmation.
+    if(ROLLOUT_CANARY_SERVERS.has(client.server)&&
+      (pilotTargetsQuery.isLoading||pilotTargetsQuery.isError)){
+      setNotice("Autorização do Painel Recarga indisponível. Nenhuma renovação enviada.");
+      return;
+    }
     if(isExternalTarget(client,pilotTargetsQuery.data)){
       if(externalJobsQuery.isLoading||externalJobsQuery.isError){
         setNotice("Não foi possível conferir os pedidos externos. Aguarde o histórico antes de renovar.");
@@ -1073,7 +1088,7 @@ function Painel() {
           </div>
         )}
 
-        {(PANEL_PILOT_UI_ENABLED||pilotTargetsQuery.data?.targets.some(t=>t.kind==="package6"))&&<section className="mt-4 rounded-xl bg-panel p-3 text-sm ring-1 ring-warn/25" aria-label="Acompanhamento do piloto Painel Recarga">
+        {(PANEL_PILOT_UI_ENABLED||pilotTargetsQuery.data?.rolloutEnabled||pilotTargetsQuery.data?.targets.some(t=>t.kind==="package6"))&&<section className="mt-4 rounded-xl bg-panel p-3 text-sm ring-1 ring-warn/25" aria-label="Acompanhamento do piloto Painel Recarga">
           <p className="font-semibold text-warn">Painel Recarga — {pilotTargetsQuery.data?.rolloutEnabled?"integração supervisionada":"piloto supervisionado"}</p>
           <p className="mt-1 text-xs text-mist">Somente pedidos externos já autorizados. Verificar andamento usa a mesma chave do pedido; não cria nova autorização.</p>
           {externalJobsQuery.isError&&<p className="mt-2 text-danger">Histórico externo indisponível. Consulte o painel antes de qualquer nova renovação.</p>}
@@ -1168,7 +1183,7 @@ function Painel() {
                       <button
                         type="button"
                         disabled={renewingBusy||
-                          ((PANEL_PILOT_UI_ENABLED||isScopedPackageCandidate(c))
+                          ((PANEL_PILOT_UI_ENABLED||isScopedPackageCandidate(c)||ROLLOUT_CANARY_SERVERS.has(c.server))
                             &&!!panelRouteForClient(c.server)
                             &&(pilotTargetsQuery.isLoading||pilotTargetsQuery.isError))||
                           (isExternalTarget(c,pilotTargetsQuery.data)
