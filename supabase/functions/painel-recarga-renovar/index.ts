@@ -310,6 +310,12 @@ Deno.serve(async(request)=>{
   if(queryError)return reply(503,{ok:false,message:"Livro de pedidos indisponível; nenhuma renovação foi enviada."});
   let job=stored as Job|null;
   if(mode==="check"&&!job)return reply(404,{ok:false,message:"Nenhum pedido anterior para este cliente e ciclo."});
+  // A "check" replays the provider POST under the SAME idempotency key.
+  // If the original job never left "created", revoking rollout permission
+  // must not let a status check initiate a NEW external renewal.
+  if(mode==="check"&&job?.state==="created"&&!rolloutAuthorized&&!legacyPilotAuthorized)
+    return reply(403,{ok:false,disabled:true,pilotRestricted:true,
+      message:"Autorização revogada antes do primeiro envio. Nenhum pedido externo enviado."});
   if(mode==="renew"&&!job){
     if(input.confirm!==true)return reply(400,{ok:false,message:"Confirmação explícita obrigatória para renovar."});
     if(customer.due_date!==expected)
