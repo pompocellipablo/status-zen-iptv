@@ -58,7 +58,7 @@ const ROLLOUT_CANARY_SERVERS=new Set(["Club","Five","Uniplay","UniP2P","Blade","
 // The private backend validates the same list independently on every renewal.
 const isPilotTarget=(client:Client,targets:readonly PanelPilotTarget[])=>
   targets.some(item=>
-    (PANEL_PILOT_UI_ENABLED||item.kind==="package6"||item.kind==="prepaid2")
+    (PANEL_PILOT_UI_ENABLED||item.kind==="package6"||item.kind==="prepaid2"||item.kind==="unpaid")
     &&item.clientId===client.id&&item.expectedDueDate===client.due_date
     &&item.server===client.server);
 
@@ -276,7 +276,8 @@ function Painel() {
       if(error||data?.ok!==true||data?.readOnly!==true||!Array.isArray(data.targets))
         throw Error("Lista segura de pilotos indisponível.");
       return {
-        targets:data.targets.filter((target:PanelPilotTarget)=>
+        targets:[...data.targets,...(Array.isArray(data.freeTargets)?data.freeTargets:[])]
+          .filter((target:PanelPilotTarget)=>
           typeof target.clientId==="string"&&typeof target.expectedDueDate==="string"
           &&typeof target.server==="string"&&(target.kind==="paid"||target.kind==="unpaid"||target.kind==="package6"||target.kind==="prepaid2")),
         rolloutEnabled:data.rolloutEnabled===true,

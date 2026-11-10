@@ -111,9 +111,20 @@ Deno.serve(async(request)=>{
     &&Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")==="true"
     &&(rolloutTargets.length>0||generalFlag);
   const generalEnabled=rolloutEnabled&&generalFlag;
+  // Free renewals require a second, exact-client owner allowlist.
+  const freeCanaryTargets=parsePanelRolloutTargets(Deno.env.get("PAINEL_RECARGA_FREE_TARGETS"));
+  const freeCanaryEnabled=generalEnabled
+    &&Deno.env.get("PAINEL_RECARGA_FREE_ENABLED")==="true";
+  const freePilotCases=freeCanaryEnabled
+    ?freeCanaryTargets.filter(t=>PANEL_GENERAL_SERVERS.includes(
+      t.server as typeof PANEL_GENERAL_SERVERS[number]))
+      .map(t=>({...t,kind:"unpaid" as const}))
+    :[];
+  authorizedPilots.push(...freePilotCases);
   if(mode==="pilot_targets")
     return reply(200,{ok:true,readOnly:true,
       targets:exclusiveWindowOpen?packagePilot:[],
+      freeTargets:freePilotCases,
       rolloutEnabled,rolloutTargets:rolloutEnabled?rolloutTargets:[],
       generalEnabled,generalServers:generalEnabled?PANEL_GENERAL_SERVERS:[],
       exclusiveWindowOpen});
@@ -301,10 +312,12 @@ Deno.serve(async(request)=>{
   const generalAuthorized=generalEnabled&&broadPanelRenewalEligible(customer,
     new Date().toLocaleDateString("sv-SE",{timeZone:"America/Sao_Paulo"}));
   const rolloutAuthorized=exactRolloutAuthorized||generalAuthorized;
+  const freeAuthorized=freePilotCases.some(t=>t.clientId===customer.id
+    &&t.server===customer.server&&t.expectedDueDate===expected);
   const legacyPilotAuthorized=!!authorizedCase&&exclusiveWindowOpen;
   const exclusivePilotLive=packagePilotOn
     &&Deno.env.get("PAINEL_RECARGA_LEALPAULO_PREPAID2_LIVE_ENABLED")==="true";
-  if(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized)
+  if(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized)
     return reply(403,{ok:false,disabled:true,pilotRestricted:true,
       message:"Cliente e vencimento fora da liberação controlada. Nenhum pedido enviado."});
   if(Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")!=="true"
@@ -326,7 +339,7 @@ Deno.serve(async(request)=>{
   // A "check" replays the provider POST under the SAME idempotency key.
   // If the original job never left "created", revoking rollout permission
   // must not let a status check initiate a NEW external renewal.
-  if(mode==="check"&&job?.state==="created"&&!rolloutAuthorized&&!legacyPilotAuthorized)
+  if(mode==="check"&&job?.state==="created"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized)
     return reply(403,{ok:false,disabled:true,pilotRestricted:true,
       message:"Autorização revogada antes do primeiro envio. Nenhum pedido externo enviado."});
   if(mode==="renew"&&!job){
@@ -338,7 +351,17 @@ Deno.serve(async(request)=>{
     const values=parseLocalOptions(input.options);
     if(!values||values.dueDate<=expected||values.financialDueDate<values.dueDate)
       return reply(400,{ok:false,message:"Datas, valores ou período da renovação inválidos."});
-    if(authorizedCase){
+    if(freeAuthorized){
+      if(values.pilotKind!=="unpaid"||values.months!==1
+        ||values.paymentAmount!==0||values.paymentCost!==0
+        ||values.monthlyPaid!==0||values.prevPaid!==0
+        ||values.cost!==customer.cost||customer.cost<0
+        ||customer.paid!==0||customer.prev_paid!==0
+        ||customer.financial_due_date!==customer.due_date
+        ||!["padrao","meu_acesso"].includes(customer.access_type??""))
+        return reply(403,{ok:false,pilotRestricted:true,
+          message:"Acesso gratuito: valores ou cliente fora do piloto. Nenhum pedido enviado."});
+    }else if(authorizedCase){
       // The exclusive allowlist contains only the already-paid second cycle.
       const amountsMatch=lealPauloPrepaidSecondIssue(customer,values)===null;
       if(!amountsMatch)
