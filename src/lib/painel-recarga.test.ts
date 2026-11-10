@@ -604,7 +604,7 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
   const screen=readFileSync(new URL("../routes/_authenticated/renovacoes.tsx",import.meta.url),"utf8");
   it("backend gates renewals before the provider or job reservation",()=>{
     const guard=edge.indexOf('// Exact per-client, server and ORIGINAL due-date gate');
-    const reserve=edge.indexOf('// For live operations, persist a stable idempotency key');
+    const reserve=edge.indexOf('const payload={',guard);
     assert.ok(guard>0&&reserve>guard);
     const block=edge.slice(guard,reserve);
     assert.match(block,/if\(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized\)/);
