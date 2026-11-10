@@ -275,3 +275,25 @@ zerados pelo processo de baixa; não podem usar o rollout inicial como
 se os valores históricos fossem um pagamento novo. Adequar esse fluxo
 com validação própria antes de liberar vencidos. Acessos gratuitos,
 gratificações por indicação e servidores não homologados continuam fora.
+
+## 10/11/2026 — primeiro piloto real proposto na GF (AINDA NÃO HABILITADO)
+
+O proprietário selecionou **EwertonWp** (GF) para a primeira homologação real.
+O cadastro técnico e financeiro atual vence em 19/11/2026, mensalidade
+R$ 30,00 e custo por ciclo R$ 6,00. Último pagamento lançado: 19/10/2026;
+nenhum novo pagamento deve ser criado só para testar.
+
+A inclusão de `GF` na lista de servidores elegíveis é **apenas
+capacidade técnica**. Não ativa a renovação de nenhum cliente. Continua
+obrigatório autorizar o cliente/ciclo pelo Secret privado
+`PAINEL_RECARGA_ROLLOUT_TARGETS`, com ID, servidor e vencimento exatos,
+além dos switches `PAINEL_RECARGA_ROLLOUT_ENABLED` e
+`PAINEL_RECARGA_LIVE_ENABLED` (ambos desligados por padrão).
+
+**Antes de habilitar:** publicar a Edge Function de produção, consultar
+o login `EwertonWp` na simulação (sem consumo) e verificar que a validade
+no painel é 19/11/2026. Confirmar recebimento real da nova mensalidade;
+não atualizar o cliente nem lançar o pagamento antecipadamente. Só depois
+habilitar a autorização exclusiva e clicar em "Renovar no painel",
+acompanhando o pedido único e a sincronização. Se a simulação divergir,
+interromper o piloto e conciliar as datas sem consumir um crédito.

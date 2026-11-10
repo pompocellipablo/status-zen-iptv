@@ -63,7 +63,7 @@ export const PANEL_PILOT_BATCH_SERVERS=[
 ] as const;
 
 /** Paid rollout: only previously homologated servers, at most eight exact client cycles. */
-export const PANEL_ROLLOUT_SERVERS=["Club","Five","Uniplay","UniP2P","Blade","Now"] as const;
+export const PANEL_ROLLOUT_SERVERS=["Club","Five","Uniplay","UniP2P","Blade","Now","GF"] as const;
 export type PanelRolloutTarget={clientId:string;server:typeof PANEL_ROLLOUT_SERVERS[number];expectedDueDate:string};
 export function parsePanelRolloutTargets(raw:string|undefined|null):PanelRolloutTarget[]{
   if(!raw||raw.length>4096)return [];

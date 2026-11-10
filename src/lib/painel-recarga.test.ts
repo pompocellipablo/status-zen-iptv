@@ -723,7 +723,7 @@ describe("Exact-client rollout controls and expired legacy pilot",()=>{
     assert.deepEqual(parsePanelRolloutTargets(undefined),[]);
     assert.deepEqual(parsePanelRolloutTargets("invalid"),[]);
     assert.deepEqual(parsePanelRolloutTargets(JSON.stringify([])),[]);
-    for(const server of ["GF","Fast","All Play","Elite","unknown"])
+    for(const server of ["Fast","All Play","Elite","unknown"])
       assert.deepEqual(parsePanelRolloutTargets(JSON.stringify([{...target,server}])),[]);
     assert.deepEqual(parsePanelRolloutTargets(JSON.stringify([{...target,extra:true}])),[]);
     assert.deepEqual(parsePanelRolloutTargets(JSON.stringify([{...target,clientId:"abc"}])),[]);
@@ -735,6 +735,11 @@ describe("Exact-client rollout controls and expired legacy pilot",()=>{
   it("authorizes only exact ID, server and original due date",()=>{
     const list=parsePanelRolloutTargets(JSON.stringify([target]));
     assert.equal(list.length,1);
+    const gfTarget={...target,server:"GF"};
+    const gfList=parsePanelRolloutTargets(JSON.stringify([gfTarget]));
+    assert.equal(gfList.length,1);
+    assert.equal(isPanelRolloutTarget({id:target.clientId,server:"GF",due_date:target.expectedDueDate},gfList),true);
+    assert.equal(isPanelRolloutTarget({id:target.clientId,server:"Club",due_date:target.expectedDueDate},gfList),false);
     assert.equal(isPanelRolloutTarget({id:target.clientId,server:"Club",due_date:"2026-12-10"},list),true);
     assert.equal(isPanelRolloutTarget({id:target.clientId,server:"Five",due_date:"2026-12-10"},list),false);
     assert.equal(isPanelRolloutTarget({id:target.clientId,server:"Club",due_date:"2027-01-10"},list),false);
