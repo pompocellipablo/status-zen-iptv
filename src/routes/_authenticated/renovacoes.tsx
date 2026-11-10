@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { paginateClients } from "@/lib/client-pagination";
-import { panelRouteForClient,HUMBERTO_OVERDUE_PILOT } from "@/lib/painel-recarga";
+import { panelRouteForClient,HUMBERTO_OVERDUE_PILOT,broadOverdueEligible } from "@/lib/painel-recarga";
 import { defaultClientSortMode, sortClients, type ClientSortMode } from "@/lib/client-sort";
 import { MessageCircle, MoreHorizontal, RefreshCw, Search } from "lucide-react";
 import {
@@ -52,7 +52,7 @@ const PANEL_PILOT_UI_ENABLED = import.meta.env["VITE_MAXFLIX_PANEL_PILOT"] === "
 // PAINEL_RECARGA_PILOT_CLIENT_ID + PAINEL_RECARGA_PILOT_EXPECTED_DUE_DATE.
 type PanelPilotTarget={clientId:string;expectedDueDate:string;server:string;kind:"paid"|"unpaid"|"package6"|"prepaid2"};
 type PanelRolloutTarget={clientId:string;server:string;expectedDueDate:string};
-type PanelPilotConfig={targets:PanelPilotTarget[];rolloutTargets:PanelRolloutTarget[];rolloutEnabled:boolean;generalEnabled:boolean;generalServers:string[];overdueTarget:typeof HUMBERTO_OVERDUE_PILOT|null};
+type PanelPilotConfig={targets:PanelPilotTarget[];rolloutTargets:PanelRolloutTarget[];rolloutEnabled:boolean;generalEnabled:boolean;generalServers:string[];overdueTarget:typeof HUMBERTO_OVERDUE_PILOT|null;generalOverdueEnabled:boolean};
 const ROLLOUT_CANARY_SERVERS=new Set(["Club","Five","Uniplay","UniP2P","Blade","Now","GF","Fast","All Play"]);
 // UX-only allowlist obtained once from the owner-authorized Edge Function.
 // The private backend validates the same list independently on every renewal.
@@ -96,8 +96,15 @@ const isOverdueTarget=(client:Client,config:PanelPilotConfig|undefined)=>
   &&Number(client.paid)===0&&Number(client.cost)===0
   &&Number(client.prev_paid)===config.overdueTarget.amount
   &&Number(client.prev_cost)===config.overdueTarget.cost;
+const isGeneralOverdueTarget=(client:Client,config:PanelPilotConfig|undefined)=>
+  config?.generalEnabled===true&&config.generalOverdueEnabled===true
+  &&config.generalServers.includes(client.server)
+  &&ROLLOUT_CANARY_SERVERS.has(client.server)
+  &&!!panelRouteForClient(client.server)
+  &&broadOverdueEligible(client,toISODate(today()));
 const isExternalTarget=(client:Client,config:PanelPilotConfig|undefined)=>
-  isPilotTarget(client,config?.targets??[])||isRolloutTarget(client,config)||isOverdueTarget(client,config);
+  isPilotTarget(client,config?.targets??[])||isRolloutTarget(client,config)
+  ||isOverdueTarget(client,config)||isGeneralOverdueTarget(client,config);
 // If target loading fails, never silently fall back to manual renewal for
 // this exact paid pilot before the owner-only configuration has been fetched.
 const isScopedPackageCandidate=(client:Client)=>
@@ -295,6 +302,7 @@ function Painel() {
         rolloutEnabled:data.rolloutEnabled===true,
         generalEnabled:data.generalEnabled===true,
         overdueTarget:data.overdueTarget?.clientId===HUMBERTO_OVERDUE_PILOT.clientId?data.overdueTarget:null,
+        generalOverdueEnabled:data.generalOverdueEnabled===true,
         generalServers:Array.isArray(data.generalServers)
           ?data.generalServers.filter((name:unknown):name is string=>typeof name==="string")
           :[],
@@ -460,6 +468,7 @@ function Painel() {
   }, [clients]);
 
   const [renewing, setRenewing] = useState<Client | null>(null);
+  const [overdueRenewing,setOverdueRenewing]=useState<Client|null>(null);
   const [previewClient, setPreviewClient] = useState<Client | null>(null);
 
   const performRenewal = async (client: Client, opts: { dueDate: string; financialDueDate: string; cost: number; monthlyPaid: number; prevPaid: number; paymentAmount: number; paymentCost: number }) => {
@@ -537,6 +546,10 @@ function Painel() {
       if(previousJob){
         setNotice(client.name+": já existe pedido externo em andamento. "
           +"Verifique o mesmo pedido antes de outra renovação.");
+        return;
+      }
+      if(isGeneralOverdueTarget(client,pilotTargetsQuery.data)){
+        setOverdueRenewing(client);
         return;
       }
       if(isOverdueTarget(client,pilotTargetsQuery.data)){
@@ -642,12 +655,15 @@ function Painel() {
   const confirmPanelPilot=async (
     client:Client,
     opts:{months:number;cost:number;paid:number;monthlyCost:number;monthlyPaid:number},
+    paidOn?:string,
   )=>{
     if(!isExternalTarget(client,pilotTargetsQuery.data)||!panelRouteForClient(client.server))return;
     if(renewingBusy)return;
     const target=pilotTargetsQuery.data?.targets.find(item=>item.clientId===client.id
       &&item.expectedDueDate===client.due_date&&item.server===client.server);
-    const overdue=isOverdueTarget(client,pilotTargetsQuery.data);
+    const overdueGeneral=isGeneralOverdueTarget(client,pilotTargetsQuery.data);
+    const overdueExact=isOverdueTarget(client,pilotTargetsQuery.data);
+    const overdue=overdueGeneral||overdueExact;
     const unpaid=target?.kind==="unpaid";
     const package6=target?.kind==="package6";
     const prepaid2=target?.kind==="prepaid2";
@@ -656,11 +672,18 @@ function Painel() {
       // form values from a previous renewal or a late pilot-target fetch.
       opts={months:1,cost:6.5,paid:0,monthlyCost:6.5,monthlyPaid:0};
     }
-    if(overdue){
+    if(overdueExact){
       if(opts.months!==1||opts.paid!==HUMBERTO_OVERDUE_PILOT.amount
         ||opts.monthlyPaid!==HUMBERTO_OVERDUE_PILOT.amount
         ||opts.monthlyCost!==HUMBERTO_OVERDUE_PILOT.cost){
         setNotice("Piloto vencido: valor ou custo incompatível. Nenhum pedido enviado.");
+        return;
+      }
+    }else if(overdueGeneral){
+      if(opts.months!==1||opts.paid!==Number(client.prev_paid)
+        ||opts.monthlyPaid!==Number(client.prev_paid)
+        ||opts.monthlyCost!==Number(client.prev_cost)||!paidOn){
+        setNotice("Vencido: confirmação de pagamento ou valores incompatíveis. Nenhum pedido enviado.");
         return;
       }
     }else if(target){
@@ -721,8 +744,17 @@ function Painel() {
       }
     }
     const planned=renewalDates(client.due_date,opts.months);
-    const dueDate=overdue?HUMBERTO_OVERDUE_PILOT.nextDueDate:planned.dueDate;
-    const financialDueDate=overdue?HUMBERTO_OVERDUE_PILOT.nextDueDate:planned.financialDueDate;
+    const paymentDate=overdueExact?HUMBERTO_OVERDUE_PILOT.paymentDate:overdueGeneral?paidOn:undefined;
+    const projected=paymentDate&&/^\d{4}-\d{2}-\d{2}$/.test(paymentDate)
+      ?nextDueDate(client.due_date,new Date(paymentDate+"T00:00:00")):null;
+    const dueDate=overdue?(overdueExact?HUMBERTO_OVERDUE_PILOT.nextDueDate:projected??""):planned.dueDate;
+    const financialDueDate=overdue?dueDate:planned.financialDueDate;
+    if(overdue&&(!projected||dueDate!==projected||!paymentDate
+      ||paymentDate<=client.due_date||paymentDate>toISODate(today())
+      ||dueDate<=toISODate(today()))){
+      setNotice("Pagamento vencido: data inválida ou sem cobertura futura.");
+      return;
+    }
     const hasPrepaidCoverage=!!client.financial_due_date&&client.financial_due_date>client.due_date;
     const covered=hasPrepaidCoverage&&client.financial_due_date!>=dueDate;
     if(hasPrepaidCoverage&&!covered){
@@ -738,7 +770,7 @@ function Painel() {
       paymentAmount:unpaid?0:(covered?0:opts.paid),
       paymentCost:unpaid?0:(covered?0:opts.cost),
       ...(unpaid?{pilotKind:"unpaid" as const}:{}),
-      ...(overdue?{pilotKind:"overdue" as const}:{}),
+      ...(overdue?{pilotKind:"overdue" as const,paymentDate:paymentDate!}:{}),
     };
 
     // A read-only preflight MUST succeed before even offering a real renewal.
@@ -774,6 +806,7 @@ function Painel() {
       "Acesso atual: "+formatDate(client.due_date),
       "Acesso projetado: "+formatDate(dueDate)+" (a data real virá do painel)",
       "Financeiro projetado: "+formatDate(covered?client.financial_due_date:financialDueDate),
+      ...(overdue?["Pagamento declarado em: "+formatDate(paymentDate!)]:[]),
       unpaid?"Sem pagamento (teste técnico de acesso gratuito).":
         "Pagamento nesta renovação: "+formatBRL(covered?0:opts.paid),
       "Ciclos no servidor: 1",
