@@ -76,13 +76,13 @@ export function parsePanelRolloutTargets(raw:string|undefined|null):PanelRollout
     if(!item||typeof item!=="object"||Array.isArray(item))return [];
     const t=item as Record<string,unknown>;
     if(Object.keys(t).length!==3||!("clientId" in t)||!("server" in t)||!("expectedDueDate" in t)
-      ||typeof t.clientId!=="string"
-      ||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(t.clientId)
-      ||typeof t.server!=="string"||!servers.has(t.server)
-      ||typeof t.expectedDueDate!=="string"||!/^\d{4}-\d{2}-\d{2}$/.test(t.expectedDueDate)
-      ||seen.has(t.clientId))return [];
-    seen.add(t.clientId);
-    out.push({clientId:t.clientId,server:t.server as PanelRolloutTarget["server"],expectedDueDate:t.expectedDueDate});
+      ||typeof t["clientId"]!=="string"
+      ||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(t["clientId"])
+      ||typeof t["server"]!=="string"||!servers.has(t["server"])
+      ||typeof t["expectedDueDate"]!=="string"||!/^\d{4}-\d{2}-\d{2}$/.test(t["expectedDueDate"])
+      ||seen.has(t["clientId"]))return [];
+    seen.add(t["clientId"]);
+    out.push({clientId:t["clientId"],server:t["server"] as PanelRolloutTarget["server"],expectedDueDate:t["expectedDueDate"]});
   }
   return out;
 }
