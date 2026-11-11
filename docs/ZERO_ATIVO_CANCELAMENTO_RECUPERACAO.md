@@ -1,6 +1,6 @@
 # MaxFlix — Renovação de valor zerado e recuperação manual após cancelamento
 
-**Situação: pronta para revisão e CI na branch `feature/zero-active-renewal-manual-fallback`, NÃO publicada em produção.**
+**Situação: publicada em produção em 11/11/2026; flag de ativos zerados habilitada e confirmada por consulta autenticada read-only.**
 
 ## 1. Acesso ATIVO com pagamento do ciclo igual a R$ 0,00
 
@@ -62,3 +62,14 @@ Ordem de publicação futura (somente após autorização específica para custo
 - Validação PostgreSQL: função de vencidos compilada com nome temporário; reserva única, recusa de cancelamento com consulta ativa, cancelamento auditado e recusa de reenvio testados em tabelas temporárias. Todas as transações terminaram com ROLLBACK, sem alterar funções ou registros de produção. Esse teste verifica transições; não simula chamadas reais nem duas conexões simultâneas.
 - CI agora analisa SQL e corpos PL/pgSQL das três migrations com pglast 8.7, além dos testes e build existentes.
 - Publicação continua pendente: backup, três migrations, função/shared, interface, pré-validação e ativação da flag. A função atualizada depende da coluna e da RPC de reserva; publicar a migration antes da função.
+
+## Publicação concluída — 11/11/2026
+
+- PR #1 integrado com merge, preservando histórico. Código de produção verificado no bundle de renovações; editor em `cb34ce48cfc0b155b6bdb7ece657999c8d1d33b5`.
+- Três migrations aplicadas via fluxo gerenciado (drizzle/migrations), com correção adicional de privilégios herdados da tabela de auditoria. Quatro RPCs presentes, sem EXECUTE anon/PUBLIC; auditoria com RLS owner-only e apenas SELECT/INSERT para authenticated.
+- Edge Function e shared publicados. Interface publicada em https://maxflix-clientes.lovable.app; bundle `renovacoes-kP-VVdyU.js` conferido com os novos fluxos. A ferramenta não expõe consulta do estado final pelo deployment ID; a validação foi feita no código efetivamente servido.
+- `pilot_targets` autenticado confirmou HTTP 200, readOnly=true, generalZeroEnabled=true, generalEnabled=true e rolloutEnabled=true após ativar somente PAINEL_RECARGA_ZERO_ACTIVE_GENERAL_ENABLED. Flag geral de vencidos permanece desligada.
+- Backup privado verificado no ambiente Lovable: `/mnt/documents/.lovable/backups/maxflix-pre-rollout-20261111T171206Z`, com manifesto de hashes e definições/estrutura/permissões. Não é um backup público no repositório.
+- Conferência: 349 clientes, 381 pagamentos, 467 movimentos, 19 pedidos synced, zero reservas e zero cancelamentos auditados; 28 cadastros elegíveis para ativos R$0. Nenhuma renovação real ou chamada ao fornecedor foi feita para testar.
+- Testes seguros: 133 aprovados. Fluxo real pós-publicação ainda não exercitado; não confundir configuração ativa com teste de renovação real.
+- Custo das quatro solicitações desta publicação, conforme cost_credits das respostas: 2,9 + 4,0 + 2,5 + 0,5 = 9,9 créditos Lovable.
