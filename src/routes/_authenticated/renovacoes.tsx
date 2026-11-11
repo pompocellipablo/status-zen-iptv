@@ -1596,6 +1596,106 @@ function Painel() {
 /** A receipt must be declared explicitly, with the actual Pix/transfer date.
  * This screen is not permission to send a provider order by itself.
  */
+/** The platform cannot prove a third-party order was cancelled. This form
+ * records the owner's explicit confirmation for the SAME order ID, only.
+ */
+function PanelCancellationDialog({job,saving,onCancel,onConfirm}:{
+  job:ExternalJobRow;saving:boolean;onCancel:()=>void;
+  onConfirm:(evidence:string)=>void|Promise<void>;
+}){
+  const [confirmed,setConfirmed]=useState(false);
+  const [typed,setTyped]=useState("");
+  const [evidence,setEvidence]=useState("");
+  return <div className="fixed inset-0 z-50 overflow-y-auto bg-background/80 p-4 backdrop-blur-sm">
+    <section className="mx-auto mt-10 max-w-md rounded-2xl bg-panel2 p-6 ring-1 ring-line"
+      aria-label="Registrar cancelamento de pedido externo">
+      <h2 className="text-xl font-semibold">Confirmar cancelamento externo</h2>
+      <p className="mt-3 text-sm">{job.client_name} · {job.server}</p>
+      <p className="mt-1 text-sm font-semibold">Pedido: {job.external_order_id}</p>
+      <p className="mt-3 text-sm text-warn">Cancele primeiro este pedido no site do Painel Recarga e confira o estado CANCELADO. A MaxFlix não executa o cancelamento no fornecedor.</p>
+      <p className="mt-2 text-xs text-mist">Não use esta opção se a renovação já foi confirmada, se o crédito foi debitado ou se não existe prova do cancelamento.</p>
+      <label className="mt-4 block text-sm" htmlFor="cancel-evidence">Registro do cancelamento (referência, horário ou protocolo)</label>
+      <textarea id="cancel-evidence" rows={3} maxLength={500}
+        value={evidence} onChange={e=>setEvidence(e.target.value)}
+        placeholder="Ex.: Pedido ABC123 cancelado no Painel Recarga em 11/11 às 13:20; status Cancelado."
+        className="mt-2 w-full rounded-lg bg-panel p-3 text-frost ring-1 ring-line"/>
+      <label className="mt-4 block text-sm" htmlFor="cancel-typed">Digite CANCELADO</label>
+      <input id="cancel-typed" value={typed} onChange={e=>setTyped(e.target.value)}
+        className="mt-2 w-full rounded-lg bg-panel px-3 py-2 text-frost ring-1 ring-line"/>
+      <label className="mt-4 flex items-start gap-3 text-sm">
+        <input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>
+        <span>Conferi no Painel Recarga que este pedido específico foi cancelado e não renovou o acesso.</span>
+      </label>
+      <div className="mt-5 flex gap-3">
+        <Button type="button" disabled={!confirmed||typed!=="CANCELADO"
+          ||evidence.trim().length<12||saving}
+          onClick={()=>void onConfirm(evidence.trim())}>Registrar cancelamento</Button>
+        <Button type="button" variant="outline" disabled={saving} onClick={onCancel}>Voltar</Button>
+      </div>
+    </section>
+  </div>;
+}
+
+/** The external order must be recorded as cancelled before this dialog opens.
+ * No provider API is invoked; the owner has already renewed directly on the
+ * server and confirms the server's real date before local accounting changes.
+ */
+function ManualRecoveryDialog({client,saving,onCancel,onConfirm}:{
+  client:Client;saving:boolean;onCancel:()=>void;
+  onConfirm:(values:{providerDue:string;amount:number;cost:number})=>void|Promise<void>;
+}){
+  const covered=!!client.financial_due_date&&client.financial_due_date>client.due_date;
+  const expectedDue=nextDueDate(client.due_date);
+  const defaultAmount=covered?0:Number(client.paid)>0?Number(client.paid):
+    (client.due_date<toISODate(today())?Number(client.prev_paid):0);
+  const [providerDue,setProviderDue]=useState("");
+  const [paidValue,setPaidValue]=useState(String(defaultAmount).replace(".",","));
+  const [costValue,setCostValue]=useState(String(client.cost||client.prev_cost||0).replace(".",","));
+  const [serverConfirmed,setServerConfirmed]=useState(false);
+  const [paymentConfirmed,setPaymentConfirmed]=useState(false);
+  const amount=num(paidValue),cost=num(costValue);
+  const good=providerDue===expectedDue&&cost>0&&amount>=0
+    &&(!covered||amount===0)
+    &&serverConfirmed&&(amount===0||paymentConfirmed);
+  return <div className="fixed inset-0 z-50 overflow-y-auto bg-background/80 p-4 backdrop-blur-sm">
+    <section className="mx-auto mt-10 max-w-md rounded-2xl bg-panel2 p-6 ring-1 ring-line"
+      aria-label="Registrar renovação manual após pedido cancelado">
+      <h2 className="text-xl font-semibold">Renovação manual — {client.name}</h2>
+      <p className="mt-3 text-sm text-warn">Primeiro renove diretamente no servidor {client.server}. Este registro na MaxFlix não chama o Painel Recarga nem renova o servidor.</p>
+      <p className="mt-2 text-sm text-mist">Vencimento esperado: {formatDate(expectedDue)}. Se o servidor mostrar outra data, interrompa e faça conciliação.</p>
+      <label className="mt-4 block text-sm" htmlFor="manual-provider-date">Data de vencimento confirmada no servidor</label>
+      <input id="manual-provider-date" type="date" value={providerDue}
+        onChange={e=>setProviderDue(e.target.value)}
+        className="mt-2 w-full rounded-lg bg-panel px-3 py-2 text-frost ring-1 ring-line"/>
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <label className="text-sm">Valor recebido (R$)
+          <input value={paidValue} disabled={covered} onChange={e=>setPaidValue(e.target.value)}
+            inputMode="decimal" className="mt-2 w-full rounded-lg bg-panel px-3 py-2 text-frost ring-1 ring-line"/>
+        </label>
+        <label className="text-sm">Custo técnico (R$)
+          <input value={costValue} onChange={e=>setCostValue(e.target.value)}
+            inputMode="decimal" className="mt-2 w-full rounded-lg bg-panel px-3 py-2 text-frost ring-1 ring-line"/>
+        </label>
+      </div>
+      {covered&&<p className="mt-2 text-xs text-mist">Pacote já pago até {formatDate(client.financial_due_date)}: nenhum pagamento novo.</p>}
+      {providerDue!==""&&providerDue!==expectedDue&&<p className="mt-2 text-xs text-danger">Vencimento diferente. Não lançar um segundo ciclo sem conciliar.</p>}
+      <label className="mt-4 flex items-start gap-3 text-sm">
+        <input type="checkbox" checked={serverConfirmed} onChange={e=>setServerConfirmed(e.target.checked)}/>
+        <span>Eu mesmo já renovei o acesso diretamente no servidor e conferi o vencimento acima.</span>
+      </label>
+      {amount>0&&<label className="mt-3 flex items-start gap-3 text-sm">
+        <input type="checkbox" checked={paymentConfirmed} onChange={e=>setPaymentConfirmed(e.target.checked)}/>
+        <span>Confirmo que recebi {formatBRL(amount)} e que esse pagamento ainda não foi lançado na MaxFlix.</span>
+      </label>}
+      <div className="mt-5 flex gap-3">
+        <Button type="button" disabled={!good||saving}
+          onClick={()=>void onConfirm({providerDue,amount,cost})}>Registrar na MaxFlix</Button>
+        <Button type="button" variant="outline" disabled={saving} onClick={onCancel}>Cancelar</Button>
+      </div>
+    </section>
+  </div>;
+}
+
 function ZeroRevenueConfirmationDialog({client,saving,onCancel,onConfirm}:{
   client:Client;saving:boolean;onCancel:()=>void;onConfirm:()=>void;
 }){
