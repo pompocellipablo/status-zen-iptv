@@ -22,7 +22,12 @@ DROP POLICY IF EXISTS "Owner reads cancellation audit" ON public.external_renewa
 CREATE POLICY "Owner reads cancellation audit"
 ON public.external_renewal_cancellations FOR SELECT TO authenticated
 USING ((select auth.uid())='c70b3e1f-e5d2-4caf-ae09-019964dbf30e'::uuid);
-GRANT SELECT ON public.external_renewal_cancellations TO authenticated;
+DROP POLICY IF EXISTS "Owner inserts cancellation audit" ON public.external_renewal_cancellations;
+CREATE POLICY "Owner inserts cancellation audit"
+ON public.external_renewal_cancellations FOR INSERT TO authenticated
+WITH CHECK ((select auth.uid())='c70b3e1f-e5d2-4caf-ae09-019964dbf30e'::uuid
+  AND cancelled_by=(select auth.uid()));
+GRANT SELECT,INSERT ON public.external_renewal_cancellations TO authenticated;
 
 CREATE OR REPLACE FUNCTION public.record_panel_cancelled_for_manual(
   p_job_id uuid,p_order_id text,p_confirm_text text,p_evidence text
