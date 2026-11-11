@@ -11,7 +11,7 @@
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
-  buildPanelRecargaBody, confirmedRenewalDatesFromPanel, financialTransitionError, panelRouteForClient, parsePanelRecargaResponse, validatePanelRenewalDraft, parsePanelPilotBatch, parsePanelRolloutTargets, isPanelRolloutTarget, broadPanelRenewalEligible, broadOverdueEligible, generalOverdueRenewalIssue, PANEL_GENERAL_SERVERS, HUMBERTO_OVERDUE_PILOT, humbertoOverdueIssue, panelDateToISO,
+  buildPanelRecargaBody, confirmedRenewalDatesFromPanel, financialTransitionError, panelRouteForClient, parsePanelRecargaResponse, validatePanelRenewalDraft, parsePanelPilotBatch, parsePanelRolloutTargets, isPanelRolloutTarget, broadPanelRenewalEligible, generalZeroActiveEligible, generalZeroActiveIssue, broadOverdueEligible, generalOverdueRenewalIssue, PANEL_GENERAL_SERVERS, HUMBERTO_OVERDUE_PILOT, humbertoOverdueIssue, panelDateToISO,
   RECARGA_BASE_URL, rolloutRenewalIssue, LEAL_PAULO_PREPAID_SECOND, lealPauloPrepaidSecondIssue, type ExternalOutcome,
 } from "../_shared/painel-recarga.ts";
 
@@ -26,7 +26,7 @@ const reply=(status:number,payload:Record<string,unknown>)=>
   new Response(JSON.stringify(payload),{status,headers});
 type Mode="simulate"|"check_simulation"|"preflight"|"renew"|"check"|"pilot_targets";
 type ClientRow={id:string;name:string;login:string;server:string;due_date:string;financial_due_date:string|null;access_type:string|null;paid:number;cost:number;prev_paid:number;prev_cost:number};
-type Options={months:number;dueDate:string;financialDueDate:string;cost:number;monthlyPaid:number;prevPaid:number;paymentAmount:number;paymentCost:number;pilotKind?:"unpaid"|"overdue";paymentDate?:string};
+type Options={months:number;dueDate:string;financialDueDate:string;cost:number;monthlyPaid:number;prevPaid:number;paymentAmount:number;paymentCost:number;pilotKind?:"unpaid"|"overdue"|"zero_active";paymentDate?:string};
 type Job={
   id:string;client_id:string|null;login:string;server:string;expected_due_date:string;
   new_due_date:string;financial_due_date:string;idempotency_key:string;
@@ -48,7 +48,7 @@ function parseLocalOptions(input:unknown):Options|null{
   for(const key of ["cost","monthlyPaid","prevPaid","paymentAmount","paymentCost"]){
     if(!safeNumber(o[key]))return null;
   }
-  if(o.pilotKind!==undefined&&o.pilotKind!=="unpaid"&&o.pilotKind!=="overdue")return null;
+  if(o.pilotKind!==undefined&&!["unpaid","overdue","zero_active"].includes(o.pilotKind as string))return null;
   if(o.pilotKind==="overdue"&&!isDate(o.paymentDate))return null;
   if(o.pilotKind!=="overdue"&&o.paymentDate!==undefined)return null;
   return o as unknown as Options;
@@ -126,6 +126,10 @@ Deno.serve(async(request)=>{
     &&overdueDay>=HUMBERTO_OVERDUE_PILOT.paymentDate
     &&overdueDay<=HUMBERTO_OVERDUE_PILOT.lastTestDate
     ?HUMBERTO_OVERDUE_PILOT:null;
+  // A SECOND, default-off flag for active zero-value subscriptions. Exact free
+  // pilot targets remain intact for legacy audited renewals.
+  const generalZeroEnabled=generalEnabled
+    &&Deno.env.get("PAINEL_RECARGA_ZERO_ACTIVE_GENERAL_ENABLED")==="true";
   const freeCanaryEnabled=generalEnabled
     &&Deno.env.get("PAINEL_RECARGA_FREE_ENABLED")==="true";
   const freePilotCases=freeCanaryEnabled
@@ -139,7 +143,7 @@ Deno.serve(async(request)=>{
       targets:exclusiveWindowOpen?packagePilot:[],
       freeTargets:freePilotCases,
       overdueTarget,
-      generalOverdueEnabled,
+      generalOverdueEnabled,generalZeroEnabled,
       rolloutEnabled,rolloutTargets:rolloutEnabled?rolloutTargets:[],
       generalEnabled,generalServers:generalEnabled?PANEL_GENERAL_SERVERS:[],
       exclusiveWindowOpen});
@@ -166,6 +170,13 @@ Deno.serve(async(request)=>{
     const values=parseLocalOptions(input.options);
     if(!values)
       return reply(400,{ok:false,previewOnly:true,message:"Plano, valores ou vencimentos inválidos."});
+    if(values.pilotKind==="zero_active"){
+      const issue=generalZeroEnabled
+        ?generalZeroActiveIssue(customer,values,overdueDay)
+        :"Renovação geral de valor zerado ainda está desabilitada.";
+      if(issue)return reply(403,{ok:false,previewOnly:true,pilotRestricted:true,
+        message:issue+" Nenhum pedido enviado."});
+    }
     if(values.pilotKind==="overdue"){
       const exact=!!overdueTarget&&customer.id===overdueTarget.clientId
         &&customer.server===overdueTarget.server
@@ -350,12 +361,13 @@ Deno.serve(async(request)=>{
   const overdueAuthorized=!!overdueTarget&&customer.id===overdueTarget.clientId
     &&customer.server===overdueTarget.server&&customer.due_date===overdueTarget.expectedDueDate;
   const generalOverdueAuthorized=generalOverdueEnabled&&broadOverdueEligible(customer,overdueDay);
+  const zeroAuthorized=generalZeroEnabled&&generalZeroActiveEligible(customer,overdueDay);
   const freeAuthorized=freePilotCases.some(t=>t.clientId===customer.id
     &&t.server===customer.server&&t.expectedDueDate===expected);
   const legacyPilotAuthorized=!!authorizedCase&&exclusiveWindowOpen;
   const exclusivePilotLive=packagePilotOn
     &&Deno.env.get("PAINEL_RECARGA_LEALPAULO_PREPAID2_LIVE_ENABLED")==="true";
-  if(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized&&!overdueAuthorized&&!generalOverdueAuthorized)
+  if(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized&&!overdueAuthorized&&!generalOverdueAuthorized&&!zeroAuthorized)
     return reply(403,{ok:false,disabled:true,pilotRestricted:true,
       message:"Cliente e vencimento fora da liberação controlada. Nenhum pedido enviado."});
   if(Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")!=="true"
@@ -377,7 +389,7 @@ Deno.serve(async(request)=>{
   // A "check" replays the provider POST under the SAME idempotency key.
   // If the original job never left "created", revoking rollout permission
   // must not let a status check initiate a NEW external renewal.
-  if(mode==="check"&&job?.state==="created"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized&&!overdueAuthorized&&!generalOverdueAuthorized)
+  if(mode==="check"&&job?.state==="created"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized&&!overdueAuthorized&&!generalOverdueAuthorized&&!zeroAuthorized)
     return reply(403,{ok:false,disabled:true,pilotRestricted:true,
       message:"Autorização revogada antes do primeiro envio. Nenhum pedido externo enviado."});
   if(mode==="renew"&&!job){
@@ -392,6 +404,9 @@ Deno.serve(async(request)=>{
     if(overdueAuthorized||generalOverdueAuthorized){
       const issue=overdueAuthorized?humbertoOverdueIssue(customer,values,overdueDay)
         :generalOverdueRenewalIssue(customer,values,overdueDay);
+      if(issue)return reply(409,{ok:false,pilotRestricted:true,message:issue});
+    }else if(zeroAuthorized&&values.pilotKind==="zero_active"){
+      const issue=generalZeroActiveIssue(customer,values,overdueDay);
       if(issue)return reply(409,{ok:false,pilotRestricted:true,message:issue});
     }else if(freeAuthorized){
       if(values.pilotKind!=="unpaid"||values.months!==1
@@ -487,8 +502,10 @@ Deno.serve(async(request)=>{
     // The job ID is the only RPC argument. The client cannot inject payment
     // details a second time or race this transaction with another browser.
     const freePilot=job!.local_values?.pilotKind==="unpaid";
-    const {data:result,error}=await userDb.rpc(
-      freePilot?"sync_external_free_pilot_job":"sync_external_renewal_job",{
+    const zeroActive=job!.local_values?.pilotKind==="zero_active";
+    const settleRpc=freePilot?"sync_external_free_pilot_job":
+      zeroActive?"sync_external_zero_active_job":"sync_external_renewal_job";
+    const {data:result,error}=await userDb.rpc(settleRpc,{
       p_job_id:jobId,
     });
     if(error){
