@@ -669,7 +669,7 @@ describe("Atomic settlement of confirmed external renewal (contract guards)",()=
   });
   it("syncs by job ID instead of re-sending browser-provided financial values",()=>{
     const sync=edge.slice(edge.indexOf("  const syncLocal=async()=>{"),edge.indexOf('  if(job.state==="synced")'));
-    assert.match(sync,/freePilot\?"sync_external_free_pilot_job":"sync_external_renewal_job"/);
+    assert.match(sync,/freePilot\?"sync_external_free_pilot_job":\s*zeroActive\?"sync_external_zero_active_job":"sync_external_renewal_job"/);
     assert.match(sync,/p_job_id:jobId/);
     assert.doesNotMatch(sync,/renew_client_with_credit/);
     assert.doesNotMatch(sync,/p_payment_amount:/);
@@ -876,7 +876,7 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
     assert.match(db,/INSERT INTO public\.server_credit_movements/);
     assert.doesNotMatch(db,/INSERT INTO public\.payments/);
     const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
-    assert.match(edge,/freePilot\?"sync_external_free_pilot_job":"sync_external_renewal_job"/);
+    assert.match(edge,/freePilot\?"sync_external_free_pilot_job":\s*zeroActive\?"sync_external_zero_active_job":"sync_external_renewal_job"/);
   });
   it("limits to six distinct supported providers",()=>{
     const all=["Five","Uniplay","UniP2P","Blade","Now","All Play"].map((server,i)=>({
@@ -894,7 +894,7 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
     const reserve=edge.indexOf('const payload={',guard);
     assert.ok(guard>0&&reserve>guard);
     const block=edge.slice(guard,reserve);
-    assert.match(block,/if\(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized&&!overdueAuthorized&&!generalOverdueAuthorized\)/);
+    assert.match(block,/if\(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized&&!overdueAuthorized&&!generalOverdueAuthorized&&!zeroAuthorized\)/);
     assert.match(block,/PAINEL_RECARGA_LIVE_ENABLED/);
     assert.match(block,/return reply\(403/);
   });
@@ -915,7 +915,7 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
       edge.indexOf('// The API cycles are not the same as months'));
     assert.match(block,/const amountsMatch=lealPauloPrepaidSecondIssue\(customer,values\)===null/);
     assert.match(block,/if\(!amountsMatch\)/);
-    assert.match(edge,/if\(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized&&!overdueAuthorized&&!generalOverdueAuthorized\)/);
+    assert.match(edge,/if\(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized&&!overdueAuthorized&&!generalOverdueAuthorized&&!zeroAuthorized\)/);
   });
   it("read-only authorized targets do not call providers or mutate ledger",()=>{
     const begin=edge.indexOf('if(mode==="pilot_targets")');
@@ -1012,7 +1012,7 @@ describe("Exact LealPaulo six-month pilot (no provider calls)",()=>{
     assert.match(edge,/const amountsMatch=lealPauloPrepaidSecondIssue\(customer,values\)===null/);
     assert.match(edge,/lealPauloPrepaidSecondIssue\(customer,values\)/);
     assert.match(edge,/PAINEL_RECARGA_LIVE_ENABLED/);
-    assert.match(edge,/if\(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized&&!overdueAuthorized&&!generalOverdueAuthorized\)/);
+    assert.match(edge,/if\(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized&&!overdueAuthorized&&!generalOverdueAuthorized&&!zeroAuthorized\)/);
     assert.match(screen,/pilotPackage6\s*\?\s*6\s*:\s*1/);
     assert.match(screen,/const isScopedPackageCandidate=/);
     assert.match(screen,/ROLLOUT_CANARY_SERVERS\.has\(c\.server\)/);
