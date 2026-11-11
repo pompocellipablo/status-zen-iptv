@@ -1,6 +1,29 @@
 -- A manual override is allowed ONLY AFTER an owner records cancellation of the
 -- SAME external order at Painel Recarga. This function DOES NOT cancel the order.
 -- Never unlock confirmed, synced, or needs_review (possibly executed) requests.
+-- A claim has no automatic expiry: a crashed request requires reconciliation.
+-- Never release this claim merely because an HTTP timeout elapsed.
+ALTER TABLE public.external_renewal_jobs
+  ADD COLUMN IF NOT EXISTS provider_request_token uuid;
+
+CREATE OR REPLACE FUNCTION public.claim_panel_provider_request(p_job_id uuid,p_token uuid)
+RETURNS boolean LANGUAGE plpgsql SECURITY INVOKER SET search_path TO ''
+AS $function$
+DECLARE v_job public.external_renewal_jobs%ROWTYPE;
+BEGIN
+  IF (SELECT auth.uid()) IS DISTINCT FROM 'c70b3e1f-e5d2-4caf-ae09-019964dbf30e'::uuid
+    OR p_token IS NULL THEN RAISE EXCEPTION 'Conta ou token não autorizado'; END IF;
+  SELECT * INTO v_job FROM public.external_renewal_jobs WHERE id=p_job_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Pedido não encontrado'; END IF;
+  IF v_job.state NOT IN ('created','waiting','uncertain','failed')
+    OR v_job.provider_request_token IS NOT NULL THEN RETURN false; END IF;
+  UPDATE public.external_renewal_jobs SET provider_request_token=p_token WHERE id=p_job_id;
+  RETURN true;
+END
+$function$;
+REVOKE ALL ON FUNCTION public.claim_panel_provider_request(uuid,uuid) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.claim_panel_provider_request(uuid,uuid) TO authenticated;
+
 ALTER TABLE public.external_renewal_jobs
   DROP CONSTRAINT IF EXISTS external_renewal_jobs_state_check;
 ALTER TABLE public.external_renewal_jobs
@@ -49,6 +72,9 @@ BEGIN
   SELECT * INTO v_job FROM public.external_renewal_jobs
   WHERE id=p_job_id FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'Pedido externo não encontrado'; END IF;
+  IF v_job.provider_request_token IS NOT NULL THEN
+    RAISE EXCEPTION 'Consulta ao fornecedor em andamento ou interrompida; concilie antes de cancelar';
+  END IF;
   IF v_job.state NOT IN ('waiting','uncertain','failed') THEN
     RAISE EXCEPTION 'Este estado não permite liberação manual; confira o fornecedor';
   END IF;
