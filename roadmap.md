@@ -1,3 +1,8 @@
+# Publicação coordenada autorizada
+- [x] Verificar backup privado e preservar dados das quatro tabelas.
+- [x] Aplicar três migrations ordenadas e publicar somente a Edge Function existente.
+- [x] Finalizar conferência de permissões e restrições, mantendo flags e frontend intactos.
+
 # Revendedores
 - [x] Criar registros separados de revendedores e vendas de créditos com acesso protegido.
 - [x] Criar página de revendedores com preços, histórico, cadastro e edição/exclusão.

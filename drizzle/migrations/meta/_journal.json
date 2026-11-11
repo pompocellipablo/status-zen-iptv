@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1794417348054,
+      "tag": "0000_general_overdue_paid_settlement",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1794417389605,
+      "tag": "0001_general_zero_active_settlement",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794417416560,
+      "tag": "0002_cancelled_panel_order_manual_recovery",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794417484061,
+      "tag": "0003_restrict_cancellation_audit_privileges",
+      "breakpoints": true
+    }
+  ]
+}

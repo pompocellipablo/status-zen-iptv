@@ -160,6 +160,51 @@ export type Database = {
           },
         ]
       }
+      external_renewal_cancellations: {
+        Row: {
+          acknowledged_at: string
+          cancelled_by: string
+          client_id: string
+          evidence: string
+          external_order_id: string
+          job_id: string
+          old_state: string
+        }
+        Insert: {
+          acknowledged_at?: string
+          cancelled_by: string
+          client_id: string
+          evidence: string
+          external_order_id: string
+          job_id: string
+          old_state: string
+        }
+        Update: {
+          acknowledged_at?: string
+          cancelled_by?: string
+          client_id?: string
+          evidence?: string
+          external_order_id?: string
+          job_id?: string
+          old_state?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "external_renewal_cancellations_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "external_renewal_cancellations_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: true
+            referencedRelation: "external_renewal_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       external_renewal_jobs: {
         Row: {
           client_id: string | null
@@ -175,6 +220,7 @@ export type Database = {
           local_values: Json
           login: string
           new_due_date: string
+          provider_request_token: string | null
           server: string
           state: string
           synced_at: string | null
@@ -194,6 +240,7 @@ export type Database = {
           local_values: Json
           login: string
           new_due_date: string
+          provider_request_token?: string | null
           server: string
           state?: string
           synced_at?: string | null
@@ -213,6 +260,7 @@ export type Database = {
           local_values?: Json
           login?: string
           new_due_date?: string
+          provider_request_token?: string | null
           server?: string
           state?: string
           synced_at?: string | null
@@ -788,6 +836,19 @@ export type Database = {
         }
         Returns: Json
       }
+      claim_panel_provider_request: {
+        Args: { p_job_id: string; p_token: string }
+        Returns: boolean
+      }
+      record_panel_cancelled_for_manual: {
+        Args: {
+          p_confirm_text: string
+          p_evidence: string
+          p_job_id: string
+          p_order_id: string
+        }
+        Returns: Json
+      }
       referral_award: {
         Args: {
           p_client_id: string
@@ -833,6 +894,10 @@ export type Database = {
         Returns: Json
       }
       sync_external_renewal_job: { Args: { p_job_id: string }; Returns: Json }
+      sync_external_zero_active_job: {
+        Args: { p_job_id: string }
+        Returns: Json
+      }
       sync_overdue_former_clients: { Args: never; Returns: number }
     }
     Enums: {
