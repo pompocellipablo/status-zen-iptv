@@ -509,10 +509,15 @@ Deno.serve(async(request)=>{
   }
   if(!job)return reply(404,{ok:false,message:"Pedido não encontrado."});
   const jobId=job.id;
+  let providerRequestToken:string|null=null;
   const updateJob=async(patch:Record<string,unknown>)=>{
-    const {error}=await userDb.from("external_renewal_jobs")
-      .update({...patch,updated_at:new Date().toISOString()}).eq("id",jobId);
-    if(error)throw Error("Não foi possível salvar o andamento do pedido.");
+    if(!providerRequestToken)throw Error("Consulta externa sem reserva.");
+    const {data:changed,error}=await userDb.from("external_renewal_jobs")
+      .update({...patch,updated_at:new Date().toISOString()}).eq("id",jobId)
+      .eq("provider_request_token",providerRequestToken)
+      .in("state",["created","waiting","uncertain","failed"])
+      .select("id").maybeSingle();
+    if(error||!changed)throw Error("O estado do pedido mudou; interrompa e concilie.");
   };
   const syncLocal=async()=>{
     // ONE atomic PostgreSQL transaction now:
@@ -574,6 +579,14 @@ Deno.serve(async(request)=>{
   if(customer.login!==job.login||customer.server!==job.server)
     return reply(409,{ok:false,needsReview:true,message:"Login ou servidor mudou desde o pedido. Confira manualmente."});
 
+  providerRequestToken=crypto.randomUUID();
+  const {data:claimed,error:claimError}=await userDb.rpc("claim_panel_provider_request",{
+    p_job_id:jobId,p_token:providerRequestToken,
+  });
+  if(claimError||claimed!==true)
+    return reply(409,{ok:false,needsReview:true,
+      message:"Pedido ocupado ou estado alterado. Aguarde a consulta em andamento; se ela foi interrompida, concilie antes de cancelar ou renovar."});
+  try{
   // Manual renewals can happen through the existing MaxFlix button.
   // Before the FIRST provider send, re-read the current local state; a manual
   // operation might have completed between initial SELECT and job creation.
@@ -679,4 +692,11 @@ Deno.serve(async(request)=>{
     needsReview:outcome.status==="uncertain",orderId:outcome.orderId,
     providerState:outcome.status,message:outcome.message,
   });
+  }finally{
+    // Release only this invocation's claim. A failure leaves manual recovery
+    // blocked; never assume a stale request is safe to cancel automatically.
+    await userDb.from("external_renewal_jobs")
+      .update({provider_request_token:null}).eq("id",jobId)
+      .eq("provider_request_token",providerRequestToken);
+  }
 });
