@@ -117,6 +117,46 @@ export function broadPanelRenewalEligible(
 }
 
 /**
+ * Active no-charge account: paid=0 alone does not prove access is free.
+ * Only owner-confirmed renewals, active access, exact financial date, and
+ * a positive technical credit cost are eligible. Already prepaid packages
+ * are intentionally handled by their normal independent renewal path.
+ */
+export function generalZeroActiveEligible(
+ client:{server:string;due_date:string;financial_due_date:string|null;
+  access_type:string|null;paid:number;cost:number;prev_cost:number},
+ todayISO:string,
+):boolean{
+ const due=panelDateToISO(client.due_date);
+ const finance=panelDateToISO(client.financial_due_date??undefined);
+ const day=panelDateToISO(todayISO);
+ return !!due&&!!finance&&!!day&&due>=day&&finance===due
+   &&PANEL_GENERAL_SERVERS.includes(client.server as typeof PANEL_GENERAL_SERVERS[number])
+   &&["padrao","meu_acesso","gratuidade"].includes(client.access_type??"")
+   &&client.paid===0&&Number.isFinite(client.cost)&&client.cost>=0
+   &&Number.isFinite(client.prev_cost)&&client.prev_cost>=0
+   &&(client.cost>0||client.prev_cost>0);
+}
+export function generalZeroActiveIssue(
+ client:{server:string;due_date:string;financial_due_date:string|null;
+  access_type:string|null;paid:number;cost:number;prev_cost:number;prev_paid:number},
+ values:{months:number;dueDate:string;financialDueDate:string;cost:number;monthlyPaid:number;
+   prevPaid:number;paymentAmount:number;paymentCost:number;pilotKind?:string},
+ todayISO:string,
+):string|null{
+ if(!generalZeroActiveEligible(client,todayISO))
+   return "Acesso não atende às regras da renovação ativa sem cobrança.";
+ const next=addMonthsISO(client.due_date,1);
+ const creditCost=client.cost>0?client.cost:client.prev_cost;
+ if(values.pilotKind!=="zero_active"||values.months!==1||!next
+   ||values.dueDate!==next||values.financialDueDate!==next
+   ||values.cost!==creditCost||values.monthlyPaid!==0||values.prevPaid!==client.prev_paid
+   ||values.paymentAmount!==0||values.paymentCost!==0)
+   return "Sem cobrança: apenas um ciclo técnico, custo cadastrado e receita R$ 0.";
+ return null;
+}
+
+/**
  * Exact one-client overdue-paid renewal test. No authorization for other
  * expired clients; payment date is the new monthly anniversary.
  */
@@ -369,7 +409,7 @@ export function validatePanelRenewalDraft(
   client:{due_date:string;financial_due_date:string|null;access_type?:string|null;paid?:number},
   values:{
     months:number;dueDate:string;financialDueDate:string;
-    paymentAmount:number;monthlyPaid:number;paymentCost:number;paymentDate?:string;pilotKind?:"unpaid"|"overdue";
+    paymentAmount:number;monthlyPaid:number;paymentCost:number;paymentDate?:string;pilotKind?:"unpaid"|"overdue"|"zero_active";
   },
   todayISO:string,
 ):string|null {
@@ -380,7 +420,7 @@ export function validatePanelRenewalDraft(
   const today=panelDateToISO(todayISO);
   if(!due||!finance||!planned||!plannedFinance||!today)
     return "Datas técnicas ou financeiras inválidas; revise o cadastro.";
-  if(values.pilotKind!=="unpaid"
+  if(!["unpaid","zero_active"].includes(values.pilotKind??"")
     &&(client.access_type==="gratuidade"||client.access_type==="meu_acesso"))
     return "Acesso gratuito exige fluxo específico de renovação.";
   if(!Number.isInteger(values.months)||values.months<1||values.months>120)
@@ -400,6 +440,14 @@ export function validatePanelRenewalDraft(
      !Number.isFinite(values.paymentCost)||values.paymentCost<0)
     return "Valores financeiros inválidos.";
 
+  if(values.pilotKind==="zero_active"){
+    if(client.paid!==0||finance!==due||values.months!==1
+      ||values.financialDueDate!==values.dueDate
+      ||values.paymentAmount!==0||values.monthlyPaid!==0||values.paymentCost!==0
+      ||!["padrao","meu_acesso","gratuidade"].includes(client.access_type??""))
+      return "Renovação sem cobrança incompatível com o cadastro atual.";
+    return null;
+  }
   // Free pilot: zero revenue, exactly one technical provider cycle. The
   // financial *date* follows the free access, but no payment is recorded.
   // No existing prepaid coverage is allowed here.
@@ -442,7 +490,7 @@ export function confirmedRenewalDatesFromPanel(
   client: {due_date:string;financial_due_date:string|null},
   values: {
     months:number;dueDate:string;financialDueDate:string;
-    paymentAmount:number;monthlyPaid:number;paymentCost:number;paymentDate?:string;pilotKind?:"unpaid"|"overdue";
+    paymentAmount:number;monthlyPaid:number;paymentCost:number;paymentDate?:string;pilotKind?:"unpaid"|"overdue"|"zero_active";
   },
   providerNextDue:string|undefined,
   providerPreviousDue:string|undefined,
@@ -485,6 +533,13 @@ export function confirmedRenewalDatesFromPanel(
       ||values.financialDueDate!==values.dueDate||newDue!==values.dueDate)
       return blocked("Vencido: painel não confirmou a cobertura financeira da data recebida.");
     return {dueDate:newDue,financialDueDate:values.financialDueDate,blockedReason:null};
+  }
+  if(values.pilotKind==="zero_active"){
+    if(currentFinance!==client.due_date||values.months!==1
+      ||values.paymentAmount!==0||values.monthlyPaid!==0||values.paymentCost!==0
+      ||values.financialDueDate!==values.dueDate)
+      return blocked("Renovação de valor zerado não pode gerar receita ou alterar cobertura pré-paga.");
+    return {dueDate:newDue,financialDueDate:newDue,blockedReason:null};
   }
   if(values.pilotKind==="unpaid"){
     if(currentFinance!==client.due_date||values.months!==1

@@ -11,7 +11,7 @@
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
-  buildPanelRecargaBody, confirmedRenewalDatesFromPanel, financialTransitionError, panelRouteForClient, parsePanelRecargaResponse, validatePanelRenewalDraft, parsePanelPilotBatch, parsePanelRolloutTargets, isPanelRolloutTarget, broadPanelRenewalEligible, broadOverdueEligible, generalOverdueRenewalIssue, PANEL_GENERAL_SERVERS, HUMBERTO_OVERDUE_PILOT, humbertoOverdueIssue, panelDateToISO,
+  buildPanelRecargaBody, confirmedRenewalDatesFromPanel, financialTransitionError, panelRouteForClient, parsePanelRecargaResponse, validatePanelRenewalDraft, parsePanelPilotBatch, parsePanelRolloutTargets, isPanelRolloutTarget, broadPanelRenewalEligible, generalZeroActiveEligible, generalZeroActiveIssue, broadOverdueEligible, generalOverdueRenewalIssue, PANEL_GENERAL_SERVERS, HUMBERTO_OVERDUE_PILOT, humbertoOverdueIssue, panelDateToISO,
   RECARGA_BASE_URL, rolloutRenewalIssue, LEAL_PAULO_PREPAID_SECOND, lealPauloPrepaidSecondIssue, type ExternalOutcome,
 } from "../_shared/painel-recarga.ts";
 
@@ -24,9 +24,9 @@ const headers={
 };
 const reply=(status:number,payload:Record<string,unknown>)=>
   new Response(JSON.stringify(payload),{status,headers});
-type Mode="simulate"|"check_simulation"|"preflight"|"renew"|"check"|"pilot_targets";
+type Mode="simulate"|"check_simulation"|"preflight"|"renew"|"check"|"pilot_targets"|"record_cancelled";
 type ClientRow={id:string;name:string;login:string;server:string;due_date:string;financial_due_date:string|null;access_type:string|null;paid:number;cost:number;prev_paid:number;prev_cost:number};
-type Options={months:number;dueDate:string;financialDueDate:string;cost:number;monthlyPaid:number;prevPaid:number;paymentAmount:number;paymentCost:number;pilotKind?:"unpaid"|"overdue";paymentDate?:string};
+type Options={months:number;dueDate:string;financialDueDate:string;cost:number;monthlyPaid:number;prevPaid:number;paymentAmount:number;paymentCost:number;pilotKind?:"unpaid"|"overdue"|"zero_active";paymentDate?:string};
 type Job={
   id:string;client_id:string|null;login:string;server:string;expected_due_date:string;
   new_due_date:string;financial_due_date:string;idempotency_key:string;
@@ -48,7 +48,7 @@ function parseLocalOptions(input:unknown):Options|null{
   for(const key of ["cost","monthlyPaid","prevPaid","paymentAmount","paymentCost"]){
     if(!safeNumber(o[key]))return null;
   }
-  if(o.pilotKind!==undefined&&o.pilotKind!=="unpaid"&&o.pilotKind!=="overdue")return null;
+  if(o.pilotKind!==undefined&&!["unpaid","overdue","zero_active"].includes(o.pilotKind as string))return null;
   if(o.pilotKind==="overdue"&&!isDate(o.paymentDate))return null;
   if(o.pilotKind!=="overdue"&&o.paymentDate!==undefined)return null;
   return o as unknown as Options;
@@ -84,7 +84,7 @@ Deno.serve(async(request)=>{
     return reply(400,{ok:false,message:"Corpo JSON inválido."});
   }
   const mode=input.mode as Mode;
-  if(!["simulate","check_simulation","preflight","renew","check","pilot_targets"].includes(mode))
+  if(!["simulate","check_simulation","preflight","renew","check","pilot_targets","record_cancelled"].includes(mode))
     return reply(400,{ok:false,message:"Modo inválido."});
   // Batch list is owner-only, read-only and does not call the provider.
   // Empty or malformed secret => no permitted cases (fail closed).
@@ -126,6 +126,10 @@ Deno.serve(async(request)=>{
     &&overdueDay>=HUMBERTO_OVERDUE_PILOT.paymentDate
     &&overdueDay<=HUMBERTO_OVERDUE_PILOT.lastTestDate
     ?HUMBERTO_OVERDUE_PILOT:null;
+  // A SECOND, default-off flag for active zero-value subscriptions. Exact free
+  // pilot targets remain intact for legacy audited renewals.
+  const generalZeroEnabled=generalEnabled
+    &&Deno.env.get("PAINEL_RECARGA_ZERO_ACTIVE_GENERAL_ENABLED")==="true";
   const freeCanaryEnabled=generalEnabled
     &&Deno.env.get("PAINEL_RECARGA_FREE_ENABLED")==="true";
   const freePilotCases=freeCanaryEnabled
@@ -139,10 +143,29 @@ Deno.serve(async(request)=>{
       targets:exclusiveWindowOpen?packagePilot:[],
       freeTargets:freePilotCases,
       overdueTarget,
-      generalOverdueEnabled,
+      generalOverdueEnabled,generalZeroEnabled,
       rolloutEnabled,rolloutTargets:rolloutEnabled?rolloutTargets:[],
       generalEnabled,generalServers:generalEnabled?PANEL_GENERAL_SERVERS:[],
       exclusiveWindowOpen});
+  if(mode==="record_cancelled"){
+    // No provider call. The owner must FIRST cancel the exact order in the
+    // external Panel Recarga website. SQL permits only waiting/uncertain/failed
+    // orders with an established external order ID; never confirmed requests.
+    const jobId=input.jobId;
+    if(typeof jobId!=="string"||!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(jobId)
+      ||typeof input.orderId!=="string"||typeof input.evidence!=="string"
+      ||input.confirmText!=="CANCELADO")
+      return reply(400,{ok:false,message:"Confirmação e referência do cancelamento obrigatórias."});
+    const {data,error}=await userDb.rpc("record_panel_cancelled_for_manual",{
+      p_job_id:jobId,p_order_id:input.orderId,
+      p_confirm_text:input.confirmText,p_evidence:input.evidence,
+    });
+    if(error)return reply(409,{ok:false,
+      message:"Não foi possível autorizar recuperação manual: "+error.message.slice(0,160)});
+    return reply(200,{ok:true,recorded:true,state:"cancelled",readOnly:false,
+      jobId:data?.jobId??jobId,orderId:data?.orderId??input.orderId,
+      message:"Cancelamento registrado. Renove DIRETAMENTE no servidor; somente depois registre a renovação manual na MaxFlix."});
+  }
   if(typeof input.clientId!=="string"||!isDate(input.expectedDueDate))
     return reply(400,{ok:false,message:"Cliente e vencimento esperado obrigatórios."});
   const {data:client,error:clientError}=await userDb.from("clients")
@@ -166,6 +189,13 @@ Deno.serve(async(request)=>{
     const values=parseLocalOptions(input.options);
     if(!values)
       return reply(400,{ok:false,previewOnly:true,message:"Plano, valores ou vencimentos inválidos."});
+    if(values.pilotKind==="zero_active"){
+      const issue=generalZeroEnabled
+        ?generalZeroActiveIssue(customer,values,overdueDay)
+        :"Renovação geral de valor zerado ainda está desabilitada.";
+      if(issue)return reply(403,{ok:false,previewOnly:true,pilotRestricted:true,
+        message:issue+" Nenhum pedido enviado."});
+    }
     if(values.pilotKind==="overdue"){
       const exact=!!overdueTarget&&customer.id===overdueTarget.clientId
         &&customer.server===overdueTarget.server
@@ -350,12 +380,13 @@ Deno.serve(async(request)=>{
   const overdueAuthorized=!!overdueTarget&&customer.id===overdueTarget.clientId
     &&customer.server===overdueTarget.server&&customer.due_date===overdueTarget.expectedDueDate;
   const generalOverdueAuthorized=generalOverdueEnabled&&broadOverdueEligible(customer,overdueDay);
+  const zeroAuthorized=generalZeroEnabled&&generalZeroActiveEligible(customer,overdueDay);
   const freeAuthorized=freePilotCases.some(t=>t.clientId===customer.id
     &&t.server===customer.server&&t.expectedDueDate===expected);
   const legacyPilotAuthorized=!!authorizedCase&&exclusiveWindowOpen;
   const exclusivePilotLive=packagePilotOn
     &&Deno.env.get("PAINEL_RECARGA_LEALPAULO_PREPAID2_LIVE_ENABLED")==="true";
-  if(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized&&!overdueAuthorized&&!generalOverdueAuthorized)
+  if(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized&&!overdueAuthorized&&!generalOverdueAuthorized&&!zeroAuthorized)
     return reply(403,{ok:false,disabled:true,pilotRestricted:true,
       message:"Cliente e vencimento fora da liberação controlada. Nenhum pedido enviado."});
   if(Deno.env.get("PAINEL_RECARGA_LIVE_ENABLED")!=="true"
@@ -377,7 +408,7 @@ Deno.serve(async(request)=>{
   // A "check" replays the provider POST under the SAME idempotency key.
   // If the original job never left "created", revoking rollout permission
   // must not let a status check initiate a NEW external renewal.
-  if(mode==="check"&&job?.state==="created"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized&&!overdueAuthorized&&!generalOverdueAuthorized)
+  if(mode==="check"&&job?.state==="created"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized&&!overdueAuthorized&&!generalOverdueAuthorized&&!zeroAuthorized)
     return reply(403,{ok:false,disabled:true,pilotRestricted:true,
       message:"Autorização revogada antes do primeiro envio. Nenhum pedido externo enviado."});
   if(mode==="renew"&&!job){
@@ -392,6 +423,9 @@ Deno.serve(async(request)=>{
     if(overdueAuthorized||generalOverdueAuthorized){
       const issue=overdueAuthorized?humbertoOverdueIssue(customer,values,overdueDay)
         :generalOverdueRenewalIssue(customer,values,overdueDay);
+      if(issue)return reply(409,{ok:false,pilotRestricted:true,message:issue});
+    }else if(zeroAuthorized&&values.pilotKind==="zero_active"){
+      const issue=generalZeroActiveIssue(customer,values,overdueDay);
       if(issue)return reply(409,{ok:false,pilotRestricted:true,message:issue});
     }else if(freeAuthorized){
       if(values.pilotKind!=="unpaid"||values.months!==1
@@ -475,10 +509,15 @@ Deno.serve(async(request)=>{
   }
   if(!job)return reply(404,{ok:false,message:"Pedido não encontrado."});
   const jobId=job.id;
+  let providerRequestToken:string|null=null;
   const updateJob=async(patch:Record<string,unknown>)=>{
-    const {error}=await userDb.from("external_renewal_jobs")
-      .update({...patch,updated_at:new Date().toISOString()}).eq("id",jobId);
-    if(error)throw Error("Não foi possível salvar o andamento do pedido.");
+    if(!providerRequestToken)throw Error("Consulta externa sem reserva.");
+    const {data:changed,error}=await userDb.from("external_renewal_jobs")
+      .update({...patch,updated_at:new Date().toISOString()}).eq("id",jobId)
+      .eq("provider_request_token",providerRequestToken)
+      .in("state",["created","waiting","uncertain","failed"])
+      .select("id").maybeSingle();
+    if(error||!changed)throw Error("O estado do pedido mudou; interrompa e concilie.");
   };
   const syncLocal=async()=>{
     // ONE atomic PostgreSQL transaction now:
@@ -487,8 +526,10 @@ Deno.serve(async(request)=>{
     // The job ID is the only RPC argument. The client cannot inject payment
     // details a second time or race this transaction with another browser.
     const freePilot=job!.local_values?.pilotKind==="unpaid";
-    const {data:result,error}=await userDb.rpc(
-      freePilot?"sync_external_free_pilot_job":"sync_external_renewal_job",{
+    const zeroActive=job!.local_values?.pilotKind==="zero_active";
+    const settleRpc=freePilot?"sync_external_free_pilot_job":
+      zeroActive?"sync_external_zero_active_job":"sync_external_renewal_job";
+    const {data:result,error}=await userDb.rpc(settleRpc,{
       p_job_id:jobId,
     });
     if(error){
@@ -526,6 +567,9 @@ Deno.serve(async(request)=>{
   };
   if(job.state==="synced")
     return reply(200,{ok:true,renewed:true,alreadyProcessed:true,orderId:job.external_order_id,message:"Esta renovação já foi concluída."});
+  if(job.state==="cancelled")
+    return reply(409,{ok:false,cancelled:true,manualOnly:true,
+      message:"Pedido cancelado pelo proprietário: não reenviar ao Painel Recarga. Renove diretamente no servidor e registre manualmente na MaxFlix."});
   if(job.state==="needs_review")
     return reply(409,{ok:false,needsReview:true,externalConfirmed:true,orderId:job.external_order_id,
       message:"Pedido exige conciliação manual; não enviar outra renovação."});
@@ -535,6 +579,14 @@ Deno.serve(async(request)=>{
   if(customer.login!==job.login||customer.server!==job.server)
     return reply(409,{ok:false,needsReview:true,message:"Login ou servidor mudou desde o pedido. Confira manualmente."});
 
+  providerRequestToken=crypto.randomUUID();
+  const {data:claimed,error:claimError}=await userDb.rpc("claim_panel_provider_request",{
+    p_job_id:jobId,p_token:providerRequestToken,
+  });
+  if(claimError||claimed!==true)
+    return reply(409,{ok:false,needsReview:true,
+      message:"Pedido ocupado ou estado alterado. Aguarde a consulta em andamento; se ela foi interrompida, concilie antes de cancelar ou renovar."});
+  try{
   // Manual renewals can happen through the existing MaxFlix button.
   // Before the FIRST provider send, re-read the current local state; a manual
   // operation might have completed between initial SELECT and job creation.
@@ -640,4 +692,11 @@ Deno.serve(async(request)=>{
     needsReview:outcome.status==="uncertain",orderId:outcome.orderId,
     providerState:outcome.status,message:outcome.message,
   });
+  }finally{
+    // Release only this invocation's claim. A failure leaves manual recovery
+    // blocked; never assume a stale request is safe to cancel automatically.
+    await userDb.from("external_renewal_jobs")
+      .update({provider_request_token:null}).eq("id",jobId)
+      .eq("provider_request_token",providerRequestToken);
+  }
 });

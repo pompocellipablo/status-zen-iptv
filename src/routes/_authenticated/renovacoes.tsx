@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { paginateClients } from "@/lib/client-pagination";
-import { panelRouteForClient,HUMBERTO_OVERDUE_PILOT,broadOverdueEligible } from "@/lib/painel-recarga";
+import { panelRouteForClient,HUMBERTO_OVERDUE_PILOT,broadOverdueEligible,generalZeroActiveEligible } from "@/lib/painel-recarga";
 import { defaultClientSortMode, sortClients, type ClientSortMode } from "@/lib/client-sort";
 import { MessageCircle, MoreHorizontal, RefreshCw, Search } from "lucide-react";
 import {
@@ -52,7 +52,9 @@ const PANEL_PILOT_UI_ENABLED = import.meta.env["VITE_MAXFLIX_PANEL_PILOT"] === "
 // PAINEL_RECARGA_PILOT_CLIENT_ID + PAINEL_RECARGA_PILOT_EXPECTED_DUE_DATE.
 type PanelPilotTarget={clientId:string;expectedDueDate:string;server:string;kind:"paid"|"unpaid"|"package6"|"prepaid2"};
 type PanelRolloutTarget={clientId:string;server:string;expectedDueDate:string};
-type PanelPilotConfig={targets:PanelPilotTarget[];rolloutTargets:PanelRolloutTarget[];rolloutEnabled:boolean;generalEnabled:boolean;generalServers:string[];overdueTarget:typeof HUMBERTO_OVERDUE_PILOT|null;generalOverdueEnabled:boolean};
+type ExternalJobRow={id:string;client_id:string|null;client_name:string;login:string;server:string;
+  state:string;external_order_id:string|null;expected_due_date:string;external_message:string|null};
+type PanelPilotConfig={targets:PanelPilotTarget[];rolloutTargets:PanelRolloutTarget[];rolloutEnabled:boolean;generalEnabled:boolean;generalServers:string[];overdueTarget:typeof HUMBERTO_OVERDUE_PILOT|null;generalOverdueEnabled:boolean;generalZeroEnabled:boolean};
 const ROLLOUT_CANARY_SERVERS=new Set(["Club","Five","Uniplay","UniP2P","Blade","Now","GF","Fast","All Play"]);
 // UX-only allowlist obtained once from the owner-authorized Edge Function.
 // The private backend validates the same list independently on every renewal.
@@ -102,9 +104,14 @@ const isGeneralOverdueTarget=(client:Client,config:PanelPilotConfig|undefined)=>
   &&ROLLOUT_CANARY_SERVERS.has(client.server)
   &&!!panelRouteForClient(client.server)
   &&broadOverdueEligible(client,toISODate(today()));
+const isGeneralZeroTarget=(client:Client,config:PanelPilotConfig|undefined)=>
+  config?.generalEnabled===true&&config.generalZeroEnabled===true
+  &&config.generalServers.includes(client.server)
+  &&generalZeroActiveEligible(client,toISODate(today()));
 const isExternalTarget=(client:Client,config:PanelPilotConfig|undefined)=>
   isPilotTarget(client,config?.targets??[])||isRolloutTarget(client,config)
-  ||isOverdueTarget(client,config)||isGeneralOverdueTarget(client,config);
+  ||isOverdueTarget(client,config)||isGeneralOverdueTarget(client,config)
+  ||isGeneralZeroTarget(client,config);
 // If target loading fails, never silently fall back to manual renewal for
 // this exact paid pilot before the owner-only configuration has been fetched.
 const isScopedPackageCandidate=(client:Client)=>
@@ -303,6 +310,7 @@ function Painel() {
         generalEnabled:data.generalEnabled===true,
         overdueTarget:data.overdueTarget?.clientId===HUMBERTO_OVERDUE_PILOT.clientId?data.overdueTarget:null,
         generalOverdueEnabled:data.generalOverdueEnabled===true,
+        generalZeroEnabled:data.generalZeroEnabled===true,
         generalServers:Array.isArray(data.generalServers)
           ?data.generalServers.filter((name:unknown):name is string=>typeof name==="string")
           :[],
@@ -320,7 +328,7 @@ function Painel() {
     enabled:true,
     queryFn:async()=>{
       const {data,error}=await supabase.from("external_renewal_jobs")
-        .select("id,client_id,client_name,login,server,state,created_at,external_message,expected_due_date")
+        .select("id,client_id,client_name,login,server,state,created_at,external_message,external_order_id,expected_due_date")
         .neq("state","synced").order("created_at",{ascending:false}).limit(30);
       if(error)throw error;
       return data??[];
@@ -469,6 +477,9 @@ function Painel() {
 
   const [renewing, setRenewing] = useState<Client | null>(null);
   const [overdueRenewing,setOverdueRenewing]=useState<Client|null>(null);
+  const [zeroRenewing,setZeroRenewing]=useState<Client|null>(null);
+  const [cancelJob,setCancelJob]=useState<ExternalJobRow|null>(null);
+  const [manualRecovery,setManualRecovery]=useState<Client|null>(null);
   const [previewClient, setPreviewClient] = useState<Client | null>(null);
 
   const performRenewal = async (client: Client, opts: { dueDate: string; financialDueDate: string; cost: number; monthlyPaid: number; prevPaid: number; paymentAmount: number; paymentCost: number }) => {
@@ -528,6 +539,15 @@ function Painel() {
   };
 
   const renew = async (client: Client) => {
+    // After an externally confirmed cancellation, do not send another provider
+    // order. Manual recovery must be separate and explicitly verified.
+    const cancelled=(externalJobsQuery.data??[]).find(j=>
+      j.client_id===client.id&&j.expected_due_date===client.due_date
+      &&j.state==="cancelled");
+    if(cancelled){
+      setManualRecovery(client);
+      return;
+    }
     // The ordinary Renew button uses the provider only when the backend has
     // explicitly enabled its separate rollout switch, or for exact pilots.
     // No new provider order is triggered without a second confirmation.
@@ -542,7 +562,8 @@ function Painel() {
         return;
       }
       const previousJob=(externalJobsQuery.data??[]).find(j=>
-        j.client_id===client.id&&j.expected_due_date===client.due_date);
+        j.client_id===client.id&&j.expected_due_date===client.due_date
+        &&j.state!=="cancelled");
       if(previousJob){
         setNotice(client.name+": já existe pedido externo em andamento. "
           +"Verifique o mesmo pedido antes de outra renovação.");
@@ -563,6 +584,10 @@ function Painel() {
       if(target?.kind==="unpaid"){
         void confirmPanelPilot(client,{months:1,cost:0,paid:0,
           monthlyCost:Number(client.cost),monthlyPaid:0});
+        return;
+      }
+      if(isGeneralZeroTarget(client,pilotTargetsQuery.data)){
+        setZeroRenewing(client);
         return;
       }
       const next=nextDueDate(client.due_date);
@@ -665,6 +690,7 @@ function Painel() {
     const overdueExact=isOverdueTarget(client,pilotTargetsQuery.data);
     const overdue=overdueGeneral||overdueExact;
     const unpaid=target?.kind==="unpaid";
+    const zeroGeneral=isGeneralZeroTarget(client,pilotTargetsQuery.data)&&!unpaid;
     const package6=target?.kind==="package6";
     const prepaid2=target?.kind==="prepaid2";
     if(prepaid2){
@@ -677,6 +703,13 @@ function Painel() {
         ||opts.monthlyPaid!==HUMBERTO_OVERDUE_PILOT.amount
         ||opts.monthlyCost!==HUMBERTO_OVERDUE_PILOT.cost){
         setNotice("Piloto vencido: valor ou custo incompatível. Nenhum pedido enviado.");
+        return;
+      }
+    }else if(zeroGeneral){
+      const cost=Number(client.cost)>0?Number(client.cost):Number(client.prev_cost);
+      if(opts.months!==1||opts.paid!==0||opts.cost!==0
+        ||opts.monthlyPaid!==0||opts.monthlyCost!==cost){
+        setNotice("Valor zerado: somente um ciclo técnico sem recebimento novo. Nenhum pedido enviado.");
         return;
       }
     }else if(overdueGeneral){
@@ -766,10 +799,11 @@ function Painel() {
       months:covered?1:opts.months,
       dueDate,financialDueDate:covered?client.financial_due_date!:financialDueDate,
       cost:opts.monthlyCost,monthlyPaid:covered?0:opts.monthlyPaid,
-      prevPaid:unpaid?0:(covered?client.prev_paid:(opts.months>1?client.prev_paid||client.paid:opts.monthlyPaid)),
+      prevPaid:unpaid?0:(zeroGeneral?client.prev_paid:(covered?client.prev_paid:(opts.months>1?client.prev_paid||client.paid:opts.monthlyPaid))),
       paymentAmount:unpaid?0:(covered?0:opts.paid),
       paymentCost:unpaid?0:(covered?0:opts.cost),
       ...(unpaid?{pilotKind:"unpaid" as const}:{}),
+      ...(zeroGeneral?{pilotKind:"zero_active" as const}:{}),
       ...(overdue?{pilotKind:"overdue" as const,paymentDate:paymentDate!}:{}),
     };
 
@@ -1188,12 +1222,23 @@ function Painel() {
               <p className="font-semibold">{job.client_name} · {job.login} · {job.server}</p>
               <p className="mt-1 text-xs text-mist">Estado: {job.state} · vencimento anterior: {formatDate(job.expected_due_date)}</p>
               {job.external_message&&<p className="mt-1 text-xs text-warn">{job.external_message}</p>}
+              {job.external_order_id&&<p className="mt-1 text-xs text-mist">Pedido Painel Recarga: {job.external_order_id}</p>}
               {["created","waiting","uncertain","external_confirmed"].includes(job.state)&&
                 <button type="button" disabled={renewingBusy||!job.client_id}
                   onClick={()=>void verifyExternalPilotJob(job)}
                   className="mt-2 min-h-9 rounded-lg bg-panel2 px-3 text-xs font-semibold text-cyan ring-1 ring-line disabled:opacity-40">
                   {renewingBusy?"Verificando…":"Verificar andamento (mesma chave)"}
                 </button>}
+              {["failed","waiting","uncertain"].includes(job.state)
+                &&!!job.external_order_id&&!!job.client_id&&
+                <button type="button" disabled={renewingBusy}
+                  onClick={()=>setCancelJob(job)}
+                  className="ml-2 mt-2 min-h-9 rounded-lg bg-panel2 px-3 text-xs font-semibold text-warn ring-1 ring-line disabled:opacity-40">
+                  Já cancelei no Painel Recarga
+                </button>}
+              {job.state==="cancelled"&&<p className="mt-2 text-xs text-warn">
+                Cancelamento registrado. Renove diretamente no servidor, confira a data e use "Registrar renovação manual" no cliente.
+              </p>}
             </div>)}
           </div>
         </section>}
@@ -1276,11 +1321,14 @@ function Painel() {
                             &&(pilotTargetsQuery.isLoading||pilotTargetsQuery.isError))||
                           (isExternalTarget(c,pilotTargetsQuery.data)
                             &&(externalJobsQuery.isLoading||externalJobsQuery.isError||
-                              (externalJobsQuery.data??[]).some(j=>j.client_id===c.id&&j.expected_due_date===c.due_date)))}
+                              (externalJobsQuery.data??[]).some(j=>j.client_id===c.id&&j.expected_due_date===c.due_date&&j.state!=="cancelled")))}
                         onClick={() => void renew(c)}
                         className="font-display flex min-h-11 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl bg-cyan/15 px-2 text-sm font-semibold text-cyan ring-1 ring-cyan/30 hover:bg-cyan/25"
                       >
-                        <RefreshCw size={15} aria-hidden="true" /> {isExternalTarget(c,pilotTargetsQuery.data)?"Renovar no painel":
+                        <RefreshCw size={15} aria-hidden="true" /> {(externalJobsQuery.data??[]).some(j=>j.client_id===c.id
+                            &&j.expected_due_date===c.due_date&&j.state==="cancelled")
+                          ?"Registrar renovação manual":
+                          isExternalTarget(c,pilotTargetsQuery.data)?"Renovar no painel":
                           ROLLOUT_CANARY_SERVERS.has(c.server)?"Renovar manual":"Renovar"}
                       </button>
                       <a
@@ -1423,6 +1471,87 @@ function Painel() {
             &&t.expectedDueDate===previewClient.due_date)?.kind} />
       )}
 
+      {cancelJob && (
+        <PanelCancellationDialog job={cancelJob} saving={renewingBusy}
+          onCancel={()=>setCancelJob(null)}
+          onConfirm={async(note)=>{
+            if(renewingBusy)return;
+            setRenewingBusy(true);
+            try{
+              const {data,error}=await supabase.functions.invoke("painel-recarga-renovar",{
+                body:{mode:"record_cancelled",jobId:cancelJob.id,
+                  orderId:cancelJob.external_order_id,confirmText:"CANCELADO",evidence:note},
+              });
+              if(error||data?.ok!==true){
+                const ctx=(error as {context?:{json?:()=>Promise<unknown>}}|null)?.context;
+                let message=error?.message??"Cancelamento não registrado.";
+                if(typeof ctx?.json==="function"){
+                  try{const failure=await ctx.json() as {message?:string};message=failure.message??message;}catch{/* no body */}
+                }
+                throw Error(message);
+              }
+              setCancelJob(null);
+              await qc.invalidateQueries({queryKey:["external-renewal-jobs"]});
+              setNotice("Cancelamento documentado. Agora renove no servidor e depois registre manualmente no cliente.");
+            }catch(err){
+              setNotice("Recuperação bloqueada: "+(err instanceof Error?err.message:"Verifique o pedido original."));
+            }finally{setRenewingBusy(false);}
+          }}/>
+      )}
+      {manualRecovery && (
+        <ManualRecoveryDialog client={manualRecovery} saving={renewingBusy}
+          onCancel={()=>setManualRecovery(null)}
+          onConfirm={async({providerDue,amount,cost})=>{
+            if(renewingBusy)return;
+            const job=(externalJobsQuery.data??[]).find(j=>j.client_id===manualRecovery.id
+              &&j.expected_due_date===manualRecovery.due_date&&j.state==="cancelled");
+            if(!job){setNotice("Cancelamento do pedido não encontrado. Não registrar.");return;}
+            const planned=nextDueDate(manualRecovery.due_date);
+            if(providerDue!==planned){
+              setNotice("Data informada pelo servidor difere da projeção. Não registre automaticamente; concilie o vencimento.");
+              return;
+            }
+            const {data:current,error}=await supabase.from("external_renewal_jobs")
+              .select("state").eq("id",job.id).maybeSingle();
+            if(error||current?.state!=="cancelled"){
+              setNotice("O estado do pedido mudou. Nenhuma renovação manual registrada.");
+              return;
+            }
+            const covered=!!manualRecovery.financial_due_date
+              &&manualRecovery.financial_due_date>manualRecovery.due_date;
+            if(covered&&manualRecovery.financial_due_date!<planned){
+              setNotice("A cobertura do pacote não alcança o ciclo técnico. Concilie antes.");
+              return;
+            }
+            const actualAmount=covered?0:amount;
+            const completed=await performRenewal(manualRecovery,{
+              dueDate:planned,
+              financialDueDate:covered?manualRecovery.financial_due_date!:planned,
+              cost,monthlyPaid:actualAmount,
+              prevPaid:actualAmount>0?actualAmount:manualRecovery.prev_paid,
+              paymentAmount:actualAmount,
+              paymentCost:actualAmount>0?cost:0,
+            });
+            if(completed){
+              setNotice(manualRecovery.name+": renovação manual registrada após cancelamento. Verifique data e créditos.");
+              setManualRecovery(null);
+              await qc.invalidateQueries({queryKey:["external-renewal-jobs"]});
+            }
+          }}/>
+      )}
+      {zeroRenewing && (
+        <ZeroRevenueConfirmationDialog client={zeroRenewing} saving={renewingBusy}
+          onCancel={()=>setZeroRenewing(null)}
+          onConfirm={()=>{
+            const client=zeroRenewing;
+            setZeroRenewing(null);
+            void confirmPanelPilot(client,{
+              months:1,cost:0,paid:0,
+              monthlyCost:Number(client.cost)>0?Number(client.cost):Number(client.prev_cost),
+              monthlyPaid:0,
+            });
+          }}/>
+      )}
       {overdueRenewing && (
         <OverduePaidDialog key={overdueRenewing.id}
           client={overdueRenewing} saving={renewingBusy}
@@ -1467,6 +1596,131 @@ function Painel() {
 /** A receipt must be declared explicitly, with the actual Pix/transfer date.
  * This screen is not permission to send a provider order by itself.
  */
+/** The platform cannot prove a third-party order was cancelled. This form
+ * records the owner's explicit confirmation for the SAME order ID, only.
+ */
+function PanelCancellationDialog({job,saving,onCancel,onConfirm}:{
+  job:ExternalJobRow;saving:boolean;onCancel:()=>void;
+  onConfirm:(evidence:string)=>void|Promise<void>;
+}){
+  const [confirmed,setConfirmed]=useState(false);
+  const [typed,setTyped]=useState("");
+  const [evidence,setEvidence]=useState("");
+  return <div className="fixed inset-0 z-50 overflow-y-auto bg-background/80 p-4 backdrop-blur-sm">
+    <section className="mx-auto mt-10 max-w-md rounded-2xl bg-panel2 p-6 ring-1 ring-line"
+      aria-label="Registrar cancelamento de pedido externo">
+      <h2 className="text-xl font-semibold">Confirmar cancelamento externo</h2>
+      <p className="mt-3 text-sm">{job.client_name} · {job.server}</p>
+      <p className="mt-1 text-sm font-semibold">Pedido: {job.external_order_id}</p>
+      <p className="mt-3 text-sm text-warn">Cancele primeiro este pedido no site do Painel Recarga e confira o estado CANCELADO. A MaxFlix não executa o cancelamento no fornecedor.</p>
+      <p className="mt-2 text-xs text-mist">Não use esta opção se a renovação já foi confirmada, se o crédito foi debitado ou se não existe prova do cancelamento.</p>
+      <label className="mt-4 block text-sm" htmlFor="cancel-evidence">Registro do cancelamento (referência, horário ou protocolo)</label>
+      <textarea id="cancel-evidence" rows={3} maxLength={500}
+        value={evidence} onChange={e=>setEvidence(e.target.value)}
+        placeholder="Ex.: Pedido ABC123 cancelado no Painel Recarga em 11/11 às 13:20; status Cancelado."
+        className="mt-2 w-full rounded-lg bg-panel p-3 text-frost ring-1 ring-line"/>
+      <label className="mt-4 block text-sm" htmlFor="cancel-typed">Digite CANCELADO</label>
+      <input id="cancel-typed" value={typed} onChange={e=>setTyped(e.target.value)}
+        className="mt-2 w-full rounded-lg bg-panel px-3 py-2 text-frost ring-1 ring-line"/>
+      <label className="mt-4 flex items-start gap-3 text-sm">
+        <input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>
+        <span>Conferi no Painel Recarga que este pedido específico foi cancelado e não renovou o acesso.</span>
+      </label>
+      <div className="mt-5 flex gap-3">
+        <Button type="button" disabled={!confirmed||typed!=="CANCELADO"
+          ||evidence.trim().length<12||saving}
+          onClick={()=>void onConfirm(evidence.trim())}>Registrar cancelamento</Button>
+        <Button type="button" variant="outline" disabled={saving} onClick={onCancel}>Voltar</Button>
+      </div>
+    </section>
+  </div>;
+}
+
+/** The external order must be recorded as cancelled before this dialog opens.
+ * No provider API is invoked; the owner has already renewed directly on the
+ * server and confirms the server's real date before local accounting changes.
+ */
+function ManualRecoveryDialog({client,saving,onCancel,onConfirm}:{
+  client:Client;saving:boolean;onCancel:()=>void;
+  onConfirm:(values:{providerDue:string;amount:number;cost:number})=>void|Promise<void>;
+}){
+  const covered=!!client.financial_due_date&&client.financial_due_date>client.due_date;
+  const expectedDue=nextDueDate(client.due_date);
+  const defaultAmount=covered?0:Number(client.paid)>0?Number(client.paid):
+    (client.due_date<toISODate(today())?Number(client.prev_paid):0);
+  const [providerDue,setProviderDue]=useState("");
+  const [paidValue,setPaidValue]=useState(String(defaultAmount).replace(".",","));
+  const [costValue,setCostValue]=useState(String(client.cost||client.prev_cost||0).replace(".",","));
+  const [serverConfirmed,setServerConfirmed]=useState(false);
+  const [paymentConfirmed,setPaymentConfirmed]=useState(false);
+  const amount=num(paidValue),cost=num(costValue);
+  const good=providerDue===expectedDue&&cost>0&&amount>=0
+    &&(!covered||amount===0)
+    &&serverConfirmed&&(amount===0||paymentConfirmed);
+  return <div className="fixed inset-0 z-50 overflow-y-auto bg-background/80 p-4 backdrop-blur-sm">
+    <section className="mx-auto mt-10 max-w-md rounded-2xl bg-panel2 p-6 ring-1 ring-line"
+      aria-label="Registrar renovação manual após pedido cancelado">
+      <h2 className="text-xl font-semibold">Renovação manual — {client.name}</h2>
+      <p className="mt-3 text-sm text-warn">Primeiro renove diretamente no servidor {client.server}. Este registro na MaxFlix não chama o Painel Recarga nem renova o servidor.</p>
+      <p className="mt-2 text-sm text-mist">Vencimento esperado: {formatDate(expectedDue)}. Se o servidor mostrar outra data, interrompa e faça conciliação.</p>
+      <label className="mt-4 block text-sm" htmlFor="manual-provider-date">Data de vencimento confirmada no servidor</label>
+      <input id="manual-provider-date" type="date" value={providerDue}
+        onChange={e=>setProviderDue(e.target.value)}
+        className="mt-2 w-full rounded-lg bg-panel px-3 py-2 text-frost ring-1 ring-line"/>
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <label className="text-sm">Valor recebido (R$)
+          <input value={paidValue} disabled={covered} onChange={e=>setPaidValue(e.target.value)}
+            inputMode="decimal" className="mt-2 w-full rounded-lg bg-panel px-3 py-2 text-frost ring-1 ring-line"/>
+        </label>
+        <label className="text-sm">Custo técnico (R$)
+          <input value={costValue} onChange={e=>setCostValue(e.target.value)}
+            inputMode="decimal" className="mt-2 w-full rounded-lg bg-panel px-3 py-2 text-frost ring-1 ring-line"/>
+        </label>
+      </div>
+      {covered&&<p className="mt-2 text-xs text-mist">Pacote já pago até {formatDate(client.financial_due_date)}: nenhum pagamento novo.</p>}
+      {providerDue!==""&&providerDue!==expectedDue&&<p className="mt-2 text-xs text-danger">Vencimento diferente. Não lançar um segundo ciclo sem conciliar.</p>}
+      <label className="mt-4 flex items-start gap-3 text-sm">
+        <input type="checkbox" checked={serverConfirmed} onChange={e=>setServerConfirmed(e.target.checked)}/>
+        <span>Eu mesmo já renovei o acesso diretamente no servidor e conferi o vencimento acima.</span>
+      </label>
+      {amount>0&&<label className="mt-3 flex items-start gap-3 text-sm">
+        <input type="checkbox" checked={paymentConfirmed} onChange={e=>setPaymentConfirmed(e.target.checked)}/>
+        <span>Confirmo que recebi {formatBRL(amount)} e que esse pagamento ainda não foi lançado na MaxFlix.</span>
+      </label>}
+      <div className="mt-5 flex gap-3">
+        <Button type="button" disabled={!good||saving}
+          onClick={()=>void onConfirm({providerDue,amount,cost})}>Registrar na MaxFlix</Button>
+        <Button type="button" variant="outline" disabled={saving} onClick={onCancel}>Cancelar</Button>
+      </div>
+    </section>
+  </div>;
+}
+
+function ZeroRevenueConfirmationDialog({client,saving,onCancel,onConfirm}:{
+  client:Client;saving:boolean;onCancel:()=>void;onConfirm:()=>void;
+}){
+  const [approved,setApproved]=useState(false);
+  const unitCost=Number(client.cost)>0?Number(client.cost):Number(client.prev_cost);
+  return <div className="fixed inset-0 z-50 overflow-y-auto bg-background/80 p-4 backdrop-blur-sm">
+    <section className="mx-auto mt-10 max-w-md rounded-2xl bg-panel2 p-6 ring-1 ring-line"
+      aria-label="Confirmar renovação sem recebimento">
+      <h2 className="text-xl font-semibold">Acesso ativo com R$ 0,00 — {client.name}</h2>
+      <p className="mt-2 text-sm text-mist">{client.server} · vence {formatDate(client.due_date)}.</p>
+      <p className="mt-3 text-sm">Será renovado <strong>um ciclo técnico</strong>, ao custo de {formatBRL(unitCost)} em crédito do servidor, sem adicionar nenhuma receita.</p>
+      <p className="mt-2 text-xs text-warn">R$ 0,00 não comprova que um acesso é gratuito. Confirme que este cliente não deve pagar nesta renovação.</p>
+      <label className="mt-4 flex gap-3 text-sm">
+        <input type="checkbox" checked={approved} onChange={e=>setApproved(e.target.checked)} />
+        <span>Confirmo expressamente que este acesso ativo deve ser renovado sem cobrança.</span>
+      </label>
+      <div className="mt-5 flex gap-3">
+        <Button type="button" disabled={!approved||saving||!(unitCost>0)}
+          onClick={onConfirm}>Pré-validar renovação</Button>
+        <Button type="button" variant="outline" disabled={saving} onClick={onCancel}>Voltar</Button>
+      </div>
+    </section>
+  </div>;
+}
+
 function OverduePaidDialog({client,saving,onClose,onConfirm}:{
   client:Client;saving:boolean;onClose:()=>void;onConfirm:(paymentDate:string)=>void;
 }){

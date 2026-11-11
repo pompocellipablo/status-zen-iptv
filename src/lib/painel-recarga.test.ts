@@ -1,7 +1,7 @@
 import {describe,it} from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
-import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO,financialTransitionError,confirmedRenewalDatesFromPanel,validatePanelRenewalDraft,parsePanelPilotBatch,parsePanelRolloutTargets,isPanelRolloutTarget,broadPanelRenewalEligible,PANEL_GENERAL_SERVERS,broadOverdueEligible,generalOverdueRenewalIssue,HUMBERTO_OVERDUE_PILOT,humbertoOverdueIssue,rolloutRenewalIssue,lealPauloPackage6Issue,LEAL_PAULO_PACKAGE6,lealPauloPrepaidSecondIssue,LEAL_PAULO_PREPAID_SECOND} from "./painel-recarga";
+import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO,financialTransitionError,confirmedRenewalDatesFromPanel,validatePanelRenewalDraft,parsePanelPilotBatch,parsePanelRolloutTargets,isPanelRolloutTarget,broadPanelRenewalEligible,PANEL_GENERAL_SERVERS,generalZeroActiveEligible,generalZeroActiveIssue,broadOverdueEligible,generalOverdueRenewalIssue,HUMBERTO_OVERDUE_PILOT,humbertoOverdueIssue,rolloutRenewalIssue,lealPauloPackage6Issue,LEAL_PAULO_PACKAGE6,lealPauloPrepaidSecondIssue,LEAL_PAULO_PREPAID_SECOND} from "./painel-recarga";
 
 describe("SQL overdue paid settlement contract (not applied)",()=>{
   const s=readFileSync(new URL("../../supabase/migrations/20261110220000_general_overdue_paid_settlement.sql",import.meta.url),"utf8");
@@ -14,6 +14,100 @@ describe("SQL overdue paid settlement contract (not applied)",()=>{
     assert.match(s,/COALESCE\(v_payment_date,v_business_date\)/);
     assert.match(s,/INSERT INTO public\.server_credit_movements/);
     assert.match(s,/SECURITY INVOKER/);
+  });
+});
+
+describe("Owner-confirmed active zero-payment integration, nine servers",()=>{
+  const s=readFileSync(new URL("../../supabase/functions/_shared/painel-recarga.ts",import.meta.url),"utf8");
+  const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
+  const ui=readFileSync(new URL("../routes/_authenticated/renovacoes.tsx",import.meta.url),"utf8");
+  const sql=readFileSync(new URL("../../supabase/migrations/20261111120000_general_zero_active_settlement.sql",import.meta.url),"utf8");
+  const active={server:"Five",due_date:"2026-11-25",financial_due_date:"2026-11-25",
+    access_type:"padrao",paid:0,cost:6.5,prev_cost:6.5,prev_paid:35};
+  const draft={months:1,dueDate:"2026-12-25",financialDueDate:"2026-12-25",cost:6.5,
+    monthlyPaid:0,prevPaid:35,paymentAmount:0,paymentCost:0,pilotKind:"zero_active"};
+  it("permits active paid=0 access on all provider servers without requiring prev_paid=0",()=>{
+    assert.equal(PANEL_GENERAL_SERVERS.length,9);
+    for(const server of PANEL_GENERAL_SERVERS){
+      for(const access_type of ["padrao","gratuidade","meu_acesso"]){
+        const c={...active,server,access_type};
+        assert.equal(generalZeroActiveEligible(c,"2026-11-11"),true,server+" "+access_type);
+        assert.equal(generalZeroActiveIssue(c,draft,"2026-11-11"),null);
+      }
+    }
+  });
+  it("blocks expired, prepaid, positive paid, unpriced, Elite and corrupted payment",()=>{
+    for(const c of [{...active,server:"Elite"},{...active,paid:35},
+      {...active,due_date:"2026-11-10",financial_due_date:"2026-11-10"},
+      {...active,financial_due_date:"2027-01-25"},
+      {...active,access_type:"pacote_pago"},
+      {...active,cost:0,prev_cost:0}])
+      assert.equal(generalZeroActiveEligible(c,"2026-11-11"),false);
+    for(const v of [{...draft,months:2},{...draft,paymentAmount:35},
+      {...draft,paymentCost:6.5},{...draft,cost:0},{...draft,prevPaid:0},
+      {...draft,financialDueDate:"2027-01-25"},{...draft,pilotKind:"unpaid"}])
+      assert.ok(generalZeroActiveIssue(active,v,"2026-11-11"));
+  });
+  it("allows exact previous known cost if current cost was cleared, still no revenue",()=>{
+    const c={...active,cost:0,prev_cost:6.5};
+    assert.equal(generalZeroActiveEligible(c,"2026-11-11"),true);
+    assert.equal(generalZeroActiveIssue(c,draft,"2026-11-11"),null);
+  });
+  it("uses one provider cycle, updates finance only after real confirmation",()=>{
+    assert.equal(validatePanelRenewalDraft(active,draft,"2026-11-11"),null);
+    assert.equal(financialTransitionError(active,draft),null);
+    assert.deepEqual(confirmedRenewalDatesFromPanel(active,draft,
+      "25/12/2026","25/11/2026","2026-11-11"),{
+      dueDate:"2026-12-25",financialDueDate:"2026-12-25",blockedReason:null,
+    });
+    assert.deepEqual(buildPanelRecargaBody("zero123",false),{usuario:"zero123",ciclos:1});
+  });
+  it("is behind independent default-off Secret and owner confirmation",()=>{
+    assert.match(edge,/PAINEL_RECARGA_ZERO_ACTIVE_GENERAL_ENABLED/);
+    assert.match(edge,/generalZeroActiveIssue/);
+    assert.match(edge,/zeroActive\?"sync_external_zero_active_job":"sync_external_renewal_job"/);
+    assert.match(ui,/ZeroRevenueConfirmationDialog/);
+    assert.match(ui,/Confirmo expressamente que este acesso ativo deve ser renovado sem cobrança/);
+    assert.match(s,/generalZeroActiveEligible/);
+  });
+  it("settles atomically without payment, preserving previous price and costing one credit",()=>{
+    assert.match(sql,/v_job\.state<>'external_confirmed'/);
+    assert.match(sql,/v_client\.paid IS DISTINCT FROM 0/);
+    assert.match(sql,/v_values->>'pilotKind' IS DISTINCT FROM 'zero_active'/);
+    assert.match(sql,/prev_paid/);
+    assert.match(sql,/NO INSERT into payments/);
+    assert.equal((sql.match(/INSERT INTO public\.server_credit_movements/g)||[]).length,1);
+    assert.match(sql,/VALUES\(v_client\.server,'renewal',-1/);
+    assert.match(sql,/WHERE id=v_job\.id/);
+    assert.match(sql,/SECURITY INVOKER/);
+  });
+});
+
+describe("Cancelled external order: evidence and manual-only recovery",()=>{
+  const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
+  const ui=readFileSync(new URL("../routes/_authenticated/renovacoes.tsx",import.meta.url),"utf8");
+  const sql=readFileSync(new URL("../../supabase/migrations/20261111121000_cancelled_panel_order_manual_recovery.sql",import.meta.url),"utf8");
+  it("cancellation RPC requires owner, order number, explicit confirmation and evidence",()=>{
+    assert.match(sql,/record_panel_cancelled_for_manual/);
+    assert.match(sql,/p_confirm_text IS DISTINCT FROM 'CANCELADO'/);
+    assert.match(sql,/v_job\.external_order_id IS DISTINCT FROM p_order_id/);
+    assert.match(sql,/v_job\.state NOT IN \('waiting','uncertain','failed'\)/);
+    assert.match(sql,/v_client\.due_date IS DISTINCT FROM v_job\.expected_due_date/);
+    assert.match(sql,/state='cancelled'/);
+    assert.match(sql,/external_renewal_cancellations/);
+    assert.match(sql,/SECURITY INVOKER/);
+    assert.match(sql,/Owner inserts cancellation audit/);
+  });
+  it("cannot resend cancelled job to Panel Recarga, nor unlock confirmed jobs",()=>{
+    assert.match(edge,/if\(job\.state==="cancelled"\)/);
+    assert.match(edge,/manualOnly:true/);
+    assert.match(edge,/mode==="record_cancelled"/);
+    assert.match(sql,/v_job\.state NOT IN \('waiting','uncertain','failed'\)/);
+    assert.match(ui,/Já cancelei no Painel Recarga/);
+    assert.match(ui,/ManualRecoveryDialog/);
+    assert.match(ui,/current\?\.state!=="cancelled"/);
+    assert.match(ui,/providerDue!==planned/);
+    assert.match(ui,/Eu mesmo já renovei o acesso diretamente no servidor/);
   });
 });
 
@@ -74,7 +168,7 @@ describe("Humberto overdue-paid one-client canary, no provider call",()=>{
     assert.match(edge,/PAINEL_RECARGA_OVERDUE_GENERAL_ENABLED/);
     assert.match(edge,/generalOverdueRenewalIssue/);
     const shared=readFileSync(new URL("../../supabase/functions/_shared/painel-recarga.ts",import.meta.url),"utf8");
-    assert.equal(shared.split('paymentAmount:number;monthlyPaid:number;paymentCost:number;paymentDate?:string;pilotKind?:"unpaid"|"overdue";').length-1,2);
+    assert.equal(shared.split('paymentAmount:number;monthlyPaid:number;paymentCost:number;paymentDate?:string;pilotKind?:"unpaid"|"overdue"|"zero_active";').length-1,2);
     assert.match(edge,/panelDateToISO\(outcome\.nextDue\)!==job\.local_values\.dueDate/);
     assert.match(edge,/state:"needs_review"/);
     assert.match(ui,/isOverdueTarget\(client,pilotTargetsQuery\.data\)/);
@@ -247,7 +341,7 @@ describe("Active prepaid packages — integrated button regression across all en
     assert.match(ui,/void confirmPanelPilot\(client,\{months:1,cost:0,paid:0,/);
     assert.match(ui,/const covered=prepaid&&opts\.months===1&&opts\.paid===0&&opts\.monthlyPaid===0/);
     assert.match(edge,/generalEnabled&&broadPanelRenewalEligible\(customer,/);
-    assert.match(edge,/freePilot\?"sync_external_free_pilot_job":"sync_external_renewal_job"/);
+    assert.match(edge,/zeroActive\?"sync_external_zero_active_job":"sync_external_renewal_job"/);
     assert.match(sql,/v_client\.financial_due_date > v_client\.due_date THEN/);
     assert.match(sql,/v_payment_amount <> 0/);
     assert.match(sql,/v_job\.financial_due_date <> v_client\.financial_due_date/);
@@ -575,7 +669,7 @@ describe("Atomic settlement of confirmed external renewal (contract guards)",()=
   });
   it("syncs by job ID instead of re-sending browser-provided financial values",()=>{
     const sync=edge.slice(edge.indexOf("  const syncLocal=async()=>{"),edge.indexOf('  if(job.state==="synced")'));
-    assert.match(sync,/freePilot\?"sync_external_free_pilot_job":"sync_external_renewal_job"/);
+    assert.match(sync,/freePilot\?"sync_external_free_pilot_job":\s*zeroActive\?"sync_external_zero_active_job":"sync_external_renewal_job"/);
     assert.match(sync,/p_job_id:jobId/);
     assert.doesNotMatch(sync,/renew_client_with_credit/);
     assert.doesNotMatch(sync,/p_payment_amount:/);
@@ -782,7 +876,7 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
     assert.match(db,/INSERT INTO public\.server_credit_movements/);
     assert.doesNotMatch(db,/INSERT INTO public\.payments/);
     const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
-    assert.match(edge,/freePilot\?"sync_external_free_pilot_job":"sync_external_renewal_job"/);
+    assert.match(edge,/freePilot\?"sync_external_free_pilot_job":\s*zeroActive\?"sync_external_zero_active_job":"sync_external_renewal_job"/);
   });
   it("limits to six distinct supported providers",()=>{
     const all=["Five","Uniplay","UniP2P","Blade","Now","All Play"].map((server,i)=>({
@@ -800,7 +894,7 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
     const reserve=edge.indexOf('const payload={',guard);
     assert.ok(guard>0&&reserve>guard);
     const block=edge.slice(guard,reserve);
-    assert.match(block,/if\(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized&&!overdueAuthorized&&!generalOverdueAuthorized\)/);
+    assert.match(block,/if\(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized&&!overdueAuthorized&&!generalOverdueAuthorized&&!zeroAuthorized\)/);
     assert.match(block,/PAINEL_RECARGA_LIVE_ENABLED/);
     assert.match(block,/return reply\(403/);
   });
@@ -821,11 +915,11 @@ describe("Batch pilot strict allowlist: a single setup for six providers",()=>{
       edge.indexOf('// The API cycles are not the same as months'));
     assert.match(block,/const amountsMatch=lealPauloPrepaidSecondIssue\(customer,values\)===null/);
     assert.match(block,/if\(!amountsMatch\)/);
-    assert.match(edge,/if\(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized&&!overdueAuthorized&&!generalOverdueAuthorized\)/);
+    assert.match(edge,/if\(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized&&!overdueAuthorized&&!generalOverdueAuthorized&&!zeroAuthorized\)/);
   });
   it("read-only authorized targets do not call providers or mutate ledger",()=>{
     const begin=edge.indexOf('if(mode==="pilot_targets")');
-    const end=edge.indexOf('if(typeof input.clientId',begin);
+    const end=edge.indexOf('if(mode==="record_cancelled")',begin);
     assert.ok(begin>0&&end>begin);
     assert.match(edge.slice(begin,end),/readOnly:true/);
     assert.match(edge.slice(begin,end),/targets:exclusiveWindowOpen\?packagePilot:\[\]/);
@@ -918,7 +1012,7 @@ describe("Exact LealPaulo six-month pilot (no provider calls)",()=>{
     assert.match(edge,/const amountsMatch=lealPauloPrepaidSecondIssue\(customer,values\)===null/);
     assert.match(edge,/lealPauloPrepaidSecondIssue\(customer,values\)/);
     assert.match(edge,/PAINEL_RECARGA_LIVE_ENABLED/);
-    assert.match(edge,/if\(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized&&!overdueAuthorized&&!generalOverdueAuthorized\)/);
+    assert.match(edge,/if\(mode==="renew"&&!rolloutAuthorized&&!legacyPilotAuthorized&&!freeAuthorized&&!overdueAuthorized&&!generalOverdueAuthorized&&!zeroAuthorized\)/);
     assert.match(screen,/pilotPackage6\s*\?\s*6\s*:\s*1/);
     assert.match(screen,/const isScopedPackageCandidate=/);
     assert.match(screen,/ROLLOUT_CANARY_SERVERS\.has\(c\.server\)/);
@@ -961,7 +1055,7 @@ describe("Exact-client rollout controls and expired legacy pilot",()=>{
   });
   it("owner-only target discovery is read only and never returns raw secrets",()=>{
     const begin=edge.indexOf('if(mode==="pilot_targets")');
-    const end=edge.indexOf('if(typeof input.clientId',begin);
+    const end=edge.indexOf('if(mode==="record_cancelled")',begin);
     assert.ok(begin>0&&end>begin);
     const preview=edge.slice(begin,end);
     assert.match(preview,/readOnly:true/);
