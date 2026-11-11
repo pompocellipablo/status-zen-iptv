@@ -51,3 +51,14 @@ Ordem de publicação futura (somente após autorização específica para custo
 8. O teste de cancelamento manual deve ser feito apenas quando houver um pedido realmente cancelado, sem gerar pedido artificial.
 
 **A existência de código e migrations no GitHub não significa que estejam ativos em produção.**
+
+## Revisão de 11/11/2026
+
+- Corrigida a migration de vencidos: havia um bloco duplicado dentro da expressão da data. Mantido o lançamento na data real do recebimento.
+- Consulta de produção encontrou as funções novas ainda ausentes; a função financeira existente ainda não contém o tratamento geral de vencidos. O histórico de migrations está desatualizado em relação às funções instaladas: verificar definições, não apenas versões.
+- No instante da consulta, os 19 pedidos externos estavam em `synced`.
+- Cada chamada ao fornecedor agora reserva o pedido com `claim_panel_provider_request` e `provider_request_token`. Um segundo envio ou cancelamento é recusado enquanto a reserva estiver ocupada. Atualizações de resposta exigem o mesmo token e estado não terminal.
+- A reserva é liberada em `finally`. Se a execução morrer ou a liberação falhar, não há expiração automática: é necessário conciliar o pedido e verificar que não existe chamada em andamento antes de uma intervenção administrativa. Não limpar tokens indiscriminadamente.
+- Validação PostgreSQL: função de vencidos compilada com nome temporário; reserva única, recusa de cancelamento com consulta ativa, cancelamento auditado e recusa de reenvio testados em tabelas temporárias. Todas as transações terminaram com ROLLBACK, sem alterar funções ou registros de produção. Esse teste verifica transições; não simula chamadas reais nem duas conexões simultâneas.
+- CI agora analisa SQL e corpos PL/pgSQL das três migrations com pglast 8.7, além dos testes e build existentes.
+- Publicação continua pendente: backup, três migrations, função/shared, interface, pré-validação e ativação da flag. A função atualizada depende da coluna e da RPC de reserva; publicar a migration antes da função.
