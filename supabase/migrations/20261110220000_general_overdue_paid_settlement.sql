@@ -93,59 +93,7 @@ BEGIN
   -- validated against the old (locked) customer and actual provider dates.
   IF v_values->>'pilotKind' = 'overdue' THEN
     IF v_values->>'paymentDate' IS NULL OR
-       v_values->>'paymentDate' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}
-    -- PREPAID: one provider cycle, NO additional payment, NO financial shift.
-    IF v_job.financial_due_date <> v_client.financial_due_date
-      OR v_months <> 1 OR v_payment_amount <> 0
-      OR v_payment_cost <> 0 OR v_monthly_paid <> 0 THEN
-      RAISE EXCEPTION 'Pacote já pago não pode gerar nova cobrança';
-    END IF;
-  ELSE
-    -- NEW CONTRACT / RENEWAL: payment is required; monthly equals technical.
-    IF v_payment_amount <= 0 THEN
-      RAISE EXCEPTION 'Novo período financeiro sem pagamento confirmado';
-    END IF;
-    IF (v_months = 1 AND v_job.financial_due_date <> v_job.new_due_date)
-      OR (v_months > 1 AND v_job.financial_due_date <= v_job.new_due_date) THEN
-      RAISE EXCEPTION 'Vencimento financeiro incompatível com o plano contratado';
-    END IF;
-  END IF;
-
-  UPDATE public.clients
-  SET due_date=v_job.new_due_date, financial_due_date=v_job.financial_due_date,
-      cost=v_cost, paid=v_monthly_paid, prev_cost=v_cost, prev_paid=v_prev_paid
-  WHERE id=v_client.id;
-
-  IF v_payment_amount > 0 THEN
-    INSERT INTO public.payments(client_id,client_name,server,amount,cost,paid_at)
-    VALUES (v_client.id,v_client.name,v_client.server,
-      v_payment_amount,v_payment_cost,COALESCE(v_payment_date,v_business_date));
-  END IF;
-
-  INSERT INTO public.server_credit_movements
-    (server,kind,quantity,occurred_on,client_id,note)
-  VALUES
-    (v_client.server,'renewal',-1,(now() AT TIME ZONE 'America/Sao_Paulo')::date,
-      v_client.id,'Painel Recarga: '||v_client.name||
-      COALESCE(' • pedido '||v_job.external_order_id,''));
-
-  UPDATE public.external_renewal_jobs
-  SET state='synced',synced_at=pg_catalog.now(),updated_at=pg_catalog.now(),
-      external_message='Renovação externa confirmada e sincronizada em transação única.'
-  WHERE id=v_job.id;
-
-  RETURN pg_catalog.jsonb_build_object(
-    'ok',true,'alreadyProcessed',false,'dueDate',v_job.new_due_date,
-    'financialDueDate',v_job.financial_due_date,'orderId',v_job.external_order_id
-  );
-END
-$function$;
-
--- Functions default to EXECUTE for PUBLIC on new migrations; explicitly
--- exclude anonymous access and require both authenticated role + owner check.
-REVOKE EXECUTE ON FUNCTION public.sync_external_renewal_job(uuid) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.sync_external_renewal_job(uuid) TO authenticated;
- THEN
+       v_values->>'paymentDate' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN
       RAISE EXCEPTION 'Data de pagamento vencido inválida';
     END IF;
     v_payment_date := (v_values->>'paymentDate')::date;
@@ -198,7 +146,7 @@ GRANT EXECUTE ON FUNCTION public.sync_external_renewal_job(uuid) TO authenticate
   IF v_payment_amount > 0 THEN
     INSERT INTO public.payments(client_id,client_name,server,amount,cost,paid_at)
     VALUES (v_client.id,v_client.name,v_client.server,
-      v_payment_amount,v_payment_cost,(now() AT TIME ZONE 'America/Sao_Paulo')::date);
+      v_payment_amount,v_payment_cost,COALESCE(v_payment_date,v_business_date));
   END IF;
 
   INSERT INTO public.server_credit_movements
