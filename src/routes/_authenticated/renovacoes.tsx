@@ -52,6 +52,8 @@ const PANEL_PILOT_UI_ENABLED = import.meta.env["VITE_MAXFLIX_PANEL_PILOT"] === "
 // PAINEL_RECARGA_PILOT_CLIENT_ID + PAINEL_RECARGA_PILOT_EXPECTED_DUE_DATE.
 type PanelPilotTarget={clientId:string;expectedDueDate:string;server:string;kind:"paid"|"unpaid"|"package6"|"prepaid2"};
 type PanelRolloutTarget={clientId:string;server:string;expectedDueDate:string};
+type ExternalJobRow={id:string;client_id:string|null;client_name:string;login:string;server:string;
+  state:string;external_order_id:string|null;expected_due_date:string;external_message:string|null};
 type PanelPilotConfig={targets:PanelPilotTarget[];rolloutTargets:PanelRolloutTarget[];rolloutEnabled:boolean;generalEnabled:boolean;generalServers:string[];overdueTarget:typeof HUMBERTO_OVERDUE_PILOT|null;generalOverdueEnabled:boolean;generalZeroEnabled:boolean};
 const ROLLOUT_CANARY_SERVERS=new Set(["Club","Five","Uniplay","UniP2P","Blade","Now","GF","Fast","All Play"]);
 // UX-only allowlist obtained once from the owner-authorized Edge Function.
@@ -326,7 +328,7 @@ function Painel() {
     enabled:true,
     queryFn:async()=>{
       const {data,error}=await supabase.from("external_renewal_jobs")
-        .select("id,client_id,client_name,login,server,state,created_at,external_message,expected_due_date")
+        .select("id,client_id,client_name,login,server,state,created_at,external_message,external_order_id,expected_due_date")
         .neq("state","synced").order("created_at",{ascending:false}).limit(30);
       if(error)throw error;
       return data??[];
@@ -476,6 +478,8 @@ function Painel() {
   const [renewing, setRenewing] = useState<Client | null>(null);
   const [overdueRenewing,setOverdueRenewing]=useState<Client|null>(null);
   const [zeroRenewing,setZeroRenewing]=useState<Client|null>(null);
+  const [cancelJob,setCancelJob]=useState<ExternalJobRow|null>(null);
+  const [manualRecovery,setManualRecovery]=useState<Client|null>(null);
   const [previewClient, setPreviewClient] = useState<Client | null>(null);
 
   const performRenewal = async (client: Client, opts: { dueDate: string; financialDueDate: string; cost: number; monthlyPaid: number; prevPaid: number; paymentAmount: number; paymentCost: number }) => {
@@ -535,6 +539,15 @@ function Painel() {
   };
 
   const renew = async (client: Client) => {
+    // After an externally confirmed cancellation, do not send another provider
+    // order. Manual recovery must be separate and explicitly verified.
+    const cancelled=(externalJobsQuery.data??[]).find(j=>
+      j.client_id===client.id&&j.expected_due_date===client.due_date
+      &&j.state==="cancelled");
+    if(cancelled){
+      setManualRecovery(client);
+      return;
+    }
     // The ordinary Renew button uses the provider only when the backend has
     // explicitly enabled its separate rollout switch, or for exact pilots.
     // No new provider order is triggered without a second confirmation.
@@ -549,7 +562,8 @@ function Painel() {
         return;
       }
       const previousJob=(externalJobsQuery.data??[]).find(j=>
-        j.client_id===client.id&&j.expected_due_date===client.due_date);
+        j.client_id===client.id&&j.expected_due_date===client.due_date
+        &&j.state!=="cancelled");
       if(previousJob){
         setNotice(client.name+": já existe pedido externo em andamento. "
           +"Verifique o mesmo pedido antes de outra renovação.");
@@ -1208,12 +1222,23 @@ function Painel() {
               <p className="font-semibold">{job.client_name} · {job.login} · {job.server}</p>
               <p className="mt-1 text-xs text-mist">Estado: {job.state} · vencimento anterior: {formatDate(job.expected_due_date)}</p>
               {job.external_message&&<p className="mt-1 text-xs text-warn">{job.external_message}</p>}
+              {job.external_order_id&&<p className="mt-1 text-xs text-mist">Pedido Painel Recarga: {job.external_order_id}</p>}
               {["created","waiting","uncertain","external_confirmed"].includes(job.state)&&
                 <button type="button" disabled={renewingBusy||!job.client_id}
                   onClick={()=>void verifyExternalPilotJob(job)}
                   className="mt-2 min-h-9 rounded-lg bg-panel2 px-3 text-xs font-semibold text-cyan ring-1 ring-line disabled:opacity-40">
                   {renewingBusy?"Verificando…":"Verificar andamento (mesma chave)"}
                 </button>}
+              {["failed","waiting","uncertain"].includes(job.state)
+                &&!!job.external_order_id&&!!job.client_id&&
+                <button type="button" disabled={renewingBusy}
+                  onClick={()=>setCancelJob(job)}
+                  className="ml-2 mt-2 min-h-9 rounded-lg bg-panel2 px-3 text-xs font-semibold text-warn ring-1 ring-line disabled:opacity-40">
+                  Já cancelei no Painel Recarga
+                </button>}
+              {job.state==="cancelled"&&<p className="mt-2 text-xs text-warn">
+                Cancelamento registrado. Renove diretamente no servidor, confira a data e use "Registrar renovação manual" no cliente.
+              </p>}
             </div>)}
           </div>
         </section>}
@@ -1296,11 +1321,14 @@ function Painel() {
                             &&(pilotTargetsQuery.isLoading||pilotTargetsQuery.isError))||
                           (isExternalTarget(c,pilotTargetsQuery.data)
                             &&(externalJobsQuery.isLoading||externalJobsQuery.isError||
-                              (externalJobsQuery.data??[]).some(j=>j.client_id===c.id&&j.expected_due_date===c.due_date)))}
+                              (externalJobsQuery.data??[]).some(j=>j.client_id===c.id&&j.expected_due_date===c.due_date&&j.state!=="cancelled")))}
                         onClick={() => void renew(c)}
                         className="font-display flex min-h-11 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl bg-cyan/15 px-2 text-sm font-semibold text-cyan ring-1 ring-cyan/30 hover:bg-cyan/25"
                       >
-                        <RefreshCw size={15} aria-hidden="true" /> {isExternalTarget(c,pilotTargetsQuery.data)?"Renovar no painel":
+                        <RefreshCw size={15} aria-hidden="true" /> {(externalJobsQuery.data??[]).some(j=>j.client_id===c.id
+                            &&j.expected_due_date===c.due_date&&j.state==="cancelled")
+                          ?"Registrar renovação manual":
+                          isExternalTarget(c,pilotTargetsQuery.data)?"Renovar no painel":
                           ROLLOUT_CANARY_SERVERS.has(c.server)?"Renovar manual":"Renovar"}
                       </button>
                       <a
@@ -1443,6 +1471,74 @@ function Painel() {
             &&t.expectedDueDate===previewClient.due_date)?.kind} />
       )}
 
+      {cancelJob && (
+        <PanelCancellationDialog job={cancelJob} saving={renewingBusy}
+          onCancel={()=>setCancelJob(null)}
+          onConfirm={async(note)=>{
+            if(renewingBusy)return;
+            setRenewingBusy(true);
+            try{
+              const {data,error}=await supabase.functions.invoke("painel-recarga-renovar",{
+                body:{mode:"record_cancelled",jobId:cancelJob.id,
+                  orderId:cancelJob.external_order_id,confirmText:"CANCELADO",evidence:note},
+              });
+              if(error||data?.ok!==true){
+                const ctx=(error as {context?:{json?:()=>Promise<unknown>}}|null)?.context;
+                let message=error?.message??"Cancelamento não registrado.";
+                if(typeof ctx?.json==="function"){
+                  try{const failure=await ctx.json() as {message?:string};message=failure.message??message;}catch{/* no body */}
+                }
+                throw Error(message);
+              }
+              setCancelJob(null);
+              await qc.invalidateQueries({queryKey:["external-renewal-jobs"]});
+              setNotice("Cancelamento documentado. Agora renove no servidor e depois registre manualmente no cliente.");
+            }catch(err){
+              setNotice("Recuperação bloqueada: "+(err instanceof Error?err.message:"Verifique o pedido original."));
+            }finally{setRenewingBusy(false);}
+          }}/>
+      )}
+      {manualRecovery && (
+        <ManualRecoveryDialog client={manualRecovery} saving={renewingBusy}
+          onCancel={()=>setManualRecovery(null)}
+          onConfirm={async({providerDue,amount,cost})=>{
+            if(renewingBusy)return;
+            const job=(externalJobsQuery.data??[]).find(j=>j.client_id===manualRecovery.id
+              &&j.expected_due_date===manualRecovery.due_date&&j.state==="cancelled");
+            if(!job){setNotice("Cancelamento do pedido não encontrado. Não registrar.");return;}
+            const planned=nextDueDate(manualRecovery.due_date);
+            if(providerDue!==planned){
+              setNotice("Data informada pelo servidor difere da projeção. Não registre automaticamente; concilie o vencimento.");
+              return;
+            }
+            const {data:current,error}=await supabase.from("external_renewal_jobs")
+              .select("state").eq("id",job.id).maybeSingle();
+            if(error||current?.state!=="cancelled"){
+              setNotice("O estado do pedido mudou. Nenhuma renovação manual registrada.");
+              return;
+            }
+            const covered=!!manualRecovery.financial_due_date
+              &&manualRecovery.financial_due_date>manualRecovery.due_date;
+            if(covered&&manualRecovery.financial_due_date!<planned){
+              setNotice("A cobertura do pacote não alcança o ciclo técnico. Concilie antes.");
+              return;
+            }
+            const actualAmount=covered?0:amount;
+            const completed=await performRenewal(manualRecovery,{
+              dueDate:planned,
+              financialDueDate:covered?manualRecovery.financial_due_date!:planned,
+              cost,monthlyPaid:actualAmount,
+              prevPaid:actualAmount>0?actualAmount:manualRecovery.prev_paid,
+              paymentAmount:actualAmount,
+              paymentCost:actualAmount>0?cost:0,
+            });
+            if(completed){
+              setNotice(manualRecovery.name+": renovação manual registrada após cancelamento. Verifique data e créditos.");
+              setManualRecovery(null);
+              await qc.invalidateQueries({queryKey:["external-renewal-jobs"]});
+            }
+          }}/>
+      )}
       {zeroRenewing && (
         <ZeroRevenueConfirmationDialog client={zeroRenewing} saving={renewingBusy}
           onCancel={()=>setZeroRenewing(null)}
