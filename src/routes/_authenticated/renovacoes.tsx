@@ -103,11 +103,11 @@ const isGeneralOverdueTarget=(client:Client,config:PanelPilotConfig|undefined)=>
   &&config.generalServers.includes(client.server)
   &&ROLLOUT_CANARY_SERVERS.has(client.server)
   &&!!panelRouteForClient(client.server)
-  &&broadOverdueEligible(client,toISODate(today()));
+  &&broadOverdueEligible({...client,access_type:client.access_type??null},toISODate(today()));
 const isGeneralZeroTarget=(client:Client,config:PanelPilotConfig|undefined)=>
   config?.generalEnabled===true&&config.generalZeroEnabled===true
   &&config.generalServers.includes(client.server)
-  &&generalZeroActiveEligible(client,toISODate(today()));
+  &&generalZeroActiveEligible({...client,access_type:client.access_type??null},toISODate(today()));
 const isExternalTarget=(client:Client,config:PanelPilotConfig|undefined)=>
   isPilotTarget(client,config?.targets??[])||isRolloutTarget(client,config)
   ||isOverdueTarget(client,config)||isGeneralOverdueTarget(client,config)

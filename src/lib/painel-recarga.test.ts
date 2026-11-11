@@ -25,7 +25,7 @@ describe("Owner-confirmed active zero-payment integration, nine servers",()=>{
   const active={server:"Five",due_date:"2026-11-25",financial_due_date:"2026-11-25",
     access_type:"padrao",paid:0,cost:6.5,prev_cost:6.5,prev_paid:35};
   const draft={months:1,dueDate:"2026-12-25",financialDueDate:"2026-12-25",cost:6.5,
-    monthlyPaid:0,prevPaid:35,paymentAmount:0,paymentCost:0,pilotKind:"zero_active"};
+    monthlyPaid:0,prevPaid:35,paymentAmount:0,paymentCost:0,pilotKind:"zero_active" as const};
   it("permits active paid=0 access on all provider servers without requiring prev_paid=0",()=>{
     assert.equal(PANEL_GENERAL_SERVERS.length,9);
     for(const server of PANEL_GENERAL_SERVERS){
@@ -116,7 +116,7 @@ describe("General overdue payment-day rule",()=>{
     access_type:"padrao",paid:0,cost:0,prev_paid:35,prev_cost:6.5};
   const v={months:1,dueDate:"2026-12-10",financialDueDate:"2026-12-10",cost:6.5,
     monthlyPaid:35,prevPaid:35,paymentAmount:35,paymentCost:6.5,paymentDate:"2026-11-10",
-    pilotKind:"overdue"};
+    pilotKind:"overdue" as const};
   it("includes legitimate overdue customers but not free, Elite or prepaid",()=>{
     assert.equal(broadOverdueEligible(c,"2026-11-10"),true);
     for(const invalid of [{...c,server:"Elite"},{...c,access_type:"meu_acesso"},
