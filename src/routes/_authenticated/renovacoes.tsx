@@ -502,6 +502,7 @@ function Painel() {
         qc.invalidateQueries({ queryKey: ["clients"] }),
         qc.invalidateQueries({ queryKey: ["payments"] }),
         qc.invalidateQueries({ queryKey: ["server-credit-movements"] }),
+        qc.invalidateQueries({ queryKey: ["credit-stock-dashboard-movements"] }),
       ]);
       return true;
     } catch (error) {
@@ -670,6 +671,7 @@ function Painel() {
           qc.invalidateQueries({queryKey:["clients"]}),
           qc.invalidateQueries({queryKey:["payments"]}),
           qc.invalidateQueries({queryKey:["server-credit-movements"]}),
+          qc.invalidateQueries({queryKey:["credit-stock-dashboard-movements"]}),
         ]);
       }
     }catch{
@@ -883,6 +885,7 @@ function Painel() {
           qc.invalidateQueries({queryKey:["clients"]}),
           qc.invalidateQueries({queryKey:["payments"]}),
           qc.invalidateQueries({queryKey:["server-credit-movements"]}),
+          qc.invalidateQueries({queryKey:["credit-stock-dashboard-movements"]}),
         ]);
         setNotice(client.name+": renovação confirmada no painel e registrada na MaxFlix. "
           +"Técnico "+formatDate(result.dueDate??dueDate)
