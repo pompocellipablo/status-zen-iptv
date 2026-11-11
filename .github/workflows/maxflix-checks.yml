@@ -2,7 +2,7 @@ name: MaxFlix — testes e build
 
 on:
   push:
-    branches: [main, "feature/zero-active-renewal-manual-fallback"]
+    branches: [main, "feature/**"]
   workflow_dispatch:
 
 permissions:
@@ -40,7 +40,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Validar vencimentos, auditoria e Painel Recarga
-        run: bun test src/lib/iptv.test.ts src/lib/server-panel-audit.test.ts src/lib/painel-recarga.test.ts
+        run: bun test src/lib/iptv.test.ts src/lib/server-panel-audit.test.ts src/lib/painel-recarga.test.ts src/lib/credit-ledger-refresh.test.ts
 
       - name: Preparar Deno para validação real das Edge Functions
         uses: denoland/setup-deno@v2

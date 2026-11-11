@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Minus, Plus, X } from "lucide-react";
+import { ArrowLeft, Minus, Plus, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { formatDate, SERVERS, toISODate, today } from "@/lib/iptv";
@@ -14,6 +14,7 @@ type Movement = CreditMovement & { occurred_on: string; note: string | null };
 type EntryKind = "initial" | "purchase" | "adjustment";
 const field = "mt-1.5 w-full rounded-md border border-line bg-background px-3 py-2.5 text-sm text-frost outline-none focus:border-cyan";
 const label = "block text-sm text-mist";
+const CREDIT_REFRESH_MS = 30_000;
 
 // Load every page so an older initial balance is never lost to the API row limit.
 async function loadMovements(server?: string): Promise<Movement[]> {
@@ -61,7 +62,12 @@ function ServerCredits() {
   const [editingMinimum, setEditingMinimum] = useState(false);
   const [notice, setNotice] = useState("");
 
-  const movementsQuery = useQuery({ queryKey: ["server-credit-movements"], queryFn: () => loadMovements() });
+  const movementsQuery = useQuery({
+    queryKey: ["server-credit-movements"],
+    queryFn: () => loadMovements(),
+    refetchInterval: CREDIT_REFRESH_MS,
+    refetchOnWindowFocus: "always",
+  });
   const alertsQuery = useQuery({ queryKey: ["server-credit-alerts"], queryFn: async () => {
     const { data, error } = await supabase.from("server_credit_alerts").select("server,minimum_balance");
     if (error) throw error;
@@ -80,7 +86,13 @@ function ServerCredits() {
     [movements, alerts, clients],
   );
   const selected = rows.find((row) => row.name === server);
-  const refresh = () => void qc.invalidateQueries({ queryKey: ["server-credit-movements"] });
+  const refresh = () => void Promise.all([
+    qc.invalidateQueries({ queryKey: ["server-credit-movements"] }),
+    qc.invalidateQueries({ queryKey: ["credit-stock-dashboard-movements"] }),
+  ]);
+  const refreshAll = () => void Promise.all([
+    movementsQuery.refetch(), alertsQuery.refetch(), clientsQuery.refetch(),
+  ]);
   const saveEntry = useMutation({ mutationFn: async ({ name, kind, count, date, description }: { name: string; kind: EntryKind; count: number; date: string; description: string }) => {
     let delta = count;
     let movementNote = description;
@@ -115,7 +127,18 @@ function ServerCredits() {
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
       <header className="border-b border-line pb-6">
         <Link to="/" className="inline-flex items-center gap-1 text-sm text-mist hover:text-cyan"><ArrowLeft size={16} /> Clientes</Link>
-        <h1 className="mt-3 font-display text-2xl font-semibold sm:text-3xl">Créditos dos servidores</h1>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <h1 className="mt-3 font-display text-2xl font-semibold sm:text-3xl">Créditos dos servidores</h1>
+          <Button variant="outline" className="border-line" onClick={refreshAll}
+            disabled={movementsQuery.isFetching || alertsQuery.isFetching || clientsQuery.isFetching}>
+            <RefreshCw size={16} className={movementsQuery.isFetching ? "animate-spin" : ""} />
+            Atualizar controle
+          </Button>
+        </div>
+        <p className="mt-3 text-sm text-mist">Saldo interno da MaxFlix: saldo inicial + compras e ajustes registrados − créditos das renovações confirmadas. Não é uma consulta ao estoque real dos painéis externos.</p>
+        {movementsQuery.dataUpdatedAt > 0 && <p className="mt-1 text-xs text-mist">
+          Conferido na MaxFlix às {new Date(movementsQuery.dataUpdatedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}. Atualização a cada 30 segundos enquanto esta tela estiver aberta e ao voltar para a aba.
+        </p>}
       </header>
       {notice && <div role="status" className="mt-5 flex items-center justify-between gap-3 rounded-md border border-cyan/30 bg-cyan/10 px-3 py-2 text-sm text-cyan">{notice}<Button variant="ghost" size="icon" aria-label="Fechar aviso" onClick={() => setNotice("")}><X /></Button></div>}
       {error && <p role="alert" className="mt-5 text-sm text-danger">Não foi possível carregar os créditos. Atualize a página para tentar novamente.</p>}
@@ -151,7 +174,7 @@ function ServerCredits() {
               <div className="flex flex-wrap gap-2">
                 {!selected.configured && <Button onClick={() => openEntry(server, "initial")}><Plus /> Saldo inicial</Button>}
                 <Button variant="outline" className="border-line bg-panel text-cyan" onClick={() => openEntry(server, "purchase")}><Plus /> Registrar compra</Button>
-                <Button variant="outline" className="border-line bg-panel text-mist" disabled={!selected.configured} onClick={() => openEntry(server, "adjustment")}><Minus /> Corrigir saldo atual</Button>
+                <Button variant="outline" className="border-line bg-panel text-mist" disabled={!selected.configured} onClick={() => openEntry(server, "adjustment")}><Minus /> Conferir com saldo do painel</Button>
               </div>
             </div>
             <div className="mt-3 flex flex-wrap gap-3 text-xs text-mist">
@@ -185,7 +208,7 @@ function ServerCredits() {
           </section>
           <section className="mt-9 border-t border-line pt-7">
             <h2 className="font-display text-xl font-semibold">Histórico de {creditPoolLabel(server)}</h2>
-            <p className="mt-2 text-xs text-mist">O saldo parte da quantidade informada no cadastro inicial. Movimentações registradas antes dele ficam no histórico, mas não alteram o saldo atual.</p>
+            <p className="mt-2 text-xs text-mist">O saldo parte da quantidade informada no cadastro inicial. Movimentações registradas antes dele ficam no histórico, mas não alteram o saldo atual. Renovações já confirmadas pela integração são descontadas automaticamente; não desconte o mesmo crédito manualmente.</p>
             <div className="mt-4 divide-y divide-line">
               {movements.filter((item) => belongsToCreditPool(item.server, server)).length === 0 && <p className="py-5 text-sm text-mist">Nenhuma movimentação registrada.</p>}
               {movements.filter((item) => belongsToCreditPool(item.server, server)).map((item) => <div key={item.id} className="flex items-center justify-between gap-3 py-3 text-sm"><div className="min-w-0"><p className="font-medium">{{ initial: "Saldo inicial", purchase: "Compra", adjustment: "Ajuste", renewal: "Renovação de cliente" }[item.kind] ?? item.kind}</p><p className="truncate text-xs text-mist">{formatDate(item.occurred_on)}{item.server === "UniP2P" ? " · UniP2P" : ""}{item.note ? ` · ${item.note}` : ""}</p></div><strong className={`shrink-0 font-display ${item.quantity < 0 ? "text-danger" : "text-ok"}`}>{item.quantity > 0 ? "+" : ""}{item.quantity}</strong></div>)}
@@ -196,10 +219,10 @@ function ServerCredits() {
     </div>
     {entry && <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-background/85 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget && !saveEntry.isPending) setEntry(null); }}>
       <section role="dialog" aria-modal="true" aria-label="Movimentação de créditos" className="w-full max-w-md rounded-md border border-line bg-panel p-5">
-        <div className="flex items-center justify-between gap-2"><h2 className="font-display text-xl font-semibold">{entry.kind === "initial" ? "Saldo inicial" : entry.kind === "purchase" ? "Registrar compra" : "Corrigir saldo atual"} · {creditPoolLabel(entry.server)}</h2><Button size="icon" variant="ghost" aria-label="Fechar" onClick={() => setEntry(null)} disabled={saveEntry.isPending}><X /></Button></div>
+        <div className="flex items-center justify-between gap-2"><h2 className="font-display text-xl font-semibold">{entry.kind === "initial" ? "Saldo inicial" : entry.kind === "purchase" ? "Registrar compra" : "Conferir saldo do painel"} · {creditPoolLabel(entry.server)}</h2><Button size="icon" variant="ghost" aria-label="Fechar" onClick={() => setEntry(null)} disabled={saveEntry.isPending}><X /></Button></div>
         <form onSubmit={submitEntry} className="mt-5 space-y-4">
           <label className={label}>{entry.kind === "adjustment" ? "Saldo atual no servidor" : "Quantidade de créditos"}<input autoFocus required type="number" step="1" min={0} max={1000000} value={quantity} onChange={(event) => setQuantity(event.target.value)} className={field} /></label>
-          {entry.kind === "adjustment" ? <p className="text-sm text-mist">Digite o total de créditos que aparece agora no servidor, inclusive zero. Esse será o saldo final; a diferença será registrada automaticamente no histórico.</p> : entry.kind === "initial" ? <p className="text-sm text-mist">Informe os créditos disponíveis agora no servidor. Somente movimentações registradas após este saldo inicial serão somadas ou descontadas.</p> : <label className={label}>Data<input required type="date" value={entryDate} onChange={(event) => setEntryDate(event.target.value)} className={field} /></label>}
+          {entry.kind === "adjustment" ? <p className="text-sm text-mist">Digite o total de créditos que você verificou no servidor, inclusive zero. A diferença será registrada como ajuste no histórico; a MaxFlix ainda não consegue consultar esse saldo por API.</p> : entry.kind === "initial" ? <p className="text-sm text-mist">Informe os créditos disponíveis agora no servidor. Somente movimentações registradas após este saldo inicial serão somadas ou descontadas.</p> : <label className={label}>Data<input required type="date" value={entryDate} onChange={(event) => setEntryDate(event.target.value)} className={field} /></label>}
           <label className={label}>Observação (opcional)<input maxLength={200} value={note} onChange={(event) => setNote(event.target.value)} className={field} /></label>
           <Button type="submit" disabled={saveEntry.isPending} className="w-full">{saveEntry.isPending ? "Salvando…" : "Salvar"}</Button>
         </form>

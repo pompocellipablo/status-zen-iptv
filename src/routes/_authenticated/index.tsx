@@ -94,6 +94,8 @@ function Dashboard() {
   });
   const creditsQuery=useQuery({
     queryKey:["credit-stock-dashboard-movements"],
+    refetchInterval:30_000,
+    refetchOnWindowFocus:"always",
     queryFn:async()=>{
       const all:CreditMovement[]=[];
       for(let offset=0;offset<20000;offset+=500){
@@ -305,7 +307,7 @@ function Dashboard() {
             {creditsQuery.isLoading||alertsQuery.isLoading?"—":shortage.length}
           </p>
           <p className="mt-1 text-xs text-mist">Servidores com alerta de crédito</p>
-          <p className="mt-1 text-[11px] text-mist/75">{stocks.filter(s=>s.configured).length} saldos configurados</p>
+          <p className="mt-1 text-[11px] text-mist/75">{stocks.filter(s=>s.configured).length} saldos internos configurados</p>
         </Link>
         <Link to="/renovacoes" search={{tab:"todos"}} className={tile}>
           <Wallet size={18} className="text-cyan"/>
