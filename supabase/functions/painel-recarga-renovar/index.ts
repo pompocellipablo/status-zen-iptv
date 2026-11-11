@@ -24,7 +24,7 @@ const headers={
 };
 const reply=(status:number,payload:Record<string,unknown>)=>
   new Response(JSON.stringify(payload),{status,headers});
-type Mode="simulate"|"check_simulation"|"preflight"|"renew"|"check"|"pilot_targets";
+type Mode="simulate"|"check_simulation"|"preflight"|"renew"|"check"|"pilot_targets"|"record_cancelled";
 type ClientRow={id:string;name:string;login:string;server:string;due_date:string;financial_due_date:string|null;access_type:string|null;paid:number;cost:number;prev_paid:number;prev_cost:number};
 type Options={months:number;dueDate:string;financialDueDate:string;cost:number;monthlyPaid:number;prevPaid:number;paymentAmount:number;paymentCost:number;pilotKind?:"unpaid"|"overdue"|"zero_active";paymentDate?:string};
 type Job={
@@ -84,7 +84,7 @@ Deno.serve(async(request)=>{
     return reply(400,{ok:false,message:"Corpo JSON inválido."});
   }
   const mode=input.mode as Mode;
-  if(!["simulate","check_simulation","preflight","renew","check","pilot_targets"].includes(mode))
+  if(!["simulate","check_simulation","preflight","renew","check","pilot_targets","record_cancelled"].includes(mode))
     return reply(400,{ok:false,message:"Modo inválido."});
   // Batch list is owner-only, read-only and does not call the provider.
   // Empty or malformed secret => no permitted cases (fail closed).
@@ -147,6 +147,25 @@ Deno.serve(async(request)=>{
       rolloutEnabled,rolloutTargets:rolloutEnabled?rolloutTargets:[],
       generalEnabled,generalServers:generalEnabled?PANEL_GENERAL_SERVERS:[],
       exclusiveWindowOpen});
+  if(mode==="record_cancelled"){
+    // No provider call. The owner must FIRST cancel the exact order in the
+    // external Panel Recarga website. SQL permits only waiting/uncertain/failed
+    // orders with an established external order ID; never confirmed requests.
+    const jobId=input.jobId;
+    if(typeof jobId!=="string"||!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(jobId)
+      ||typeof input.orderId!=="string"||typeof input.evidence!=="string"
+      ||input.confirmText!=="CANCELADO")
+      return reply(400,{ok:false,message:"Confirmação e referência do cancelamento obrigatórias."});
+    const {data,error}=await userDb.rpc("record_panel_cancelled_for_manual",{
+      p_job_id:jobId,p_order_id:input.orderId,
+      p_confirm_text:input.confirmText,p_evidence:input.evidence,
+    });
+    if(error)return reply(409,{ok:false,
+      message:"Não foi possível autorizar recuperação manual: "+error.message.slice(0,160)});
+    return reply(200,{ok:true,recorded:true,state:"cancelled",readOnly:false,
+      jobId:data?.jobId??jobId,orderId:data?.orderId??input.orderId,
+      message:"Cancelamento registrado. Renove DIRETAMENTE no servidor; somente depois registre a renovação manual na MaxFlix."});
+  }
   if(typeof input.clientId!=="string"||!isDate(input.expectedDueDate))
     return reply(400,{ok:false,message:"Cliente e vencimento esperado obrigatórios."});
   const {data:client,error:clientError}=await userDb.from("clients")
@@ -543,6 +562,9 @@ Deno.serve(async(request)=>{
   };
   if(job.state==="synced")
     return reply(200,{ok:true,renewed:true,alreadyProcessed:true,orderId:job.external_order_id,message:"Esta renovação já foi concluída."});
+  if(job.state==="cancelled")
+    return reply(409,{ok:false,cancelled:true,manualOnly:true,
+      message:"Pedido cancelado pelo proprietário: não reenviar ao Painel Recarga. Renove diretamente no servidor e registre manualmente na MaxFlix."});
   if(job.state==="needs_review")
     return reply(409,{ok:false,needsReview:true,externalConfirmed:true,orderId:job.external_order_id,
       message:"Pedido exige conciliação manual; não enviar outra renovação."});
