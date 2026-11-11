@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { paginateClients } from "@/lib/client-pagination";
-import { panelRouteForClient,HUMBERTO_OVERDUE_PILOT,broadOverdueEligible } from "@/lib/painel-recarga";
+import { panelRouteForClient,HUMBERTO_OVERDUE_PILOT,broadOverdueEligible,generalZeroActiveEligible } from "@/lib/painel-recarga";
 import { defaultClientSortMode, sortClients, type ClientSortMode } from "@/lib/client-sort";
 import { MessageCircle, MoreHorizontal, RefreshCw, Search } from "lucide-react";
 import {
@@ -52,7 +52,7 @@ const PANEL_PILOT_UI_ENABLED = import.meta.env["VITE_MAXFLIX_PANEL_PILOT"] === "
 // PAINEL_RECARGA_PILOT_CLIENT_ID + PAINEL_RECARGA_PILOT_EXPECTED_DUE_DATE.
 type PanelPilotTarget={clientId:string;expectedDueDate:string;server:string;kind:"paid"|"unpaid"|"package6"|"prepaid2"};
 type PanelRolloutTarget={clientId:string;server:string;expectedDueDate:string};
-type PanelPilotConfig={targets:PanelPilotTarget[];rolloutTargets:PanelRolloutTarget[];rolloutEnabled:boolean;generalEnabled:boolean;generalServers:string[];overdueTarget:typeof HUMBERTO_OVERDUE_PILOT|null;generalOverdueEnabled:boolean};
+type PanelPilotConfig={targets:PanelPilotTarget[];rolloutTargets:PanelRolloutTarget[];rolloutEnabled:boolean;generalEnabled:boolean;generalServers:string[];overdueTarget:typeof HUMBERTO_OVERDUE_PILOT|null;generalOverdueEnabled:boolean;generalZeroEnabled:boolean};
 const ROLLOUT_CANARY_SERVERS=new Set(["Club","Five","Uniplay","UniP2P","Blade","Now","GF","Fast","All Play"]);
 // UX-only allowlist obtained once from the owner-authorized Edge Function.
 // The private backend validates the same list independently on every renewal.
@@ -102,9 +102,14 @@ const isGeneralOverdueTarget=(client:Client,config:PanelPilotConfig|undefined)=>
   &&ROLLOUT_CANARY_SERVERS.has(client.server)
   &&!!panelRouteForClient(client.server)
   &&broadOverdueEligible(client,toISODate(today()));
+const isGeneralZeroTarget=(client:Client,config:PanelPilotConfig|undefined)=>
+  config?.generalEnabled===true&&config.generalZeroEnabled===true
+  &&config.generalServers.includes(client.server)
+  &&generalZeroActiveEligible(client,toISODate(today()));
 const isExternalTarget=(client:Client,config:PanelPilotConfig|undefined)=>
   isPilotTarget(client,config?.targets??[])||isRolloutTarget(client,config)
-  ||isOverdueTarget(client,config)||isGeneralOverdueTarget(client,config);
+  ||isOverdueTarget(client,config)||isGeneralOverdueTarget(client,config)
+  ||isGeneralZeroTarget(client,config);
 // If target loading fails, never silently fall back to manual renewal for
 // this exact paid pilot before the owner-only configuration has been fetched.
 const isScopedPackageCandidate=(client:Client)=>
@@ -303,6 +308,7 @@ function Painel() {
         generalEnabled:data.generalEnabled===true,
         overdueTarget:data.overdueTarget?.clientId===HUMBERTO_OVERDUE_PILOT.clientId?data.overdueTarget:null,
         generalOverdueEnabled:data.generalOverdueEnabled===true,
+        generalZeroEnabled:data.generalZeroEnabled===true,
         generalServers:Array.isArray(data.generalServers)
           ?data.generalServers.filter((name:unknown):name is string=>typeof name==="string")
           :[],
@@ -469,6 +475,7 @@ function Painel() {
 
   const [renewing, setRenewing] = useState<Client | null>(null);
   const [overdueRenewing,setOverdueRenewing]=useState<Client|null>(null);
+  const [zeroRenewing,setZeroRenewing]=useState<Client|null>(null);
   const [previewClient, setPreviewClient] = useState<Client | null>(null);
 
   const performRenewal = async (client: Client, opts: { dueDate: string; financialDueDate: string; cost: number; monthlyPaid: number; prevPaid: number; paymentAmount: number; paymentCost: number }) => {
@@ -563,6 +570,10 @@ function Painel() {
       if(target?.kind==="unpaid"){
         void confirmPanelPilot(client,{months:1,cost:0,paid:0,
           monthlyCost:Number(client.cost),monthlyPaid:0});
+        return;
+      }
+      if(isGeneralZeroTarget(client,pilotTargetsQuery.data)){
+        setZeroRenewing(client);
         return;
       }
       const next=nextDueDate(client.due_date);
@@ -665,6 +676,7 @@ function Painel() {
     const overdueExact=isOverdueTarget(client,pilotTargetsQuery.data);
     const overdue=overdueGeneral||overdueExact;
     const unpaid=target?.kind==="unpaid";
+    const zeroGeneral=isGeneralZeroTarget(client,pilotTargetsQuery.data)&&!unpaid;
     const package6=target?.kind==="package6";
     const prepaid2=target?.kind==="prepaid2";
     if(prepaid2){
@@ -677,6 +689,13 @@ function Painel() {
         ||opts.monthlyPaid!==HUMBERTO_OVERDUE_PILOT.amount
         ||opts.monthlyCost!==HUMBERTO_OVERDUE_PILOT.cost){
         setNotice("Piloto vencido: valor ou custo incompatível. Nenhum pedido enviado.");
+        return;
+      }
+    }else if(zeroGeneral){
+      const cost=Number(client.cost)>0?Number(client.cost):Number(client.prev_cost);
+      if(opts.months!==1||opts.paid!==0||opts.cost!==0
+        ||opts.monthlyPaid!==0||opts.monthlyCost!==cost){
+        setNotice("Valor zerado: somente um ciclo técnico sem recebimento novo. Nenhum pedido enviado.");
         return;
       }
     }else if(overdueGeneral){
@@ -766,10 +785,11 @@ function Painel() {
       months:covered?1:opts.months,
       dueDate,financialDueDate:covered?client.financial_due_date!:financialDueDate,
       cost:opts.monthlyCost,monthlyPaid:covered?0:opts.monthlyPaid,
-      prevPaid:unpaid?0:(covered?client.prev_paid:(opts.months>1?client.prev_paid||client.paid:opts.monthlyPaid)),
+      prevPaid:unpaid?0:(zeroGeneral?client.prev_paid:(covered?client.prev_paid:(opts.months>1?client.prev_paid||client.paid:opts.monthlyPaid))),
       paymentAmount:unpaid?0:(covered?0:opts.paid),
       paymentCost:unpaid?0:(covered?0:opts.cost),
       ...(unpaid?{pilotKind:"unpaid" as const}:{}),
+      ...(zeroGeneral?{pilotKind:"zero_active" as const}:{}),
       ...(overdue?{pilotKind:"overdue" as const,paymentDate:paymentDate!}:{}),
     };
 
@@ -1423,6 +1443,19 @@ function Painel() {
             &&t.expectedDueDate===previewClient.due_date)?.kind} />
       )}
 
+      {zeroRenewing && (
+        <ZeroRevenueConfirmationDialog client={zeroRenewing} saving={renewingBusy}
+          onCancel={()=>setZeroRenewing(null)}
+          onConfirm={()=>{
+            const client=zeroRenewing;
+            setZeroRenewing(null);
+            void confirmPanelPilot(client,{
+              months:1,cost:0,paid:0,
+              monthlyCost:Number(client.cost)>0?Number(client.cost):Number(client.prev_cost),
+              monthlyPaid:0,
+            });
+          }}/>
+      )}
       {overdueRenewing && (
         <OverduePaidDialog key={overdueRenewing.id}
           client={overdueRenewing} saving={renewingBusy}
@@ -1467,6 +1500,31 @@ function Painel() {
 /** A receipt must be declared explicitly, with the actual Pix/transfer date.
  * This screen is not permission to send a provider order by itself.
  */
+function ZeroRevenueConfirmationDialog({client,saving,onCancel,onConfirm}:{
+  client:Client;saving:boolean;onCancel:()=>void;onConfirm:()=>void;
+}){
+  const [approved,setApproved]=useState(false);
+  const unitCost=Number(client.cost)>0?Number(client.cost):Number(client.prev_cost);
+  return <div className="fixed inset-0 z-50 overflow-y-auto bg-background/80 p-4 backdrop-blur-sm">
+    <section className="mx-auto mt-10 max-w-md rounded-2xl bg-panel2 p-6 ring-1 ring-line"
+      aria-label="Confirmar renovação sem recebimento">
+      <h2 className="text-xl font-semibold">Acesso ativo com R$ 0,00 — {client.name}</h2>
+      <p className="mt-2 text-sm text-mist">{client.server} · vence {formatDate(client.due_date)}.</p>
+      <p className="mt-3 text-sm">Será renovado <strong>um ciclo técnico</strong>, ao custo de {formatBRL(unitCost)} em crédito do servidor, sem adicionar nenhuma receita.</p>
+      <p className="mt-2 text-xs text-warn">R$ 0,00 não comprova que um acesso é gratuito. Confirme que este cliente não deve pagar nesta renovação.</p>
+      <label className="mt-4 flex gap-3 text-sm">
+        <input type="checkbox" checked={approved} onChange={e=>setApproved(e.target.checked)} />
+        <span>Confirmo expressamente que este acesso ativo deve ser renovado sem cobrança.</span>
+      </label>
+      <div className="mt-5 flex gap-3">
+        <Button type="button" disabled={!approved||saving||!(unitCost>0)}
+          onClick={onConfirm}>Pré-validar renovação</Button>
+        <Button type="button" variant="outline" disabled={saving} onClick={onCancel}>Voltar</Button>
+      </div>
+    </section>
+  </div>;
+}
+
 function OverduePaidDialog({client,saving,onClose,onConfirm}:{
   client:Client;saving:boolean;onClose:()=>void;onConfirm:(paymentDate:string)=>void;
 }){
