@@ -202,7 +202,11 @@ function Painel() {
     setFormOpen(true);
     void navigate({
       to: "/renovacoes",
-      search: { tab: selectedTab, access: selectedAccess, server: selectedServer },
+      search: {
+        tab: selectedTab,
+        ...(selectedAccess ? { access: selectedAccess } : {}),
+        ...(selectedServer ? { server: selectedServer } : {}),
+      },
       replace: true,
     });
   }, [newClientRequested, navigate, selectedTab, selectedAccess, selectedServer]);
