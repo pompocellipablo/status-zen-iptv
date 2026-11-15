@@ -119,11 +119,11 @@ const isScopedPackageCandidate=(client:Client)=>
   &&client.server==="Five"&&client.due_date==="2026-12-19";
 
 export const Route = createFileRoute("/_authenticated/renovacoes")({
-  validateSearch: (search: Record<string, unknown>): { tab: Tab; access?: string; server?: string } => {
+  validateSearch: (search: Record<string, unknown>): { tab: Tab; access?: string; server?: string; novo?: boolean } => {
     const allowed: Tab[] = ["todos", "cadastrados", "vencidos", "hoje", "breve", "cobranca"];
     const tab = allowed.includes(search["tab"] as Tab) ? search["tab"] as Tab : "hoje";
     const allowedAccess = ["padrao", "pacote_pago", "gratuidade", "meu_acesso", "gratuitos"];
-    return {tab, ...(allowedAccess.includes(search["access"] as string) ? {access:search["access"] as string} : {}), ...(typeof search["server"] === "string" && search["server"].length <= 100 ? {server:search["server"]} : {})};
+    return {tab, ...(search["novo"] === true || search["novo"] === "true" ? { novo: true } : {}), ...(allowedAccess.includes(search["access"] as string) ? {access:search["access"] as string} : {}), ...(typeof search["server"] === "string" && search["server"].length <= 100 ? {server:search["server"]} : {})};
   },
   head: () => ({
     meta: [
@@ -167,7 +167,7 @@ const num = (value: string) => Number(String(value).replace(",", ".")) || 0;
 function Painel() {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const {tab: selectedTab,access: selectedAccess,server: selectedServer} = Route.useSearch();
+  const {tab: selectedTab,access: selectedAccess,server: selectedServer, novo: newClientRequested} = Route.useSearch();
   const { pendingAction, clearPendingAction } = useMaxFlixNavigationAction();
   const [tab, setTab] = useState<Tab>(selectedTab);
   useEffect(() => { setTab(selectedTab); }, [selectedTab]);
@@ -193,6 +193,23 @@ function Painel() {
   const [financialsHidden, setFinancialsHidden] = useState(false);
   const [financialsReady, setFinancialsReady] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+
+  // Consume the shortcut so saving, closing or refreshing cannot reopen it.
+  useEffect(() => {
+    if (!newClientRequested) return;
+    setEditing(null);
+    setFormError(null);
+    setFormOpen(true);
+    void navigate({
+      to: "/renovacoes",
+      search: {
+        tab: selectedTab,
+        ...(selectedAccess ? { access: selectedAccess } : {}),
+        ...(selectedServer ? { server: selectedServer } : {}),
+      },
+      replace: true,
+    });
+  }, [newClientRequested, navigate, selectedTab, selectedAccess, selectedServer]);
 
   // The persistent navigation drawer can open home-only tools from other pages.
   useEffect(() => {
