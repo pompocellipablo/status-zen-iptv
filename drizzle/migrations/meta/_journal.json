@@ -29,6 +29,13 @@
       "when": 1794417484061,
       "tag": "0003_restrict_cancellation_audit_privileges",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794763270302,
+      "tag": "0004_client_initial_registration",
+      "breakpoints": true
     }
   ]
 }

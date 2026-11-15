@@ -92,6 +92,38 @@ export type Database = {
         }
         Relationships: []
       }
+      client_initial_registrations: {
+        Row: {
+          actor_id: string
+          client_id: string | null
+          created_at: string
+          id: string
+          request: Json
+        }
+        Insert: {
+          actor_id: string
+          client_id?: string | null
+          created_at?: string
+          id: string
+          request: Json
+        }
+        Update: {
+          actor_id?: string
+          client_id?: string | null
+          created_at?: string
+          id?: string
+          request?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_initial_registrations_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       clients: {
         Row: {
           access_type: string
@@ -873,6 +905,10 @@ export type Database = {
       }
       referral_use_free_month: {
         Args: { p_client_id: string; p_expected_due_date: string }
+        Returns: string
+      }
+      register_client_with_payment: {
+        Args: { p_data: Json; p_request_id: string }
         Returns: string
       }
       renew_client_with_credit: {
