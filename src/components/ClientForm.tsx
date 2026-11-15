@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   SERVERS,
   SERVER_COSTS,
@@ -6,9 +6,14 @@ import {
   formatDate,
   getStatus,
   type Client,
+  today,
+  toISODate,
 } from "@/lib/iptv";
 
+import { initialPlanError, planEnd, type InitialPlan } from "@/lib/client-registration";
+
 export type ClientDraft = {
+  initial_plan?: InitialPlan;
   name: string;
   login: string;
   server: string;
@@ -78,6 +83,12 @@ export function ClientForm({
   const [draft, setDraft] = useState<ClientDraft>(() => toDraft(client));
   const [error, setError] = useState<string | null>(null);
   const [referrerSearch, setReferrerSearch] = useState("");
+  const registrationId = useRef<string | null>(null);
+  const plan = draft.initial_plan;
+  const financialDue = plan ? planEnd(plan.startsOn, plan.months) : draft.financial_due_date;
+  const updatePlan = (patch: Partial<InitialPlan>) => {
+    if (plan) setDraft(d => ({ ...d, initial_plan: { ...plan, ...patch } }));
+  };
 
   useEffect(() => {
     setDraft(toDraft(client));
@@ -87,7 +98,7 @@ export function ClientForm({
 
   const cost = Number(draft.cost.replace(",", ".")) || 0;
   const paid = Number(draft.paid.replace(",", ".")) || 0;
-  const profit = paid - cost;
+  const profit = paid - cost * (plan?.months ?? 1);
   const referrer = clients.find(item => item.id === draft.referred_by_client_id);
   const referralAlreadyConfirmed = !!client?.referral_first_payment_confirmed;
 
@@ -111,13 +122,20 @@ export function ClientForm({
       setError("Para confirmar o primeiro pagamento, informe um valor pago maior que zero.");
       return;
     }
+    if (plan) {
+      const issue = initialPlanError(plan, Number(draft.paid.replace(",", ".")), draft.cost.trim() ? Number(draft.cost.replace(",", ".")) : NaN, draft.due_date, toISODate(today()));
+      if (issue) { setError(issue); return; }
+      registrationId.current ??= crypto.randomUUID();
+    }
     setError(null);
-    onSave(draft);
+    onSave(plan ? { ...draft, financial_due_date: financialDue,
+      access_type: plan.months > 1 ? "pacote_pago" : "padrao",
+      initial_plan: { ...plan, requestId: registrationId.current! } } : draft);
   };
 
   const packageNotice =
-    draft.financial_due_date && draft.due_date && draft.financial_due_date > draft.due_date
-      ? `Renovação sem custo — pacote pago até ${formatDate(draft.financial_due_date)}`
+    financialDue && draft.due_date && financialDue > draft.due_date
+      ? `Sem nova cobrança ao cliente até ${formatDate(financialDue)}. O crédito do servidor continua sendo consumido a cada ciclo.`
       : null;
 
   return (
@@ -132,11 +150,58 @@ export function ClientForm({
               O custo é preenchido pelo servidor e o lucro é recalculado automaticamente.
             </p>
           </div>
-          <button onClick={onCancel} className="font-display shrink-0 text-sm font-medium text-mist hover:text-frost">
+          <button disabled={saving} onClick={onCancel} className="font-display shrink-0 text-sm font-medium text-mist hover:text-frost">
             Fechar
           </button>
         </div>
 
+        <fieldset disabled={saving} className="min-w-0">
+        {!client && <section className="mt-5 rounded-xl bg-cyan/10 p-4 ring-1 ring-cyan/30">
+          <label className="block">
+            <span className={labelClass}>Como deseja cadastrar?</span>
+            <select className={fieldClass} value={plan ? "pagamento" : "existente"}
+              onChange={e => {
+                if (e.target.value === "pagamento") {
+                  const day = toISODate(today());
+                  set({ initial_plan: { requestId: "", months: 1, startsOn: day, paidOn: day,
+                    paymentConfirmed: false, activationConfirmed: false, debitCredit: false },
+                    paid: draft.paid || "35", due_date: draft.due_date || planEnd(day, 1) });
+                } else {
+                  const { initial_plan: _removed, ...rest } = draft;
+                  setDraft(rest);
+                }
+              }}>
+              <option value="existente">Somente cadastrar acesso existente (sem lançar receita)</option>
+              <option value="pagamento">Novo cliente com pagamento inicial</option>
+            </select>
+          </label>
+          {plan && <div className="mt-3 space-y-3">
+            <label className="block"><span className={labelClass}>Plano contratado</span>
+              <select className={fieldClass} value={plan.months} onChange={e => {
+                const months = Number(e.target.value) as InitialPlan["months"];
+                set({ initial_plan: { ...plan, months }, paid: months === 6 ? "175" : months === 1 ? "35" : "" });
+              }}>
+                <option value={1}>Mensal — 1 mês</option><option value={6}>Semestral — 6 meses</option><option value={12}>Anual — 12 meses</option>
+              </select>
+            </label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label><span className={labelClass}>Início do plano</span>
+                <input type="date" className={fieldClass} max={toISODate(today())} value={plan.startsOn}
+                  onChange={e => set({ initial_plan: { ...plan, startsOn: e.target.value }, due_date: planEnd(e.target.value, 1) })}/></label>
+              <label><span className={labelClass}>Pagamento recebido em</span>
+                <input type="date" className={fieldClass} max={toISODate(today())} value={plan.paidOn}
+                  onChange={e => updatePlan({ paidOn: e.target.value })}/></label>
+            </div>
+            <p className="text-sm text-cyan">Cobertura financeira até {financialDue ? formatDate(financialDue) : "—"}. O valor informado abaixo será registrado uma única vez.</p>
+            <label className="flex gap-2 text-sm"><input type="checkbox" checked={plan.paymentConfirmed}
+              onChange={e => updatePlan({ paymentConfirmed: e.target.checked })}/>Já recebi o pagamento informado.</label>
+            <label className="flex gap-2 text-sm"><input type="checkbox" checked={plan.activationConfirmed}
+              onChange={e => updatePlan({ activationConfirmed: e.target.checked })}/>Já ativei o acesso no servidor e conferi seu vencimento.</label>
+            <label className="flex gap-2 text-sm"><input type="checkbox" checked={plan.debitCredit}
+              onChange={e => updatePlan({ debitCredit: e.target.checked })}/>Descontar 1 crédito da ativação no saldo da MaxFlix.</label>
+            <p className="text-xs text-mist">Marque o desconto apenas se a ativação consumiu 1 crédito e ainda não foi contabilizada. Este cadastro não ativa nem renova o acesso no servidor.</p>
+          </div>}
+        </section>}
         <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <label className="block">
             <span className={labelClass}>Nome do cliente</span>
@@ -186,7 +251,7 @@ export function ClientForm({
             </div>
           </label>
           <label className="block">
-            <span className={labelClass}>Valor pago pelo cliente</span>
+            <span className={labelClass}>{plan ? "Pagamento inicial recebido (total do plano)" : "Valor pago pelo cliente"}</span>
             <div className="mt-1.5 flex items-center rounded-xl bg-panel px-3 ring-1 ring-line">
               <span className="text-sm text-mist">R$</span>
               <input
@@ -199,14 +264,14 @@ export function ClientForm({
             </div>
           </label>
           <div className="block">
-            <span className={labelClass}>Lucro (automático)</span>
+            <span className={labelClass}>{plan ? "Margem estimada do plano" : "Lucro (automático)"}</span>
             <div className="mt-1.5 flex items-center justify-between rounded-xl bg-ok/10 px-3 py-2.5 ring-1 ring-ok/30">
-              <span className="text-sm text-ok/80">valor pago − custo</span>
+              <span className="text-sm text-ok/80">{plan ? `valor recebido − ${plan.months} × custo mensal` : "valor pago − custo"}</span>
               <span className="font-display text-sm font-semibold text-ok">{formatBRL(profit)}</span>
             </div>
           </div>
           <label className="block">
-            <span className={labelClass}>Data de vencimento</span>
+            <span className={labelClass}>Vencimento confirmado no servidor</span>
             <input
               type="date"
               className={fieldClass}
@@ -219,14 +284,16 @@ export function ClientForm({
             <input
               type="date"
               className={fieldClass}
-              value={draft.financial_due_date}
+              value={financialDue}
+              disabled={!!plan}
               onChange={(e) => set({ financial_due_date: e.target.value })}
             />
           </label>
           <label className="block sm:col-span-2">
             <span className={labelClass}>Tipo de acesso</span>
             <select className={fieldClass}
-              value={draft.access_type}
+              value={plan ? (plan.months > 1 ? "pacote_pago" : "padrao") : draft.access_type}
+              disabled={!!plan}
               onChange={(e) => set({ access_type: e.target.value as ClientDraft["access_type"] })}>
               <option value="padrao">Padrão / ainda não classificado</option>
               <option value="pacote_pago">Pacote pré-pago</option>
@@ -234,7 +301,7 @@ export function ClientForm({
               <option value="meu_acesso">Meu Acesso / Testes</option>
             </select>
             <p className="mt-1.5 text-xs text-mist">
-              Esta classificação é administrativa. Não altera valores, datas, cobranças nem pagamentos.
+              {plan ? "O tipo será definido pelo plano contratado." : "Esta classificação é administrativa. Não altera valores, datas, cobranças nem pagamentos."}
               O total de cortesias é calculado apenas para os dois tipos gratuitos.
             </p>
           </label>
@@ -348,6 +415,8 @@ export function ClientForm({
           </label>
         </div>
 
+        </fieldset>
+        {plan && <p className="mt-3 text-xs text-mist">A margem reserva o custo dos {plan.months} meses, seguindo o cálculo dos pacotes. Isso não desconta {plan.months} créditos do saldo.</p>}
         {packageNotice && (
           <p className="mt-4 rounded-xl bg-cyan/10 px-3 py-2 text-xs text-cyan ring-1 ring-cyan/30">
             {packageNotice}
@@ -365,6 +434,7 @@ export function ClientForm({
           </button>
           <button
             onClick={onCancel}
+            disabled={saving}
             className="font-display w-full rounded-xl bg-panel px-4 py-2.5 text-sm font-medium text-mist ring-1 ring-line hover:bg-frost/5 sm:w-auto"
           >
             Cancelar

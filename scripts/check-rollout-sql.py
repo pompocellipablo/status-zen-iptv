@@ -12,3 +12,8 @@ for name in paths:
     parse_sql(sql)
     parse_plpgsql(sql)
     print(f"PASS SQL + PL/pgSQL: {name}")
+
+registration = Path("docs/sql/register-client-with-payment.sql").read_text()
+parse_sql(registration)
+parse_plpgsql(registration)
+print("PASS SQL + PL/pgSQL: initial registration (pending managed migration)")
