@@ -378,6 +378,23 @@ function Painel() {
     mutationFn: async ({ draft, id }: { draft: ClientDraft; id: string | null }) => {
       const cost = num(draft.cost);
       const paid = num(draft.paid);
+      if (!id && draft.initial_plan) {
+        const plan = draft.initial_plan;
+        const { error } = await supabase.rpc("register_client_with_payment", {
+          p_request_id: plan.requestId,
+          p_data: {
+            name: draft.name.trim(), login: draft.login.trim(), server: draft.server,
+            amount: paid, cost, due_date: draft.due_date,
+            starts_on: plan.startsOn, paid_on: plan.paidOn, months: plan.months,
+            payment_confirmed: plan.paymentConfirmed, activation_confirmed: plan.activationConfirmed,
+            debit_credit: plan.debitCredit, whatsapp: draft.whatsapp.trim(), notes: draft.notes.trim(),
+            referred_by_client_id: draft.referred_by_client_id,
+            referral_first_payment_confirmed: draft.referral_first_payment_confirmed,
+          },
+        });
+        if (error) throw error;
+        return;
+      }
       const payload = {
         name: draft.name.trim(),
         login: draft.login.trim(),
@@ -408,7 +425,10 @@ function Painel() {
       setEditing(null);
       setFormError(null);
       invalidate();
-      void qc.invalidateQueries({ queryKey: ["referral-movements"] });
+      for (const key of ["payments", "dashboard-payments", "server-credit-movements", "credit-stock-dashboard-movements", "referral-movements"]) {
+        void qc.invalidateQueries({ queryKey: [key] });
+      }
+      if (variables.draft.initial_plan) setNotice("Cliente cadastrado e pagamento inicial registrado uma única vez.");
       if (variables.draft.referred_by_client_id && variables.draft.referral_first_payment_confirmed) {
         setNotice("Cliente salvo! A indicação foi registrada e o ponto creditado automaticamente.");
       } else if (variables.draft.referred_by_client_id) {
@@ -928,6 +948,10 @@ function Painel() {
     client: Client,
     opts: { months: number; cost: number; paid: number; monthlyCost: number; monthlyPaid: number },
   ) => {
+    if (client.access_type === "pacote_pago" && !isPackageCovered(client) && opts.paid <= 0) {
+      setNotice("A cobertura do pacote terminou. Informe o novo pagamento antes de renovar.");
+      return;
+    }
     const { dueDate: newDue, financialDueDate } = renewalDates(client.due_date, opts.months);
     const done = await performRenewal(client, {
       dueDate: newDue,

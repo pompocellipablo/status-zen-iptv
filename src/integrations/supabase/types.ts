@@ -823,6 +823,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      register_client_with_payment: {
+        Args: { p_request_id: string; p_data: Json }
+        Returns: string
+      }
       approve_panel_date_correction: {
         Args: {
           p_client_id: string
