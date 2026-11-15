@@ -1,4 +1,4 @@
-# Cadastro com pagamento inicial — pronto para revisão, não publicado
+# Cadastro com pagamento inicial — migração aplicada
 
 ## Comportamento
 - Preserva o cadastro simples e a edição, sem criar receitas retroativas.
@@ -21,13 +21,18 @@
 - Essas fixtures passaram no PostgreSQL gerenciado; nenhum registro real foi inserido ou renovado.
 - CI valida testes existentes, novo teste, SQL, tipos da função existente, tipos da interface e build.
 
-## Publicação pendente
+## Estado em 15/11/2026
+- Migração 0004_client_initial_registration aplicada em uma única solicitação ao agente, custo 3,1 créditos.
+- Função SECURITY INVOKER, RLS ligado, acesso anônimo negado; SELECT/INSERT autenticados e ausência de UPDATE confirmados diretamente.
+- Nenhum cadastro de cliente real ou pedido ao fornecedor foi criado durante a implantação.
+
+## Publicação
 1. Aplicar docs/sql/register-client-with-payment.sql por UMA migração gerenciada, preservando o journal e snapshots Drizzle gerados. Não alterar SQLs históricos.
 2. Confirmar a função, RLS e grants; não cadastrar cliente real para testar.
 3. Integrar o PR somente depois da migração. Conferir CI e publicar interface pelo comando direto de hospedagem.
 4. Verificar o formulário com a sessão do proprietário, sem salvar cadastro fictício em produção.
 
-A migração não é acessível pelos conectores Supabase: o banco ativo é gerenciado pelo Lovable. Query SQL está disponível, mas a regra AGENTS.md exige migração gerenciada e journal. Não usar DDL sem rastreamento para contornar isso. A etapa do agente depende de autorização específica para créditos. Nenhuma solicitação ao agente foi enviada.
+A migração não é acessível pelos conectores Supabase: o banco ativo é gerenciado pelo Lovable. Query SQL está disponível, mas a regra AGENTS.md exige migração gerenciada e journal. Não usar DDL sem rastreamento para contornar isso. A etapa do agente depende de autorização específica para créditos. Uma única solicitação autorizada aplicou a migração; nenhuma nova solicitação é necessária.
 
 ## Reversão
 Reverter apenas a interface deixa o fluxo antigo intacto. Não remover pagamentos, clientes ou auditorias já criados. A função nova não altera funções de renovação existentes e não possui tarefas automáticas.
