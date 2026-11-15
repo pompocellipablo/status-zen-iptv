@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { paginateClients } from "@/lib/client-pagination";
+import { visiblePanelJobs } from "@/lib/panel-job-visibility";
 import { panelRouteForClient,HUMBERTO_OVERDUE_PILOT,broadOverdueEligible,generalZeroActiveEligible } from "@/lib/painel-recarga";
 import { defaultClientSortMode, sortClients, type ClientSortMode } from "@/lib/client-sort";
 import { MessageCircle, MoreHorizontal, RefreshCw, Search } from "lucide-react";
@@ -372,6 +373,20 @@ function Painel() {
   const template = settingsQuery.data?.regular ?? DEFAULT_TEMPLATE;
   const overdueTemplate = settingsQuery.data?.overdue ?? DEFAULT_OVERDUE_TEMPLATE;
   const clients = useMemo(() => clientsQuery.data ?? [], [clientsQuery.data]);
+  // A cancelled provider order is historical once the manual renewal has
+  // advanced the client's date. Keep unresolved jobs and all audit rows intact.
+  const outstandingExternalJobs = useMemo(
+    () => visiblePanelJobs(externalJobsQuery.data ?? [], clients),
+    [externalJobsQuery.data, clients],
+  );
+  const showPanelMonitor = (
+    PANEL_PILOT_UI_ENABLED || pilotTargetsQuery.data?.rolloutEnabled ||
+    pilotTargetsQuery.data?.targets.some(t => t.kind === "package6")
+  ) && (
+    externalJobsQuery.isLoading || externalJobsQuery.isError ||
+    clientsQuery.isLoading || clientsQuery.isError ||
+    outstandingExternalJobs.length > 0
+  );
   const invalidate = () => qc.invalidateQueries({ queryKey: ["clients"] });
 
   const saveMutation = useMutation({
@@ -1251,15 +1266,13 @@ function Painel() {
           </div>
         )}
 
-        {(PANEL_PILOT_UI_ENABLED||pilotTargetsQuery.data?.rolloutEnabled||pilotTargetsQuery.data?.targets.some(t=>t.kind==="package6"))&&<section className="mt-4 rounded-xl bg-panel p-3 text-sm ring-1 ring-warn/25" aria-label="Acompanhamento do piloto Painel Recarga">
+        {showPanelMonitor&&<section className="mt-4 rounded-xl bg-panel p-3 text-sm ring-1 ring-warn/25" aria-label="Acompanhamento do piloto Painel Recarga">
           <p className="font-semibold text-warn">Painel Recarga — {pilotTargetsQuery.data?.rolloutEnabled?"integração supervisionada":"piloto supervisionado"}</p>
           <p className="mt-1 text-xs text-mist">Somente pedidos externos já autorizados. Verificar andamento usa a mesma chave do pedido; não cria nova autorização.</p>
           {externalJobsQuery.isError&&<p className="mt-2 text-danger">Histórico externo indisponível. Consulte o painel antes de qualquer nova renovação.</p>}
           {externalJobsQuery.isLoading&&<p className="mt-2 text-mist">Verificando pedidos…</p>}
-          {(externalJobsQuery.data??[]).length===0&&!externalJobsQuery.isLoading&&
-            <p className="mt-2 text-xs text-mist">Nenhum pedido externo pendente ou em revisão.</p>}
           <div className="mt-2 space-y-2">
-            {(externalJobsQuery.data??[]).map(job=><div key={job.id} className="rounded-lg bg-background/70 p-3 ring-1 ring-line">
+            {outstandingExternalJobs.map(job=><div key={job.id} className="rounded-lg bg-background/70 p-3 ring-1 ring-line">
               <p className="font-semibold">{job.client_name} · {job.login} · {job.server}</p>
               <p className="mt-1 text-xs text-mist">Estado: {job.state} · vencimento anterior: {formatDate(job.expected_due_date)}</p>
               {job.external_message&&<p className="mt-1 text-xs text-warn">{job.external_message}</p>}
