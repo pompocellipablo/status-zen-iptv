@@ -3,6 +3,8 @@ name: MaxFlix — testes e build
 on:
   push:
     branches: [main, "feature/zero-active-renewal-manual-fallback"]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:

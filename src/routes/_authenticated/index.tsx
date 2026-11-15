@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowRight, CalendarClock, CircleAlert, Coins, Gift, LayoutDashboard,
-  RefreshCw, Tv, Wallet, Eye, EyeOff,
+  RefreshCw, Tv, Wallet, Eye, EyeOff, UserPlus,
 } from "lucide-react";
 import { creditStockOverview, prioritizeCreditStocks } from "@/lib/credit-stock-overview";
 import type { CreditMovement } from "@/lib/server-credits";
@@ -187,6 +187,11 @@ function Dashboard() {
           </h1>
           <p className="mt-1 text-sm text-mist">Visão rápida do negócio e do que precisa ser feito hoje.</p>
         </div>
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          <Link to="/renovacoes" search={{ tab: "cadastrados", novo: true }}
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-cyan px-4 py-2.5 text-sm font-semibold text-background hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-background">
+            <UserPlus size={18} aria-hidden="true"/> Adicionar cliente
+          </Link>
         <button type="button" onClick={toggleFinancials}
           title={financialsHidden?"Mostrar valores financeiros":"Ocultar valores financeiros"}
           aria-label={financialsHidden?"Mostrar valores financeiros":"Ocultar valores financeiros"}
@@ -194,6 +199,7 @@ function Dashboard() {
           {financialsHidden?<EyeOff size={17}/>:<Eye size={17}/>}
           {financialsHidden?"Mostrar valores":"Ocultar valores"}
         </button>
+        </div>
       </div>
       {dataError&&<p role="alert" className="rounded-xl bg-danger/10 p-3 text-sm text-danger ring-1 ring-danger/30">
         Não foi possível atualizar todos os indicadores. Confira a conexão e atualize a página.
