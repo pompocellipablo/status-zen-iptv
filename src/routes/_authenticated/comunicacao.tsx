@@ -8,6 +8,7 @@ import { eligibleForMigration, canonicalPhone, campaignWhatsAppLink,
   effectiveTracking, MIGRATION_MESSAGE, samePhoneAlreadySent,
   type CampaignAccess, type CampaignTracking } from "@/lib/whatsapp-campaign";
 import { Button } from "@/components/ui/button";
+import { ReferralCampaignPanel } from "@/components/ReferralCampaignPanel";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 
 type Filter = "todos" | "pendentes" | "enviados" | "sem-telefone" | "confirmados";
@@ -40,10 +41,13 @@ async function readTracking(): Promise<CampaignTracking[]> {
 
 export const Route = createFileRoute("/_authenticated/comunicacao")({
   head: () => ({ meta: [{"title": "Comunicação — MaxFlix"}, {"name": "description", "content": "Organize contatos e mensagens de comunicação da MaxFlix."}, {"property": "og:title", "content": "Comunicação — MaxFlix"}, {"property": "og:description", "content": "Organize contatos e mensagens de comunicação da MaxFlix."}, {"property": "og:type", "content": "website"}, {"name": "twitter:card", "content": "summary"}] }),
+  validateSearch: (search: Record<string, unknown>): { campaign?: "indicacoes" } =>
+    search["campaign"] === "indicacoes" ? { campaign: "indicacoes" } : {},
   component: CommunicationPage,
 });
 
 function CommunicationPage() {
+  const { campaign } = Route.useSearch();
   const qc = useQueryClient();
   const clientsQuery = useQuery({ queryKey: ["clients", "migration"], queryFn: readClients });
   const trackingQuery = useQuery({
@@ -194,6 +198,21 @@ function CommunicationPage() {
         <span aria-current="page" className="font-semibold text-cyan">Comunicação</span>
       </nav>
 
+      <div className="mt-6 flex flex-wrap gap-2" role="tablist" aria-label="Campanhas de comunicação">
+        <Link to="/comunicacao" search={{ campaign: "indicacoes" }} role="tab"
+          aria-selected={campaign === "indicacoes"}
+          className={"min-h-11 rounded-xl px-4 py-3 text-sm font-semibold ring-1 " + (campaign === "indicacoes"
+            ? "bg-cyan/15 text-cyan ring-cyan/40" : "bg-panel text-mist ring-line hover:text-frost")}>
+          🎁 Indique e Ganhe
+        </Link>
+        <Link to="/comunicacao" search={{}} role="tab"
+          aria-selected={campaign !== "indicacoes"}
+          className={"min-h-11 rounded-xl px-4 py-3 text-sm font-semibold ring-1 " + (campaign !== "indicacoes"
+            ? "bg-cyan/15 text-cyan ring-cyan/40" : "bg-panel text-mist ring-line hover:text-frost")}>
+          📲 Troca do número
+        </Link>
+      </div>
+      {campaign === "indicacoes" ? <ReferralCampaignPanel /> : <>
       <div className="mt-7 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 font-display text-2xl font-semibold">
@@ -349,6 +368,7 @@ function CommunicationPage() {
           {filtered.length === 0 && <p className="mt-5 rounded-xl bg-panel/70 p-5 text-center text-sm text-mist">Nenhum acesso encontrado.</p>}
         </>
       }
+      </>}
     </div>
   </main>;
 }
