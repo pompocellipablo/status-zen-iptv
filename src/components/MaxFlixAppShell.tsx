@@ -181,7 +181,12 @@ export function MaxFlixAppShell({ children }: { children: ReactNode }) {
                       </Link>
                     </SheetClose>
                     <SheetClose asChild>
-                      <Link to="/comunicacao" className={itemClass}>
+                      <Link to="/comunicacao" search={{ campaign: "indicacoes" }} className={itemClass}>
+                        <Gift size={18} className={iconClass} aria-hidden="true" /> Campanha Indique e Ganhe
+                      </Link>
+                    </SheetClose>
+                    <SheetClose asChild>
+                      <Link to="/comunicacao" search={{}} className={itemClass}>
                         <MessageCircle size={18} className={iconClass} aria-hidden="true" /> Comunicação
                       </Link>
                     </SheetClose>
