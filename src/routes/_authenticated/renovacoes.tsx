@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { ClientForm, type ClientDraft } from "@/components/ClientForm";
@@ -18,7 +18,7 @@ import { paginateClients } from "@/lib/client-pagination";
 import { visiblePanelJobs } from "@/lib/panel-job-visibility";
 import { panelRouteForClient,HUMBERTO_OVERDUE_PILOT,broadOverdueEligible,generalZeroActiveEligible } from "@/lib/painel-recarga";
 import { defaultClientSortMode, sortClients, type ClientSortMode } from "@/lib/client-sort";
-import { MessageCircle, MoreHorizontal, RefreshCw, Search } from "lucide-react";
+import { MessageCircle, MoreHorizontal, RefreshCw, Search, X } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -174,6 +174,7 @@ function Painel() {
   useEffect(() => { setTab(selectedTab); }, [selectedTab]);
   const [range, setRange] = useState(0);
   const [search, setSearch] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [serverFilter, setServerFilter] = useState(selectedServer ?? "todos");
   useEffect(() => setServerFilter(selectedServer ?? "todos"), [selectedServer]);
   const [accessFilter, setAccessFilter] = useState(selectedAccess ?? "todos");
@@ -1130,16 +1131,28 @@ function Painel() {
               title={financialsHidden ? "Mostrar valores" : "Ocultar valores"}>
               {financialsHidden ? <EyeOffIcon /> : <EyeIcon />}
             </button>
-            <label className="flex h-10 min-w-[160px] flex-1 items-center gap-2 rounded-xl bg-panel px-3 ring-1 ring-line"
-              aria-label="Buscar cliente">
+            <div className="flex h-10 min-w-[160px] flex-1 items-center gap-2 rounded-xl bg-panel pl-3 pr-1 ring-1 ring-line focus-within:ring-cyan/50">
               <Search size={17} className="shrink-0 text-mist" aria-hidden="true" />
               <input
+                ref={searchInputRef}
+                type="search"
+                aria-label="Buscar cliente"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full min-w-0 bg-transparent text-sm text-frost outline-none placeholder:text-mist/60"
+                className="w-full min-w-0 flex-1 bg-transparent text-sm text-frost outline-none placeholder:text-mist/60 [&::-webkit-search-cancel-button]:hidden"
                 placeholder="Buscar cliente..."
               />
-            </label>
+              {search.length > 0 && (
+                <button type="button" onClick={() => {
+                  setSearch("");
+                  searchInputRef.current?.focus();
+                }}
+                  aria-label="Limpar busca de clientes" title="Limpar busca"
+                  className="flex size-9 shrink-0 items-center justify-center rounded-lg text-mist hover:bg-panel2 hover:text-frost focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan">
+                  <X size={17} aria-hidden="true" />
+                </button>
+              )}
+            </div>
           </div>
         </header>
 
