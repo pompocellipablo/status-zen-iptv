@@ -812,6 +812,38 @@ export type Database = {
         }
         Relationships: []
       }
+      whatsapp_campaign_tracking: {
+        Row: {
+          campaign_key: string
+          phone: string
+          client_id: string | null
+          sent_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          campaign_key: string
+          phone: string
+          client_id?: string | null
+          sent_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          campaign_key?: string
+          phone?: string
+          client_id?: string | null
+          sent_at?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_campaign_tracking_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       whatsapp_migration_tracking: {
         Row: {
           agenda_updated: boolean
