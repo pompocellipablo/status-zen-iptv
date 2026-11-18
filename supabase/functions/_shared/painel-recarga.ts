@@ -221,7 +221,8 @@ export function generalOverdueRenewalIssue(
 ):string|null{
   if(!broadOverdueEligible(client,todayISO)){
     const cutoff=panelDateToISO(client.due_date);
-    if(cutoff&&addDaysISO(cutoff,10)!<todayISO)
+    const recoveryEnd=cutoff?addDaysISO(cutoff,10):null;
+    if(recoveryEnd&&recoveryEnd<todayISO)
       return "Acesso vencido há mais de 10 dias: utilize a área de Recuperação e faça a conciliação antes de reativar.";
     return "Cliente fora das regras para mensalidade vencida.";
   }
