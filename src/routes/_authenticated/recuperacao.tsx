@@ -327,7 +327,7 @@ function RecoveryPage(){
       </div>)}
     </section>
     <div className="rounded-xl border border-line bg-panel/60 p-3 text-sm text-mist">
-      Assinaturas vencidas há mais de 10 dias são adicionadas automaticamente à Recuperação, inclusive sem WhatsApp. O número poderá ser preenchido aqui depois. Não importamos clientes com cobertura financeira futura nem números vinculados a assinaturas ativas. Nenhuma assinatura original é excluída ou alterada. Contatos OFF da agenda entram somente após revisão.
+      Assinaturas vencidas há mais de 10 dias são adicionadas automaticamente à Recuperação, inclusive sem WhatsApp. Essa inclusão é apenas histórica e não exclui o cadastro original. Se o cliente estiver vencido há até 30 dias e ainda tiver assinatura cadastrada, você pode renovar pelo Painel Recarga em <Link to="/renovacoes" search={{tab:"vencidos"}} className="font-semibold text-cyan underline">Renovações → Vencidos</Link>, após confirmar o pagamento. Mais de 30 dias exigem conciliação manual. Não importamos clientes com cobertura financeira futura nem números vinculados a assinaturas ativas. Contatos OFF da agenda entram somente após revisão.
     </div>
     {notice && <p role="status" className="rounded-xl border border-cyan/30 bg-panel p-3 text-sm">{notice}</p>}
     <section className="space-y-3 rounded-2xl bg-panel p-4 ring-1 ring-line">
