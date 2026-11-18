@@ -312,8 +312,12 @@ function Painel() {
   const pilotTargetsQuery=useQuery({
     queryKey:["panel-pilot-targets"],
     enabled:true,
-    staleTime:60_000,
-    refetchOnWindowFocus:false,
+    staleTime:15_000,
+    // The owner can enable/disable overdue renewals while this screen stays
+    // open. Refresh only the read-only authorization list, never provider orders.
+    refetchOnWindowFocus:true,
+    refetchOnMount:"always",
+    refetchInterval:60_000,
     queryFn:async():Promise<PanelPilotConfig>=>{
       const {data,error}=await supabase.functions.invoke("painel-recarga-renovar",{
         body:{mode:"pilot_targets"},
