@@ -147,11 +147,14 @@ describe("General overdue payment-day rule",()=>{
       {...c,financial_due_date:"2027-01-05"}])
       assert.equal(broadOverdueEligible(invalid,"2026-11-10"),false);
   });
-  it("allows only overdue clients within the first 10 days, not former clients",()=>{
-    assert.equal(broadOverdueEligible(c,"2026-11-06"),true);
-    assert.equal(broadOverdueEligible(c,"2026-11-15"),true);
-    assert.equal(broadOverdueEligible(c,"2026-11-16"),false);
-    assert.ok(generalOverdueRenewalIssue(c,v,"2026-11-16")?.includes("Recuperação"));
+  it("permits 1-30 overdue days inclusive; blocks day 31 and later without altering the client",()=>{
+    assert.equal(broadOverdueEligible(c,"2026-11-05"),false); // not overdue yet
+    assert.equal(broadOverdueEligible(c,"2026-11-06"),true);  // day 1
+    assert.equal(broadOverdueEligible(c,"2026-11-15"),true);  // day 10
+    assert.equal(broadOverdueEligible(c,"2026-11-16"),true);  // day 11 (newly allowed)
+    assert.equal(broadOverdueEligible(c,"2026-12-05"),true);  // day 30
+    assert.equal(broadOverdueEligible(c,"2026-12-06"),false); // day 31
+    assert.match(generalOverdueRenewalIssue(c,v,"2026-12-06")??"", /mais de 30 dias/);
   });
   it("starts the anniversary on the payment day, not the expired due",()=>{
     assert.equal(generalOverdueRenewalIssue(c,v,"2026-11-10"),null);
