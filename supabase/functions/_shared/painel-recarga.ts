@@ -202,9 +202,10 @@ export function broadOverdueEligible(
   const due=panelDateToISO(client.due_date);
   const finance=panelDateToISO(client.financial_due_date??undefined);
   const now=panelDateToISO(todayISO);
-  // Customers overdue more than 10 days belong to Recuperacao and need
-  // owner reconciliation; never restore a former client through this button.
-  const recoveryCutoff=due?addDaysISO(due,10):null;
+  // Include only 1-30 days overdue for owner-confirmed provider renewals.
+  // The historical Recuperacao register remains separate; >30 days needs
+  // manual reconciliation and must not receive a provider renewal here.
+  const recoveryCutoff=due?addDaysISO(due,30):null;
   return !!due&&!!finance&&!!now&&!!recoveryCutoff&&due<now&&now<=recoveryCutoff&&finance===due
     &&PANEL_GENERAL_SERVERS.includes(client.server as typeof PANEL_GENERAL_SERVERS[number])
     &&client.access_type==="padrao"&&client.paid===0&&client.cost===0
@@ -221,9 +222,9 @@ export function generalOverdueRenewalIssue(
 ):string|null{
   if(!broadOverdueEligible(client,todayISO)){
     const cutoff=panelDateToISO(client.due_date);
-    const recoveryEnd=cutoff?addDaysISO(cutoff,10):null;
+    const recoveryEnd=cutoff?addDaysISO(cutoff,30):null;
     if(recoveryEnd&&recoveryEnd<todayISO)
-      return "Acesso vencido há mais de 10 dias: utilize a área de Recuperação e faça a conciliação antes de reativar.";
+      return "Acesso vencido há mais de 30 dias: utilize a área de Recuperação e faça a conciliação antes de reativar.";
     return "Cliente fora das regras para mensalidade vencida.";
   }
   const paymentDate=panelDateToISO(values.paymentDate);
