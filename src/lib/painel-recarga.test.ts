@@ -123,6 +123,17 @@ describe("Overdue switch security",()=>{
   });
 });
 
+describe("Read-only owner authorization refresh",()=>{
+  const ui=readFileSync(new URL("../routes/_authenticated/renovacoes.tsx",import.meta.url),"utf8");
+  it("refreshes overdue rollout permission on focus, mount and while the screen is open",()=>{
+    assert.match(ui,/queryKey:\["panel-pilot-targets"\]/);
+    assert.match(ui,/refetchOnWindowFocus:true/);
+    assert.match(ui,/refetchOnMount:"always"/);
+    assert.match(ui,/refetchInterval:60_000/);
+    assert.match(ui,/generalOverdueEnabled:data\.generalOverdueEnabled===true/);
+  });
+});
+
 describe("General overdue payment-day rule",()=>{
   const c={server:"Five",due_date:"2026-11-05",financial_due_date:"2026-11-05",
     access_type:"padrao",paid:0,cost:0,prev_paid:35,prev_cost:6.5};
