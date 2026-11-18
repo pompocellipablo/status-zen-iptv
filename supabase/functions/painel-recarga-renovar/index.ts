@@ -115,10 +115,16 @@ Deno.serve(async(request)=>{
   const generalEnabled=rolloutEnabled&&generalFlag;
   // Free renewals require a second, exact-client owner allowlist.
   const freeCanaryTargets=parsePanelRolloutTargets(Deno.env.get("PAINEL_RECARGA_FREE_TARGETS"));
-  // Permanent overdue workflow is a SECOND independent, default-off switch.
-  // Publishing code never permits payments on expired accounts.
-  const generalOverdueEnabled=generalEnabled
-    &&Deno.env.get("PAINEL_RECARGA_OVERDUE_GENERAL_ENABLED")==="true";
+  // A second owner-scoped, default-off switch controls the overdue workflow.
+  // It is stored in RLS-protected settings so a GitHub deploy alone cannot
+  // authorize renewals. Live provider/rollout switches still apply.
+  let generalOverdueEnabled=false;
+  if(generalEnabled){
+    const {data:overdueSettings,error:overdueConfigError}=await userDb.from("settings")
+      .select("panel_overdue_enabled").eq("id","default").maybeSingle();
+    generalOverdueEnabled=!overdueConfigError
+      &&overdueSettings?.panel_overdue_enabled===true;
+  }
   const overdueEnabled=generalEnabled
     &&Deno.env.get("PAINEL_RECARGA_HUMBERTO_OVERDUE_ENABLED")==="true";
   const overdueDay=new Date().toLocaleDateString("sv-SE",{timeZone:"America/Sao_Paulo"});
