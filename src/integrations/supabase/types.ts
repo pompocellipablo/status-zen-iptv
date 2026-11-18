@@ -795,18 +795,21 @@ export type Database = {
         Row: {
           id: string
           overdue_whatsapp_template: string
+          panel_overdue_enabled: boolean
           updated_at: string
           whatsapp_template: string
         }
         Insert: {
           id?: string
           overdue_whatsapp_template?: string
+          panel_overdue_enabled?: boolean
           updated_at?: string
           whatsapp_template?: string
         }
         Update: {
           id?: string
           overdue_whatsapp_template?: string
+          panel_overdue_enabled?: boolean
           updated_at?: string
           whatsapp_template?: string
         }
@@ -815,22 +818,22 @@ export type Database = {
       whatsapp_campaign_tracking: {
         Row: {
           campaign_key: string
-          phone: string
           client_id: string | null
+          phone: string
           sent_at: string | null
           updated_at: string
         }
         Insert: {
           campaign_key: string
-          phone: string
           client_id?: string | null
+          phone: string
           sent_at?: string | null
           updated_at?: string
         }
         Update: {
           campaign_key?: string
-          phone?: string
           client_id?: string | null
+          phone?: string
           sent_at?: string | null
           updated_at?: string
         }
