@@ -111,6 +111,18 @@ describe("Cancelled external order: evidence and manual-only recovery",()=>{
   });
 });
 
+describe("Overdue switch security",()=>{
+  const migration=readFileSync(new URL("../../docs/sql/painel-recarga-overdue-toggle.sql",import.meta.url),"utf8");
+  const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
+  it("uses an owner-only, independently controlled flag while preserving live gates",()=>{
+    assert.match(migration,/panel_overdue_enabled boolean NOT NULL DEFAULT false/);
+    assert.match(migration,/ALTER TABLE public\.settings/);
+    assert.match(edge,/generalOverdueEnabled=!overdueConfigError/);
+    assert.match(edge,/generalEnabled/);
+    assert.match(edge,/PAINEL_RECARGA_LIVE_ENABLED/);
+  });
+});
+
 describe("General overdue payment-day rule",()=>{
   const c={server:"Five",due_date:"2026-11-05",financial_due_date:"2026-11-05",
     access_type:"padrao",paid:0,cost:0,prev_paid:35,prev_cost:6.5};
@@ -123,6 +135,12 @@ describe("General overdue payment-day rule",()=>{
       {...c,prev_paid:0},{...c,prev_cost:0},{...c,paid:35},
       {...c,financial_due_date:"2027-01-05"}])
       assert.equal(broadOverdueEligible(invalid,"2026-11-10"),false);
+  });
+  it("allows only overdue clients within the first 10 days, not former clients",()=>{
+    assert.equal(broadOverdueEligible(c,"2026-11-06"),true);
+    assert.equal(broadOverdueEligible(c,"2026-11-15"),true);
+    assert.equal(broadOverdueEligible(c,"2026-11-16"),false);
+    assert.ok(generalOverdueRenewalIssue(c,v,"2026-11-16")?.includes("Recuperação"));
   });
   it("starts the anniversary on the payment day, not the expired due",()=>{
     assert.equal(generalOverdueRenewalIssue(c,v,"2026-11-10"),null);
@@ -165,7 +183,8 @@ describe("Humberto overdue-paid one-client canary, no provider call",()=>{
     const edge=readFileSync(new URL("../../supabase/functions/painel-recarga-renovar/index.ts",import.meta.url),"utf8");
     const ui=readFileSync(new URL("../routes/_authenticated/renovacoes.tsx",import.meta.url),"utf8");
     assert.match(edge,/PAINEL_RECARGA_HUMBERTO_OVERDUE_ENABLED/);
-    assert.match(edge,/PAINEL_RECARGA_OVERDUE_GENERAL_ENABLED/);
+    assert.match(edge,/panel_overdue_enabled/);
+    assert.match(edge,/generalOverdueEnabled=!overdueConfigError/);
     assert.match(edge,/generalOverdueRenewalIssue/);
     const shared=readFileSync(new URL("../../supabase/functions/_shared/painel-recarga.ts",import.meta.url),"utf8");
     assert.equal(shared.split('paymentAmount:number;monthlyPaid:number;paymentCost:number;paymentDate?:string;pilotKind?:"unpaid"|"overdue"|"zero_active";').length-1,2);
