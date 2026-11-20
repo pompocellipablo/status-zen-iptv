@@ -2,6 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { ClientForm, type ClientDraft } from "@/components/ClientForm";
 import { ReferralPanel } from "@/components/ReferralPanel";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -54,7 +55,8 @@ const PANEL_PILOT_UI_ENABLED = import.meta.env["VITE_MAXFLIX_PANEL_PILOT"] === "
 type PanelPilotTarget={clientId:string;expectedDueDate:string;server:string;kind:"paid"|"unpaid"|"package6"|"prepaid2"};
 type PanelRolloutTarget={clientId:string;server:string;expectedDueDate:string};
 type ExternalJobRow={id:string;client_id:string|null;client_name:string;login:string;server:string;
-  state:string;external_order_id:string|null;expected_due_date:string;external_message:string|null};
+  state:string;external_order_id:string|null;expected_due_date:string;external_message:string|null;
+  external_http_status:number|null;new_due_date:string;financial_due_date:string};
 type PanelPilotConfig={targets:PanelPilotTarget[];rolloutTargets:PanelRolloutTarget[];rolloutEnabled:boolean;generalEnabled:boolean;generalServers:string[];overdueTarget:typeof HUMBERTO_OVERDUE_PILOT|null;generalOverdueEnabled:boolean;generalZeroEnabled:boolean};
 const ROLLOUT_CANARY_SERVERS=new Set(["Club","Five","Uniplay","UniP2P","Blade","Now","GF","Fast","All Play"]);
 // UX-only allowlist obtained once from the owner-authorized Edge Function.
@@ -351,7 +353,7 @@ function Painel() {
     enabled:true,
     queryFn:async()=>{
       const {data,error}=await supabase.from("external_renewal_jobs")
-        .select("id,client_id,client_name,login,server,state,created_at,external_message,external_order_id,expected_due_date")
+        .select("id,client_id,client_name,login,server,state,created_at,external_message,external_order_id,expected_due_date,external_http_status,new_due_date,financial_due_date")
         .neq("state","synced").order("created_at",{ascending:false}).limit(30);
       if(error)throw error;
       return data??[];
@@ -536,6 +538,7 @@ function Painel() {
   const [overdueRenewing,setOverdueRenewing]=useState<Client|null>(null);
   const [zeroRenewing,setZeroRenewing]=useState<Client|null>(null);
   const [cancelJob,setCancelJob]=useState<ExternalJobRow|null>(null);
+  const [reviewJob,setReviewJob]=useState<ExternalJobRow|null>(null);
   const [manualRecovery,setManualRecovery]=useState<Client|null>(null);
   const [previewClient, setPreviewClient] = useState<Client | null>(null);
 
@@ -699,6 +702,33 @@ function Painel() {
       return;
     }
     setRenewing(client);
+  };
+
+  const confirmPreviousDueReview=async(job:ExternalJobRow,data:{providerDue:string;orderId:string;evidence:string})=>{
+    if(renewingBusy)return;
+    setRenewingBusy(true);
+    try{
+      const db=supabase as unknown as SupabaseClient;
+      const {data:result,error}=await db.rpc("reconcile_external_previous_due_job",{
+        p_job_id:job.id,p_order_id:data.orderId,p_panel_due:data.providerDue,
+        p_evidence:data.evidence,p_confirmation:"CONFERIDO",
+      });
+      if(error)throw error;
+      if(result?.ok!==true)throw Error("A conciliação não foi confirmada pelo banco.");
+      setReviewJob(null);
+      setNotice(job.client_name+": pedido original conciliado. Vencimento e recebimento registrados sem renovar novamente no fornecedor.");
+      await Promise.all([
+        qc.invalidateQueries({queryKey:["external-renewal-jobs"]}),
+        qc.invalidateQueries({queryKey:["clients"]}),
+        qc.invalidateQueries({queryKey:["payments"]}),
+        qc.invalidateQueries({queryKey:["server-credit-movements"]}),
+        qc.invalidateQueries({queryKey:["credit-stock-dashboard-movements"]}),
+      ]);
+    }catch(error){
+      setNotice("Conciliação não concluída para "+job.client_name+": "+
+        (error instanceof Error?error.message:"verifique o pedido no fornecedor.")+
+        " Nenhuma nova renovação foi enviada.");
+    }finally{setRenewingBusy(false);}
   };
 
   const verifyExternalPilotJob=async(job:{
@@ -1307,6 +1337,16 @@ function Painel() {
                   className="ml-2 mt-2 min-h-9 rounded-lg bg-panel2 px-3 text-xs font-semibold text-warn ring-1 ring-line disabled:opacity-40">
                   Já cancelei no Painel Recarga
                 </button>}
+              {job.state==="needs_review"&&job.external_http_status===200
+                &&job.external_order_id
+                &&job.external_message==="O vencimento anterior informado pelo painel difere da MaxFlix. Revise antes de atualizar."
+                &&<button type="button" disabled={renewingBusy}
+                  onClick={()=>setReviewJob(job)}
+                  className="mt-2 min-h-10 rounded-lg border border-cyan/40 bg-cyan/10 px-3 text-xs font-semibold text-cyan disabled:opacity-40">
+                  Conferir no painel e concluir
+                </button>}
+              {job.state==="needs_review"&&job.external_message!=="O vencimento anterior informado pelo painel difere da MaxFlix. Revise antes de atualizar."
+                &&<p className="mt-2 text-xs text-warn">Este pedido requer conciliação específica; não envie outra renovação.</p>}
               {job.state==="cancelled"&&<p className="mt-2 text-xs text-warn">
                 Cancelamento registrado. Renove diretamente no servidor, confira a data e use "Registrar renovação manual" no cliente.
               </p>}
@@ -1653,6 +1693,10 @@ function Painel() {
         />
       )}
 
+      {reviewJob && <PreviousDueReviewDialog key={reviewJob.id}
+        job={reviewJob} saving={renewingBusy}
+        onCancel={()=>setReviewJob(null)}
+        onConfirm={data=>void confirmPreviousDueReview(reviewJob,data)}/>}
       {forecastOpen && (
         <ForecastDialog entries={forecastEntries} financialsHidden={financialsHidden} onClose={() => setForecastOpen(false)} />
       )}
@@ -1670,6 +1714,89 @@ function Painel() {
 /** The platform cannot prove a third-party order was cancelled. This form
  * records the owner's explicit confirmation for the SAME order ID, only.
  */
+function PreviousDueReviewDialog({job,saving,onCancel,onConfirm}:{
+  job:ExternalJobRow;saving:boolean;onCancel:()=>void;
+  onConfirm:(data:{providerDue:string;orderId:string;evidence:string})=>void;
+}){
+  const [providerDue,setProviderDue]=useState("");
+  const [orderId,setOrderId]=useState("");
+  const [evidence,setEvidence]=useState("");
+  const [providerChecked,setProviderChecked]=useState(false);
+  const [financialChecked,setFinancialChecked]=useState(false);
+  const [typed,setTyped]=useState("");
+  const dueMatches=providerDue===job.new_due_date&&job.new_due_date<=job.financial_due_date;
+  const ready=dueMatches&&orderId===job.external_order_id
+    &&evidence.trim().length>=20&&evidence.length<=500
+    &&providerChecked&&financialChecked&&typed==="CONFERIDO"&&!saving;
+  return <div className="fixed inset-0 z-50 overflow-y-auto bg-background/80 p-4 backdrop-blur-sm">
+    <section className="mx-auto my-10 max-w-lg rounded-2xl bg-panel2 p-5 ring-1 ring-line"
+      aria-label="Conferir renovação externa já executada">
+      <h2 className="text-lg font-semibold text-frost">Conferir pedido já executado</h2>
+      <p className="mt-2 text-sm">{job.client_name} · {job.login} · {job.server}</p>
+      <p className="mt-2 text-sm text-mist">Pedido original: <strong>{job.external_order_id}</strong></p>
+      <p className="mt-2 text-sm text-warn">
+        O fornecedor informou vencimento ANTERIOR diferente do cadastro. Confirme no site do servidor que
+        este pedido renovou exatamente este login. Não clique em Renovar novamente.
+      </p>
+      <div className="mt-3 rounded-lg bg-panel p-3 text-sm">
+        <p>Vencimento antigo na MaxFlix: <strong>{formatDate(job.expected_due_date)}</strong></p>
+        <p>Nova validade planejada: <strong>{formatDate(job.new_due_date)}</strong></p>
+        <p>Cobertura financeira prevista: <strong>{formatDate(job.financial_due_date)}</strong></p>
+        <p className="mt-2 text-xs text-mist">
+          A resposta antiga não guardou a nova data efetiva do fornecedor. Confira diretamente no painel.
+          Somente datas compatíveis com a cobrança podem ser conciliadas aqui.
+        </p>
+      </div>
+      <label className="mt-4 block text-xs font-semibold text-mist" htmlFor="review-provider-due">
+        Data de vencimento que você CONFIRMOU no painel do fornecedor
+      </label>
+      <input id="review-provider-due" type="date" value={providerDue}
+        onChange={e=>setProviderDue(e.target.value)}
+        className="mt-2 w-full rounded-lg bg-panel px-3 py-2 text-frost ring-1 ring-line"/>
+      {providerDue&&!dueMatches&&<p className="mt-2 text-xs text-warn">
+        A data informada difere do período previsto. Não ajuste o financeiro automaticamente:
+        será necessária uma conciliação específica antes de concluir.
+      </p>}
+      <label className="mt-4 block text-xs font-semibold text-mist" htmlFor="review-order">
+        Digite o número do pedido para confirmar
+      </label>
+      <input id="review-order" value={orderId} onChange={e=>setOrderId(e.target.value)}
+        className="mt-2 w-full rounded-lg bg-panel px-3 py-2 text-frost ring-1 ring-line"/>
+      <label className="mt-4 block text-xs font-semibold text-mist" htmlFor="review-evidence">
+        O que você conferiu no painel (login, data e referência)
+      </label>
+      <textarea id="review-evidence" value={evidence} rows={2} maxLength={500}
+        onChange={e=>setEvidence(e.target.value)}
+        placeholder="Ex.: No painel Fast, pedido X, login Y está ativo até DD/MM/AAAA."
+        className="mt-2 w-full rounded-lg bg-panel px-3 py-2 text-frost ring-1 ring-line"/>
+      <label className="mt-4 flex gap-2 text-sm">
+        <input type="checkbox" checked={providerChecked} onChange={e=>setProviderChecked(e.target.checked)}/>
+        <span>Vi no fornecedor que este pedido já foi executado para o login correto.</span>
+      </label>
+      <label className="mt-3 flex gap-2 text-sm">
+        <input type="checkbox" checked={financialChecked} onChange={e=>setFinancialChecked(e.target.checked)}/>
+        <span>Conferi a cobrança do cliente: o recebimento ainda não foi lançado na MaxFlix e o vencimento financeiro está correto.</span>
+      </label>
+      <label className="mt-4 block text-xs font-semibold text-mist" htmlFor="review-typed">
+        Digite CONFERIDO para finalizar
+      </label>
+      <input id="review-typed" value={typed} onChange={e=>setTyped(e.target.value)}
+        className="mt-2 w-full rounded-lg bg-panel px-3 py-2 text-frost ring-1 ring-line"/>
+      <p className="mt-3 text-xs text-mist">
+        Isto sincroniza apenas a renovação externa já confirmada: registra o recebimento,
+        ajusta as datas e contabiliza um crédito local. Não envia outro pedido ao fornecedor.
+      </p>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Button type="button" disabled={!ready}
+          onClick={()=>onConfirm({providerDue,orderId,evidence:evidence.trim()})}>
+          Confirmar e conciliar
+        </Button>
+        <Button type="button" variant="outline" disabled={saving} onClick={onCancel}>Voltar</Button>
+      </div>
+    </section>
+  </div>;
+}
+
 function PanelCancellationDialog({job,saving,onCancel,onConfirm}:{
   job:ExternalJobRow;saving:boolean;onCancel:()=>void;
   onConfirm:(evidence:string)=>void|Promise<void>;
