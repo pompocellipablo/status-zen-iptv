@@ -3,6 +3,38 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO,financialTransitionError,confirmedRenewalDatesFromPanel,validatePanelRenewalDraft,parsePanelPilotBatch,parsePanelRolloutTargets,isPanelRolloutTarget,broadPanelRenewalEligible,PANEL_GENERAL_SERVERS,generalZeroActiveEligible,generalZeroActiveIssue,broadOverdueEligible,generalOverdueRenewalIssue,HUMBERTO_OVERDUE_PILOT,humbertoOverdueIssue,rolloutRenewalIssue,lealPauloPackage6Issue,LEAL_PAULO_PACKAGE6,lealPauloPrepaidSecondIssue,LEAL_PAULO_PREPAID_SECOND} from "./painel-recarga";
 
+describe("Owner review for provider PREVIOUS due mismatch",()=>{
+  const sql=readFileSync(new URL("../../docs/sql/painel-recarga-conciliacao-vencimento-anterior.sql",import.meta.url),"utf8");
+  const ui=readFileSync(new URL("../routes/_authenticated/renovacoes.tsx",import.meta.url),"utf8");
+  it("requires exact original confirmed order, owner approval and real provider due; does not call provider",()=>{
+    assert.match(sql,/SECURITY INVOKER/);
+    assert.match(sql,/auth\.uid\(\)/);
+    assert.match(sql,/p_confirmation IS DISTINCT FROM 'CONFERIDO'/);
+    assert.match(sql,/v_job\.state <> 'needs_review'/);
+    assert.match(sql,/v_job\.external_http_status IS DISTINCT FROM 200/);
+    assert.match(sql,/v_job\.external_order_id IS DISTINCT FROM trim\(p_order_id\)/);
+    assert.match(sql,/v_job\.external_message IS DISTINCT FROM/);
+    assert.match(sql,/p_panel_due IS DISTINCT FROM v_job\.new_due_date/);
+    assert.match(sql,/v_client\.login IS DISTINCT FROM v_job\.login/);
+    assert.match(sql,/v_client\.server IS DISTINCT FROM v_job\.server/);
+    assert.match(sql,/v_client\.due_date IS DISTINCT FROM v_job\.expected_due_date/);
+    assert.match(sql,/EXISTS \(\s*SELECT 1 FROM public\.payments/);
+    assert.match(sql,/v_result := public\.sync_external_renewal_job\(p_job_id\)/);
+    assert.match(sql,/REVOKE ALL .* FROM PUBLIC/);
+    assert.doesNotMatch(sql,/https?:\/\//);
+  });
+  it("keeps the owner check modal fail-closed and never initiates provider renewal",()=>{
+    assert.match(ui,/Conferir no painel e concluir/);
+    assert.match(ui,/job\.external_message==="O vencimento anterior informado pelo painel difere da MaxFlix/);
+    assert.match(ui,/providerDue===job\.new_due_date/);
+    assert.match(ui,/providerChecked&&financialChecked&&typed==="CONFERIDO"/);
+    assert.match(ui,/reconcile_external_previous_due_job/);
+    assert.match(ui,/p_confirmation:"CONFERIDO"/);
+    assert.match(ui,/Nenhuma nova renovação foi enviada/);
+    assert.doesNotMatch(ui,/mode:"approve_review"/);
+  });
+});
+
 describe("SQL overdue paid settlement contract (not applied)",()=>{
   const s=readFileSync(new URL("../../supabase/migrations/20261110220000_general_overdue_paid_settlement.sql",import.meta.url),"utf8");
   it("is owner-scoped and idempotent and prevents duplicate cash entries",()=>{
