@@ -33,6 +33,9 @@ BEGIN
   IF NOT FOUND THEN RAISE EXCEPTION 'Pedido externo não encontrado'; END IF;
 
   IF v_job.state = 'synced' THEN
+    IF p_panel_due IS DISTINCT FROM v_job.new_due_date THEN
+      RAISE EXCEPTION 'Pedido já sincronizado com outra data; confira o cadastro';
+    END IF;
     RETURN pg_catalog.jsonb_build_object(
       'ok',true,'alreadyProcessed',true,
       'orderId',v_job.external_order_id,
