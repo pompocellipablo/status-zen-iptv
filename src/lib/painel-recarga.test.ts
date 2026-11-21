@@ -3,35 +3,58 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {panelRouteForClient,buildPanelRecargaBody,parsePanelRecargaResponse,isExternalSyncSafe,panelDateToISO,financialTransitionError,confirmedRenewalDatesFromPanel,validatePanelRenewalDraft,parsePanelPilotBatch,parsePanelRolloutTargets,isPanelRolloutTarget,broadPanelRenewalEligible,PANEL_GENERAL_SERVERS,generalZeroActiveEligible,generalZeroActiveIssue,broadOverdueEligible,generalOverdueRenewalIssue,HUMBERTO_OVERDUE_PILOT,humbertoOverdueIssue,rolloutRenewalIssue,lealPauloPackage6Issue,LEAL_PAULO_PACKAGE6,lealPauloPrepaidSecondIssue,LEAL_PAULO_PREPAID_SECOND} from "./painel-recarga";
 
-describe("Owner review for provider PREVIOUS due mismatch",()=>{
-  const sql=readFileSync(new URL("../../docs/sql/painel-recarga-conciliacao-vencimento-anterior.sql",import.meta.url),"utf8");
+describe("Single-date owner reconciliation of provider previous-date mismatch",()=>{
+  const sql=readFileSync(new URL("../../docs/sql/painel-recarga-conciliacao-data-simples.sql",import.meta.url),"utf8");
   const ui=readFileSync(new URL("../routes/_authenticated/renovacoes.tsx",import.meta.url),"utf8");
-  it("requires exact original confirmed order, owner approval and real provider due; does not call provider",()=>{
+  it("runs only for original confirmed order, owner, same login/server and unchanged original due",()=>{
     assert.match(sql,/SECURITY INVOKER/);
     assert.match(sql,/auth\.uid\(\)/);
-    assert.match(sql,/p_confirmation IS DISTINCT FROM 'CONFERIDO'/);
     assert.match(sql,/v_job\.state <> 'needs_review'/);
     assert.match(sql,/v_job\.external_http_status IS DISTINCT FROM 200/);
-    assert.match(sql,/v_job\.external_order_id IS DISTINCT FROM trim\(p_order_id\)/);
+    assert.match(sql,/v_job\.external_order_id IS NULL/);
     assert.match(sql,/v_job\.external_message IS DISTINCT FROM/);
-    assert.match(sql,/p_panel_due IS DISTINCT FROM v_job\.new_due_date/);
     assert.match(sql,/v_client\.login IS DISTINCT FROM v_job\.login/);
     assert.match(sql,/v_client\.server IS DISTINCT FROM v_job\.server/);
     assert.match(sql,/v_client\.due_date IS DISTINCT FROM v_job\.expected_due_date/);
-    assert.match(sql,/EXISTS \(\s*SELECT 1 FROM public\.payments/);
-    assert.match(sql,/v_result := public\.sync_external_renewal_job\(p_job_id\)/);
+    assert.match(sql,/v_job\.provider_request_token IS NOT NULL/);
     assert.match(sql,/REVOKE ALL .* FROM PUBLIC/);
     assert.doesNotMatch(sql,/https?:\/\//);
   });
-  it("keeps the owner check modal fail-closed and never initiates provider renewal",()=>{
-    assert.match(ui,/Conferir no painel e concluir/);
-    assert.match(ui,/job\.external_message==="O vencimento anterior informado pelo painel difere da MaxFlix/);
-    assert.match(ui,/providerDue===job\.new_due_date/);
-    assert.match(ui,/providerChecked&&financialChecked&&typed==="CONFERIDO"/);
-    assert.match(ui,/reconcile_external_previous_due_job/);
-    assert.match(ui,/p_confirmation:"CONFERIDO"/);
-    assert.match(ui,/Nenhuma nova renovação foi enviada/);
-    assert.doesNotMatch(ui,/mode:"approve_review"/);
+  it("accepts provider's real date, preserves prepaid coverage and moves monthly billing together",()=>{
+    assert.match(sql,/v_date_ceiling := greatest\(v_job\.expected_due_date,v_business_date\) \+ 45/);
+    assert.match(sql,/p_panel_due > v_date_ceiling/);
+    assert.match(sql,/v_financial_due := p_panel_due/);
+    assert.match(sql,/v_financial_due := v_client\.financial_due_date/);
+    assert.match(sql,/p_panel_due > v_client\.financial_due_date/);
+    assert.match(sql,/p\.paid_at >= greatest/);
+    assert.match(sql,/new_due_date=p_panel_due/);
+    assert.match(sql,/manualReview/);
+    assert.match(sql,/v_result := public\.sync_external_renewal_job\(p_job_id\)/);
+    assert.match(sql,/p_panel_due IS DISTINCT FROM v_job\.new_due_date/);
+  });
+  it("supports clients already updated manually without creating another provider order or another payment",()=>{
+    assert.match(sql,/IF v_client\.due_date IS DISTINCT FROM v_job\.expected_due_date THEN/);
+    assert.match(sql,/v_client\.due_date IS DISTINCT FROM p_panel_due/);
+    assert.match(sql,/v_client\.financial_due_date IS DISTINCT FROM p_panel_due/);
+    assert.match(sql,/v_client\.paid IS DISTINCT FROM/);
+    assert.match(sql,/v_client\.cost IS DISTINCT FROM/);
+    assert.match(sql,/public\.server_credit_movements m/);
+    assert.match(sql,/INSERT INTO public\.payments/);
+    assert.match(sql,/INSERT INTO public\.server_credit_movements/);
+    assert.match(sql,/state='synced',new_due_date=p_panel_due/);
+    assert.match(sql,/already_advanced_by_owner_provider_date/);
+    assert.match(sql,/v_job\.state = 'synced'/);
+  });
+  it("only asks for one date and one save action in UI",()=>{
+    assert.match(ui,/Ajustar data do servidor/);
+    assert.match(ui,/Data do servidor/);
+    assert.match(ui,/Salvar e concluir/);
+    assert.match(ui,/providerDue>job\.expected_due_date/);
+    assert.match(ui,/reconcile_external_provider_date_job/);
+    assert.match(ui,/p_job_id:job\.id,p_panel_due:providerDue/);
+    assert.match(ui,/próximo vencimento de cobrança acompanha esta data/);
+    assert.doesNotMatch(ui,/providerChecked&&financialChecked/);
+    assert.doesNotMatch(ui,/reconcile_external_previous_due_job/);
   });
 });
 

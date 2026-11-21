@@ -704,19 +704,18 @@ function Painel() {
     setRenewing(client);
   };
 
-  const confirmPreviousDueReview=async(job:ExternalJobRow,data:{providerDue:string;orderId:string;evidence:string})=>{
+  const confirmPreviousDueReview=async(job:ExternalJobRow,providerDue:string)=>{
     if(renewingBusy)return;
     setRenewingBusy(true);
     try{
       const db=supabase as unknown as SupabaseClient;
-      const {data:result,error}=await db.rpc("reconcile_external_previous_due_job",{
-        p_job_id:job.id,p_order_id:data.orderId,p_panel_due:data.providerDue,
-        p_evidence:data.evidence,p_confirmation:"CONFERIDO",
+      const {data:result,error}=await db.rpc("reconcile_external_provider_date_job",{
+        p_job_id:job.id,p_panel_due:providerDue,
       });
       if(error)throw error;
       if(result?.ok!==true)throw Error("A conciliação não foi confirmada pelo banco.");
       setReviewJob(null);
-      setNotice(job.client_name+": pedido original conciliado. Vencimento e recebimento registrados sem renovar novamente no fornecedor.");
+      setNotice(job.client_name+": validade do servidor registrada em "+formatDate(providerDue)+". Pedido original conciliado sem nova renovação.");
       await Promise.all([
         qc.invalidateQueries({queryKey:["external-renewal-jobs"]}),
         qc.invalidateQueries({queryKey:["clients"]}),
@@ -1343,7 +1342,7 @@ function Painel() {
                 &&<button type="button" disabled={renewingBusy}
                   onClick={()=>setReviewJob(job)}
                   className="mt-2 min-h-10 rounded-lg border border-cyan/40 bg-cyan/10 px-3 text-xs font-semibold text-cyan disabled:opacity-40">
-                  Conferir no painel e concluir
+                  Ajustar data do servidor
                 </button>}
               {job.state==="needs_review"&&job.external_message!=="O vencimento anterior informado pelo painel difere da MaxFlix. Revise antes de atualizar."
                 &&<p className="mt-2 text-xs text-warn">Este pedido requer conciliação específica; não envie outra renovação.</p>}
@@ -1696,7 +1695,7 @@ function Painel() {
       {reviewJob && <PreviousDueReviewDialog key={reviewJob.id}
         job={reviewJob} saving={renewingBusy}
         onCancel={()=>setReviewJob(null)}
-        onConfirm={data=>void confirmPreviousDueReview(reviewJob,data)}/>}
+        onConfirm={providerDue=>void confirmPreviousDueReview(reviewJob,providerDue)}/>}
       {forecastOpen && (
         <ForecastDialog entries={forecastEntries} financialsHidden={financialsHidden} onClose={() => setForecastOpen(false)} />
       )}
@@ -1714,84 +1713,44 @@ function Painel() {
 /** The platform cannot prove a third-party order was cancelled. This form
  * records the owner's explicit confirmation for the SAME order ID, only.
  */
+/** One input, one action. The original provider request is NEVER repeated.
+ * Server date is authoritative for technical validity. In the current monthly
+ * model, technical and financial cycles must remain equal; show that plainly.
+ */
 function PreviousDueReviewDialog({job,saving,onCancel,onConfirm}:{
   job:ExternalJobRow;saving:boolean;onCancel:()=>void;
-  onConfirm:(data:{providerDue:string;orderId:string;evidence:string})=>void;
+  onConfirm:(providerDue:string)=>void;
 }){
   const [providerDue,setProviderDue]=useState("");
-  const [orderId,setOrderId]=useState("");
-  const [evidence,setEvidence]=useState("");
-  const [providerChecked,setProviderChecked]=useState(false);
-  const [financialChecked,setFinancialChecked]=useState(false);
-  const [typed,setTyped]=useState("");
-  const dueMatches=providerDue===job.new_due_date&&job.new_due_date<=job.financial_due_date;
-  const ready=dueMatches&&orderId===job.external_order_id
-    &&evidence.trim().length>=20&&evidence.length<=500
-    &&providerChecked&&financialChecked&&typed==="CONFERIDO"&&!saving;
+  const valid= /^\d{4}-\d{2}-\d{2}$/.test(providerDue)
+    &&providerDue>toISODate(today())
+    &&providerDue>job.expected_due_date;
   return <div className="fixed inset-0 z-50 overflow-y-auto bg-background/80 p-4 backdrop-blur-sm">
-    <section className="mx-auto my-10 max-w-lg rounded-2xl bg-panel2 p-5 ring-1 ring-line"
-      aria-label="Conferir renovação externa já executada">
-      <h2 className="text-lg font-semibold text-frost">Conferir pedido já executado</h2>
-      <p className="mt-2 text-sm">{job.client_name} · {job.login} · {job.server}</p>
-      <p className="mt-2 text-sm text-mist">Pedido original: <strong>{job.external_order_id}</strong></p>
-      <p className="mt-2 text-sm text-warn">
-        O fornecedor informou vencimento ANTERIOR diferente do cadastro. Confirme no site do servidor que
-        este pedido renovou exatamente este login. Não clique em Renovar novamente.
+    <section className="mx-auto my-10 max-w-md rounded-2xl bg-panel2 p-5 ring-1 ring-line"
+      aria-label="Ajustar data confirmada no servidor">
+      <h2 className="text-lg font-semibold text-frost">Ajustar vencimento — {job.client_name}</h2>
+      <p className="mt-2 text-sm text-mist">{job.server} · {job.login}</p>
+      <p className="mt-3 text-sm text-mist">
+        O acesso já foi renovado no fornecedor. Informe apenas a data de vencimento
+        que aparece lá. A MaxFlix concluirá o mesmo pedido, sem renovar novamente.
       </p>
-      <div className="mt-3 rounded-lg bg-panel p-3 text-sm">
-        <p>Vencimento antigo na MaxFlix: <strong>{formatDate(job.expected_due_date)}</strong></p>
-        <p>Nova validade planejada: <strong>{formatDate(job.new_due_date)}</strong></p>
-        <p>Cobertura financeira prevista: <strong>{formatDate(job.financial_due_date)}</strong></p>
-        <p className="mt-2 text-xs text-mist">
-          A resposta antiga não guardou a nova data efetiva do fornecedor. Confira diretamente no painel.
-          Somente datas compatíveis com a cobrança podem ser conciliadas aqui.
-        </p>
-      </div>
-      <label className="mt-4 block text-xs font-semibold text-mist" htmlFor="review-provider-due">
-        Data de vencimento que você CONFIRMOU no painel do fornecedor
-      </label>
+      <label className="mt-4 block text-sm font-semibold text-frost"
+        htmlFor="review-provider-due">Data do servidor</label>
       <input id="review-provider-due" type="date" value={providerDue}
         onChange={e=>setProviderDue(e.target.value)}
-        className="mt-2 w-full rounded-lg bg-panel px-3 py-2 text-frost ring-1 ring-line"/>
-      {providerDue&&!dueMatches&&<p className="mt-2 text-xs text-warn">
-        A data informada difere do período previsto. Não ajuste o financeiro automaticamente:
-        será necessária uma conciliação específica antes de concluir.
-      </p>}
-      <label className="mt-4 block text-xs font-semibold text-mist" htmlFor="review-order">
-        Digite o número do pedido para confirmar
-      </label>
-      <input id="review-order" value={orderId} onChange={e=>setOrderId(e.target.value)}
-        className="mt-2 w-full rounded-lg bg-panel px-3 py-2 text-frost ring-1 ring-line"/>
-      <label className="mt-4 block text-xs font-semibold text-mist" htmlFor="review-evidence">
-        O que você conferiu no painel (login, data e referência)
-      </label>
-      <textarea id="review-evidence" value={evidence} rows={2} maxLength={500}
-        onChange={e=>setEvidence(e.target.value)}
-        placeholder="Ex.: No painel Fast, pedido X, login Y está ativo até DD/MM/AAAA."
-        className="mt-2 w-full rounded-lg bg-panel px-3 py-2 text-frost ring-1 ring-line"/>
-      <label className="mt-4 flex gap-2 text-sm">
-        <input type="checkbox" checked={providerChecked} onChange={e=>setProviderChecked(e.target.checked)}/>
-        <span>Vi no fornecedor que este pedido já foi executado para o login correto.</span>
-      </label>
-      <label className="mt-3 flex gap-2 text-sm">
-        <input type="checkbox" checked={financialChecked} onChange={e=>setFinancialChecked(e.target.checked)}/>
-        <span>Conferi a cobrança do cliente: o recebimento ainda não foi lançado na MaxFlix e o vencimento financeiro está correto.</span>
-      </label>
-      <label className="mt-4 block text-xs font-semibold text-mist" htmlFor="review-typed">
-        Digite CONFERIDO para finalizar
-      </label>
-      <input id="review-typed" value={typed} onChange={e=>setTyped(e.target.value)}
-        className="mt-2 w-full rounded-lg bg-panel px-3 py-2 text-frost ring-1 ring-line"/>
-      <p className="mt-3 text-xs text-mist">
-        Isto sincroniza apenas a renovação externa já confirmada: registra o recebimento,
-        ajusta as datas e contabiliza um crédito local. Não envia outro pedido ao fornecedor.
+        className="mt-2 w-full rounded-lg bg-panel px-3 py-3 text-frost ring-1 ring-line"/>
+      <p className="mt-2 text-xs text-mist">
+        Em planos mensais, o próximo vencimento de cobrança acompanha esta data.
+        Nenhum novo pedido será enviado ao Painel Recarga.
       </p>
-      <div className="mt-4 flex flex-wrap gap-2">
-        <Button type="button" disabled={!ready}
-          onClick={()=>onConfirm({providerDue,orderId,evidence:evidence.trim()})}>
-          Confirmar e conciliar
+      <div className="mt-5 flex gap-2">
+        <Button type="button" disabled={!valid||saving}
+          onClick={()=>onConfirm(providerDue)}>
+          {saving?"Salvando…":"Salvar e concluir"}
         </Button>
-        <Button type="button" variant="outline" disabled={saving} onClick={onCancel}>Voltar</Button>
+        <Button type="button" variant="outline" disabled={saving} onClick={onCancel}>
+          Cancelar
+        </Button>
       </div>
     </section>
   </div>;
