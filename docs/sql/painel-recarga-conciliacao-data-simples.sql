@@ -69,9 +69,9 @@ BEGIN
 
   -- Only a plausible future one-cycle date may be approved. The old maximum
   -- 45-day technical-window safeguard remains enforced independently.
-  v_date_ceiling := greatest(v_client.due_date,v_business_date) + 45;
+  v_date_ceiling := greatest(v_job.expected_due_date,v_business_date) + 45;
   IF p_panel_due IS NULL OR p_panel_due <= v_business_date
-    OR p_panel_due <= v_client.due_date
+    OR p_panel_due <= v_job.expected_due_date
     OR p_panel_due > v_date_ceiling THEN
     RAISE EXCEPTION 'Data informada fora do período válido de um ciclo';
   END IF;
