@@ -21,7 +21,7 @@ describe("Single-date owner reconciliation of provider previous-date mismatch",(
     assert.doesNotMatch(sql,/https?:\/\//);
   });
   it("accepts provider's real date, preserves prepaid coverage and moves monthly billing together",()=>{
-    assert.match(sql,/v_date_ceiling := greatest\(v_client\.due_date,v_business_date\) \+ 45/);
+    assert.match(sql,/v_date_ceiling := greatest\(v_job\.expected_due_date,v_business_date\) \+ 45/);
     assert.match(sql,/p_panel_due > v_date_ceiling/);
     assert.match(sql,/v_financial_due := p_panel_due/);
     assert.match(sql,/v_financial_due := v_client\.financial_due_date/);
@@ -31,6 +31,19 @@ describe("Single-date owner reconciliation of provider previous-date mismatch",(
     assert.match(sql,/manualReview/);
     assert.match(sql,/v_result := public\.sync_external_renewal_job\(p_job_id\)/);
     assert.match(sql,/p_panel_due IS DISTINCT FROM v_job\.new_due_date/);
+  });
+  it("supports clients already updated manually without creating another provider order or another payment",()=>{
+    assert.match(sql,/IF v_client\.due_date IS DISTINCT FROM v_job\.expected_due_date THEN/);
+    assert.match(sql,/v_client\.due_date IS DISTINCT FROM p_panel_due/);
+    assert.match(sql,/v_client\.financial_due_date IS DISTINCT FROM p_panel_due/);
+    assert.match(sql,/v_client\.paid IS DISTINCT FROM/);
+    assert.match(sql,/v_client\.cost IS DISTINCT FROM/);
+    assert.match(sql,/public\.server_credit_movements m/);
+    assert.match(sql,/INSERT INTO public\.payments/);
+    assert.match(sql,/INSERT INTO public\.server_credit_movements/);
+    assert.match(sql,/state='synced',new_due_date=p_panel_due/);
+    assert.match(sql,/already_advanced_by_owner_provider_date/);
+    assert.match(sql,/v_job\.state = 'synced'/);
   });
   it("only asks for one date and one save action in UI",()=>{
     assert.match(ui,/Ajustar data do servidor/);
