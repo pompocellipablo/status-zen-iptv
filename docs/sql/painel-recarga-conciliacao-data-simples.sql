@@ -62,7 +62,6 @@ BEGIN
   IF NOT FOUND
     OR v_client.login IS DISTINCT FROM v_job.login
     OR v_client.server IS DISTINCT FROM v_job.server
-    OR v_client.due_date IS DISTINCT FROM v_job.expected_due_date
     OR v_client.financial_due_date IS NULL
     OR v_client.financial_due_date < v_client.due_date THEN
     RAISE EXCEPTION 'Cadastro ou vencimento alterado: revise sem reenviar pedido';
@@ -117,6 +116,76 @@ BEGIN
     ) THEN
       RAISE EXCEPTION 'Já existe pagamento recente: concilie separadamente';
     END IF;
+  END IF;
+
+  -- These two states are supported:
+  -- (A) Client still has its old due date: use existing atomic settlement.
+  -- (B) Owner already edited the client with the provider date, but the
+  -- original provider order remained in needs_review with NO local ledger.
+  -- In (B), settle ONLY the missing cash/credit and keep the edited date.
+  IF v_client.due_date IS DISTINCT FROM v_job.expected_due_date THEN
+    IF v_client.access_type <> 'padrao'
+      OR v_client.due_date IS DISTINCT FROM p_panel_due
+      OR v_client.financial_due_date IS DISTINCT FROM p_panel_due
+      OR (v_values->>'paymentAmount')::numeric <= 0
+      OR v_client.paid IS DISTINCT FROM (v_values->>'monthlyPaid')::numeric
+      OR v_client.cost IS DISTINCT FROM (v_values->>'cost')::numeric
+      OR v_client.prev_cost IS DISTINCT FROM (v_values->>'cost')::numeric
+      OR v_client.prev_paid IS DISTINCT FROM (v_values->>'prevPaid')::numeric THEN
+      RAISE EXCEPTION 'Cadastro já alterado com dados divergentes: revisão necessária';
+    END IF;
+
+    -- Block duplicate financial or credit entries before any local journal.
+    IF EXISTS(
+      SELECT 1 FROM public.server_credit_movements m
+      WHERE m.client_id=v_client.id AND m.server=v_client.server
+        AND m.kind='renewal'
+        AND m.occurred_on >= (v_job.created_at AT TIME ZONE 'America/Sao_Paulo')::date-7
+    ) THEN
+      RAISE EXCEPTION 'Crédito desta renovação pode já ter sido lançado';
+    END IF;
+
+    -- The existing payment check above blocks any receipt in the same window.
+    -- There is no client date update here: it already equals the provider date.
+    INSERT INTO public.payments(client_id,client_name,server,amount,cost,paid_at)
+    VALUES (
+      v_client.id,v_client.name,v_client.server,
+      (v_values->>'paymentAmount')::numeric,
+      (v_values->>'paymentCost')::numeric,
+      v_business_date
+    );
+
+    INSERT INTO public.server_credit_movements
+      (server,kind,quantity,occurred_on,client_id,note)
+    VALUES (
+      v_client.server,'renewal',-1,v_business_date,v_client.id,
+      'Painel Recarga: '||v_client.name||
+      ' • pedido '||v_job.external_order_id||' (conciliação de data)'
+    );
+
+    UPDATE public.external_renewal_jobs
+    SET state='synced',new_due_date=p_panel_due,
+        financial_due_date=p_panel_due,synced_at=pg_catalog.now(),
+        local_values=v_values || pg_catalog.jsonb_build_object(
+          'dueDate',p_panel_due::text,
+          'financialDueDate',p_panel_due::text,
+          'manualReview',pg_catalog.jsonb_build_object(
+            'reason','already_advanced_by_owner_provider_date',
+            'acceptedAt',pg_catalog.now()::text,
+            'acceptedBy',(SELECT auth.uid())::text,
+            'originalPlannedDue',v_job.new_due_date::text,
+            'providerDue',p_panel_due::text,
+            'originalOrderId',v_job.external_order_id
+          )
+        ),
+        external_message='Pedido externo conferido; crédito e pagamento conciliados sem nova renovação.',
+        updated_at=pg_catalog.now()
+    WHERE id=v_job.id;
+    RETURN pg_catalog.jsonb_build_object(
+      'ok',true,'alreadyProcessed',false,
+      'dueDate',p_panel_due,'financialDueDate',p_panel_due,
+      'orderId',v_job.external_order_id
+    );
   END IF;
 
   -- The original provider order is already executed. Store who accepted the
