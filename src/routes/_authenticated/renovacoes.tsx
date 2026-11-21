@@ -1722,7 +1722,7 @@ function PreviousDueReviewDialog({job,saving,onCancel,onConfirm}:{
   onConfirm:(providerDue:string)=>void;
 }){
   const [providerDue,setProviderDue]=useState("");
-  const valid= /^\\d{4}-\\d{2}-\\d{2}$/.test(providerDue)
+  const valid= /^\d{4}-\d{2}-\d{2}$/.test(providerDue)
     &&providerDue>toISODate(today())
     &&providerDue>job.expected_due_date;
   return <div className="fixed inset-0 z-50 overflow-y-auto bg-background/80 p-4 backdrop-blur-sm">
